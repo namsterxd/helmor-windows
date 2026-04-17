@@ -284,7 +284,7 @@ impl CreateTestHarness {
                     format!("workspace-{directory_name}"),
                     &self.repo_id,
                     directory_name,
-                    format!("caspian/{directory_name}"),
+                    format!("testuser/{directory_name}"),
                 ),
             )
             .unwrap();
@@ -648,7 +648,7 @@ fn create_workspace_fixture_db(
         )
         .unwrap();
     connection.execute("INSERT INTO settings (key, value, created_at, updated_at) VALUES ('branch_prefix_type', 'custom', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", []).unwrap();
-    connection.execute("INSERT INTO settings (key, value, created_at, updated_at) VALUES ('branch_prefix_custom', 'caspian/', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", []).unwrap();
+    connection.execute("INSERT INTO settings (key, value, created_at, updated_at) VALUES ('branch_prefix_custom', 'testuser/', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", []).unwrap();
 }
 
 #[allow(clippy::too_many_arguments)]

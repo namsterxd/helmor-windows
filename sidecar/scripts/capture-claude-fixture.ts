@@ -30,6 +30,79 @@ import { dirname, resolve } from "node:path";
 import { ClaudeSessionManager } from "../src/claude-session-manager.js";
 import { createSidecarEmitter } from "../src/emitter.js";
 
+function createStableMapper(prefix: string) {
+	const seen = new Map<string, string>();
+	let next = 1;
+	return (value: string) => {
+		if (!seen.has(value)) {
+			seen.set(value, `${prefix}_${next}`);
+			next += 1;
+		}
+		return seen.get(value)!;
+	};
+}
+
+function sanitizeFixtureText(
+	raw: string,
+	appRepoRoot: string,
+	dummyRepoRoot: string,
+) {
+	const mapUuid = createStableMapper("uuid");
+	const mapSession = createStableMapper("session");
+	const mapThread = createStableMapper("thread");
+	const mapTurn = createStableMapper("turn");
+	const mapMsg = createStableMapper("msg");
+	const mapReasoning = createStableMapper("rs");
+	const mapCall = createStableMapper("call");
+	const mapToolUse = createStableMapper("toolu");
+	const mapEmail = createStableMapper("redacted_email");
+	const homeDir = process.env.HOME ?? "";
+	const homeUser = homeDir.split("/").filter(Boolean).at(-1) ?? "";
+
+	let text = String(raw);
+	text = text.replaceAll(appRepoRoot, "$APP_REPO_ROOT");
+	text = text.replaceAll(dummyRepoRoot, "$DUMMY_REPO");
+	text = text.replaceAll(`${homeDir}/.claude`, "$CLAUDE_HOME");
+	text = text.replaceAll(`${homeDir}/.codex`, "$CODEX_HOME");
+	text = text.replaceAll(homeDir, "$HOME");
+	text = text.replaceAll("/private/tmp/codex-home", "$CODEX_HOME");
+	text = text.replaceAll("/tmp/codex-home", "$CODEX_HOME");
+	text = text.replaceAll("/private/tmp/helmor-sidecar-logs", "$HELMOR_LOG_DIR");
+	text = text.replaceAll("/tmp/helmor-sidecar-logs", "$HELMOR_LOG_DIR");
+	text = text.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, (match) =>
+		mapEmail(match),
+	);
+	if (homeUser) {
+		text = text.replace(new RegExp(`\\b${homeUser}\\b`, "gi"), "fixture-user");
+	}
+	text = text.replace(/\b[a-z][a-z0-9_-]{2,}\s+staff\b/g, "fixture-user staff");
+	text = text.replace(
+		/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+		(match) => mapUuid(match),
+	);
+	text = text.replace(/\btoolu_[A-Za-z0-9]+\b/g, (match) => mapToolUse(match));
+	text = text.replace(/\bcall_[A-Za-z0-9]+\b/g, (match) => mapCall(match));
+	text = text.replace(/\bmsg_[A-Za-z0-9]+\b/g, (match) => mapMsg(match));
+	text = text.replace(/\brs_[A-Za-z0-9]+\b/g, (match) => mapReasoning(match));
+	text = text.replace(
+		/"session_id"\s*:\s*"([^"]+)"/g,
+		(_, value) => `"session_id":"${mapSession(value)}"`,
+	);
+	text = text.replace(
+		/"threadId"\s*:\s*"([^"]+)"/g,
+		(_, value) => `"threadId":"${mapThread(value)}"`,
+	);
+	text = text.replace(
+		/"turnId"\s*:\s*"([^"]+)"/g,
+		(_, value) => `"turnId":"${mapTurn(value)}"`,
+	);
+	text = text.replace(
+		/-Users-[A-Za-z0-9-]+-testdata-fixture-dummy-repo/g,
+		"-dummy-repo",
+	);
+	return text;
+}
+
 const args = process.argv.slice(2);
 const outputPath = args[0];
 if (!outputPath) {
@@ -42,6 +115,8 @@ const prompt = args[1] ?? "Say hello.";
 
 const outputAbs = resolve(outputPath);
 mkdirSync(dirname(outputAbs), { recursive: true });
+const captureCwd = process.env.CAPTURE_CWD ?? process.cwd();
+const appRepoRoot = resolve(import.meta.dir, "../..");
 
 const captured: string[] = [];
 const emitter = createSidecarEmitter((event) => {
@@ -60,7 +135,7 @@ try {
 			sessionId: "capture-session-1",
 			prompt,
 			model: process.env.CAPTURE_MODEL,
-			cwd: process.env.CAPTURE_CWD ?? process.cwd(),
+			cwd: captureCwd,
 			resume: undefined,
 			permissionMode: process.env.CAPTURE_PERMISSION_MODE,
 			effortLevel: process.env.CAPTURE_EFFORT,
@@ -80,7 +155,7 @@ try {
 const lines = captured.map((line) => {
 	const obj = JSON.parse(line) as Record<string, unknown>;
 	const { id: _discard, ...rest } = obj;
-	return JSON.stringify(rest);
+	return sanitizeFixtureText(JSON.stringify(rest), appRepoRoot, captureCwd);
 });
 
 writeFileSync(outputAbs, `${lines.join("\n")}\n`);

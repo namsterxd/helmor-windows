@@ -20,6 +20,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createSidecarEmitter, type SidecarEmitter } from "../src/emitter.js";
 
+process.env.HELMOR_LOG_DIR = resolve(tmpdir(), "helmor-sidecar-test-logs");
+
 // ---------------------------------------------------------------------------
 // Mock the Claude Agent SDK BEFORE importing anything that uses it.
 // A closure variable lets each test supply its own async iterator.

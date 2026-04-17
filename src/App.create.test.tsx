@@ -118,7 +118,7 @@ describe("App create workspace flow", () => {
 						activeSessionTitle: "Untitled",
 						activeSessionAgentType: "claude",
 						activeSessionStatus: "idle",
-						branch: "caspian/acamar",
+						branch: "testuser/acamar",
 						initializationParentBranch: "main",
 						intendedTargetBranch: "main",
 						notes: null,
@@ -232,7 +232,7 @@ describe("App create workspace flow", () => {
 				selectedWorkspaceId: "workspace-created",
 				createdState: "ready",
 				directoryName: "acamar",
-				branch: "caspian/acamar",
+				branch: "testuser/acamar",
 			};
 		});
 	});

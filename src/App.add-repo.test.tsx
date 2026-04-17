@@ -66,9 +66,9 @@ describe("App add repository flow", () => {
 		dialogMocks.open.mockReset();
 
 		apiMocks.loadAddRepositoryDefaults.mockResolvedValue({
-			lastCloneDirectory: "/Users/caspian/code/github",
+			lastCloneDirectory: "/tmp/test-repos",
 		});
-		dialogMocks.open.mockResolvedValue("/Users/caspian/code/github/added-repo");
+		dialogMocks.open.mockResolvedValue("/tmp/test-repos/added-repo");
 		apiMocks.loadWorkspaceGroups.mockImplementation(async () => [
 			{
 				id: "progress",
@@ -147,7 +147,7 @@ describe("App add repository flow", () => {
 						activeSessionTitle: "Untitled",
 						activeSessionAgentType: "claude",
 						activeSessionStatus: "idle",
-						branch: "caspian/acamar",
+						branch: "testuser/acamar",
 						initializationParentBranch: "main",
 						intendedTargetBranch: "main",
 						notes: null,
@@ -282,12 +282,12 @@ describe("App add repository flow", () => {
 			expect(dialogMocks.open).toHaveBeenCalledWith({
 				directory: true,
 				multiple: false,
-				defaultPath: "/Users/caspian/code/github",
+				defaultPath: "/tmp/test-repos",
 			});
 		});
 		await waitFor(() => {
 			expect(apiMocks.addRepositoryFromLocalPath).toHaveBeenCalledWith(
-				"/Users/caspian/code/github/added-repo",
+				"/tmp/test-repos/added-repo",
 			);
 		});
 		await waitFor(() => {
@@ -337,7 +337,7 @@ describe("App add repository flow", () => {
 
 		await waitFor(() => {
 			expect(apiMocks.addRepositoryFromLocalPath).toHaveBeenCalledWith(
-				"/Users/caspian/code/github/added-repo",
+				"/tmp/test-repos/added-repo",
 			);
 		});
 

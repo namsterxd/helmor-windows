@@ -17,8 +17,8 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
         response.directory_name
     );
     assert!(
-        response.branch.starts_with("caspian/"),
-        "Expected caspian/ prefix, got: {}",
+        response.branch.starts_with("testuser/"),
+        "Expected testuser/ prefix, got: {}",
         response.branch
     );
 
@@ -75,8 +75,8 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
 
     assert_eq!(state, "ready");
     assert!(
-        branch.starts_with("caspian/"),
-        "Expected caspian/ prefix, got: {branch}"
+        branch.starts_with("testuser/"),
+        "Expected testuser/ prefix, got: {branch}"
     );
     assert_eq!(branch, placeholder_branch_name);
     assert_eq!(initialization_parent_branch, "main");
@@ -136,8 +136,8 @@ fn create_workspace_from_repo_uses_v2_suffix_after_star_list_is_exhausted() {
         response.directory_name
     );
     assert!(
-        response.branch.starts_with("caspian/") && response.branch.ends_with("-v2"),
-        "Expected caspian/*-v2 branch, got: {}",
+        response.branch.starts_with("testuser/") && response.branch.ends_with("-v2"),
+        "Expected testuser/*-v2 branch, got: {}",
         response.branch
     );
 }

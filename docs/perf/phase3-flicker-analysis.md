@@ -252,7 +252,7 @@ function sampleStability({ ms, framesPerSample }) {
 594f493 feat(perf): phase 1 measurement infra + phase 2 panel perf wins
 ```
 
-Branch: `caspian/better-perf` (pushed to remote, has open PR template URL)
+Branch: `testuser/better-perf` (pushed to remote, has open PR template URL)
 
 ## Files to read first in the next session
 

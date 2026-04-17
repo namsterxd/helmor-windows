@@ -904,11 +904,11 @@ mod tests {
                 refresh_result: RefCell::new(None),
                 user: GithubUser {
                     id: 42,
-                    login: "caspian".to_string(),
-                    name: Some("Caspian".to_string()),
+                    login: "octocat".to_string(),
+                    name: Some("Octocat".to_string()),
                     avatar_url: Some("https://avatars.githubusercontent.com/u/42".to_string()),
                 },
-                primary_email: Some("caspian@example.com".to_string()),
+                primary_email: Some("test@example.com".to_string()),
                 poll_results: RefCell::new(VecDeque::new()),
             }
         }
@@ -965,10 +965,10 @@ mod tests {
         let meta = GithubIdentityMeta {
             provider: "github-app-device-flow".to_string(),
             github_user_id: 42,
-            login: "caspian".to_string(),
-            name: Some("Caspian".to_string()),
+            login: "octocat".to_string(),
+            name: Some("Octocat".to_string()),
             avatar_url: Some("https://avatars.githubusercontent.com/u/42".to_string()),
-            primary_email: Some("caspian@example.com".to_string()),
+            primary_email: Some("test@example.com".to_string()),
             token_expires_at: Some(if expired_access {
                 (Utc::now() - Duration::minutes(1)).to_rfc3339()
             } else {
@@ -1023,11 +1023,8 @@ mod tests {
 
         match snapshot {
             GithubIdentitySnapshot::Connected { session } => {
-                assert_eq!(session.login, "caspian");
-                assert_eq!(
-                    session.primary_email.as_deref(),
-                    Some("caspian@example.com")
-                );
+                assert_eq!(session.login, "octocat");
+                assert_eq!(session.primary_email.as_deref(), Some("test@example.com"));
                 assert!(session.token_expires_at.is_some());
             }
             other => panic!("unexpected snapshot: {other:?}"),
@@ -1144,11 +1141,8 @@ mod tests {
         );
         match third {
             GithubIdentityConnectPollResult::Connected { session } => {
-                assert_eq!(session.login, "caspian");
-                assert_eq!(
-                    session.primary_email.as_deref(),
-                    Some("caspian@example.com")
-                );
+                assert_eq!(session.login, "octocat");
+                assert_eq!(session.primary_email.as_deref(), Some("test@example.com"));
             }
             other => panic!("unexpected poll result: {other:?}"),
         }

@@ -62,10 +62,10 @@ import App from "./App";
 const CONNECTED_IDENTITY = {
 	provider: "github-app-device-flow",
 	githubUserId: 42,
-	login: "caspian",
-	name: "Caspian",
+	login: "octocat",
+	name: "Octocat",
 	avatarUrl: "https://avatars.githubusercontent.com/u/42?v=4",
-	primaryEmail: "caspian@example.com",
+	primaryEmail: "test@example.com",
 	tokenExpiresAt: "2026-04-04T12:00:00Z",
 	refreshTokenExpiresAt: "2026-10-04T12:00:00Z",
 } as const;
@@ -281,6 +281,6 @@ describe("App GitHub identity states", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 		expect(
 			screen.getByRole("button", { name: "GitHub account menu" }),
-		).toHaveTextContent("caspian");
+		).toHaveTextContent("octocat");
 	});
 });

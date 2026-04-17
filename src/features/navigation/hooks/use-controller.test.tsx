@@ -528,8 +528,8 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				createdWorkspaceId: "ws-created",
 				selectedWorkspaceId: "ws-created",
 				createdState: "initializing",
-				directoryName: "caspian-helmor",
-				branch: "caspian/helmor",
+				directoryName: "testuser-helmor",
+				branch: "testuser/helmor",
 			});
 		});
 
@@ -541,8 +541,8 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			queryClient.getQueryData(helmorQueryKeys.workspaceDetail("ws-created")),
 		).toMatchObject({
 			id: "ws-created",
-			directoryName: "caspian-helmor",
-			branch: "caspian/helmor",
+			directoryName: "testuser-helmor",
+			branch: "testuser/helmor",
 		});
 		expect(
 			queryClient.getQueryData(helmorQueryKeys.workspaceSessions("ws-created")),
@@ -616,7 +616,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 							id: "ws-created",
 							title: "Workspace created",
 							state: "initializing",
-							branch: "caspian/helmor",
+							branch: "testuser/helmor",
 						},
 						...workspaceGroups[0].rows,
 					],
@@ -629,8 +629,8 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				createdWorkspaceId: "ws-created",
 				selectedWorkspaceId: "ws-created",
 				createdState: "initializing",
-				directoryName: "caspian-helmor",
-				branch: "caspian/helmor",
+				directoryName: "testuser-helmor",
+				branch: "testuser/helmor",
 			});
 		});
 

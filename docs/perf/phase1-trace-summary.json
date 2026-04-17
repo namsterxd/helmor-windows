@@ -2,11 +2,11 @@
 	"capturedAt": "2026-04-08T00:03:56.719Z",
 	"scenario": "5 workspace switches via chrome-devtools MCP on dev:vite + dev:api at localhost:1420",
 	"workspacesVisited": [
-		"caspian/simplify-success-page (2nd archived)",
-		"caspian/fix-auth-redirect-url (3rd archived)",
-		"caspian/simplify-success-page (warm rerun)",
-		"caspian/hamburg-v2 (the original HELMOR_PERF_CLICK_MS workspace)",
-		"MIdohooo/greeting (active workspace)"
+		"testuser/simplify-success-page (2nd archived)",
+		"testuser/fix-auth-redirect-url (3rd archived)",
+		"testuser/simplify-success-page (warm rerun)",
+		"testuser/hamburg-v2 (the original HELMOR_PERF_CLICK_MS workspace)",
+		"testuser/greeting (active workspace)"
 	],
 	"fps": 123.88,
 	"longFramesSummary": {

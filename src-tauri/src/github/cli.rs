@@ -531,7 +531,7 @@ mod tests {
                 stderr: String::new(),
             },
             MockRunnerResponse::Success {
-                stdout: r#"{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"dohooo"}]}}"#
+                stdout: r#"{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"octocat"}]}}"#
                     .to_string(),
                 stderr: String::new(),
             },
@@ -543,9 +543,9 @@ mod tests {
             status,
             GithubCliStatus::Ready {
                 host: "github.com".to_string(),
-                login: "dohooo".to_string(),
+                login: "octocat".to_string(),
                 version: "2.88.1".to_string(),
-                message: "GitHub CLI ready as dohooo.".to_string(),
+                message: "GitHub CLI ready as octocat.".to_string(),
             }
         );
     }
@@ -600,12 +600,12 @@ mod tests {
                 stderr: String::new(),
             },
             MockRunnerResponse::Success {
-                stdout: r#"{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"dohooo"}]}}"#
+                stdout: r#"{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"octocat"}]}}"#
                     .to_string(),
                 stderr: String::new(),
             },
             MockRunnerResponse::Success {
-                stdout: r#"{"login":"dohooo","id":32405058,"name":"Caspian Dongho","avatar_url":"https://avatars.githubusercontent.com/u/32405058?v=4","email":"caspian.zhao@outlook.com"}"#
+                stdout: r#"{"login":"octocat","id":0,"name":"Octocat","avatar_url":"https://avatars.githubusercontent.com/u/0?v=4","email":"test@example.com"}"#
                     .to_string(),
                 stderr: String::new(),
             },
@@ -616,13 +616,11 @@ mod tests {
         assert_eq!(
             user,
             Some(GithubCliUser {
-                login: "dohooo".to_string(),
-                id: 32405058,
-                name: Some("Caspian Dongho".to_string()),
-                avatar_url: Some(
-                    "https://avatars.githubusercontent.com/u/32405058?v=4".to_string()
-                ),
-                email: Some("caspian.zhao@outlook.com".to_string()),
+                login: "octocat".to_string(),
+                id: 0,
+                name: Some("Octocat".to_string()),
+                avatar_url: Some("https://avatars.githubusercontent.com/u/0?v=4".to_string()),
+                email: Some("test@example.com".to_string()),
             })
         );
     }
@@ -635,12 +633,12 @@ mod tests {
                 stderr: String::new(),
             },
             MockRunnerResponse::Success {
-                stdout: r#"{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"dohooo"}]}}"#
+                stdout: r#"{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"octocat"}]}}"#
                     .to_string(),
                 stderr: String::new(),
             },
             MockRunnerResponse::Success {
-                stdout: r#"[{"id":1199028956,"name":"helmor","full_name":"dohooo/helmor","private":true,"default_branch":"main","html_url":"https://github.com/dohooo/helmor","updated_at":"2026-04-04T08:15:07Z","pushed_at":"2026-04-04T08:15:03Z","owner":{"login":"dohooo"}}]"#
+                stdout: r#"[{"id":0,"name":"helmor","full_name":"dohooo/helmor","private":false,"default_branch":"main","html_url":"https://github.com/dohooo/helmor","updated_at":"2026-01-01T00:00:00Z","pushed_at":"2026-01-01T00:00:00Z","owner":{"login":"dohooo"}}]"#
                     .to_string(),
                 stderr: String::new(),
             },
@@ -651,15 +649,15 @@ mod tests {
         assert_eq!(
             repositories,
             vec![GithubRepositorySummary {
-                id: 1199028956,
+                id: 0,
                 name: "helmor".to_string(),
                 full_name: "dohooo/helmor".to_string(),
                 owner_login: "dohooo".to_string(),
-                private: true,
+                private: false,
                 default_branch: Some("main".to_string()),
                 html_url: "https://github.com/dohooo/helmor".to_string(),
-                updated_at: Some("2026-04-04T08:15:07Z".to_string()),
-                pushed_at: Some("2026-04-04T08:15:03Z".to_string()),
+                updated_at: Some("2026-01-01T00:00:00Z".to_string()),
+                pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
             }]
         );
     }

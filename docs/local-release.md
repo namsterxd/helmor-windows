@@ -41,4 +41,4 @@ generated updater bundle and signature to create the GitHub Releases metadata.
 
 ## 4. Move to GitHub Actions after local success
 
-After the local build succeeds, copy the same values into GitHub repository secrets described in [release-secrets.md](/Users/caspian/helmor/workspaces/helmor/bergelmir/docs/release-secrets.md).
+After the local build succeeds, copy the same values into the GitHub repository secrets described in [release-secrets.md](./release-secrets.md).

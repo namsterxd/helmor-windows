@@ -8,6 +8,8 @@ dist
 dist-ssr
 *.local
 *.local.*
+.env
+.env.*
 .env.release.local
 !.env.release.local.example
 .local-data/

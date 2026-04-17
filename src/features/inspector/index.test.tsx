@@ -77,7 +77,7 @@ function renderInspector(
 			workspaceRootPath="/tmp/workspace"
 			workspaceBranch="feature/actions"
 			workspaceTargetBranch="main"
-			workspaceRemote="nathan"
+			workspaceRemote="testuser"
 			editorMode={false}
 			onOpenEditorFile={vi.fn()}
 			currentSessionId="session-1"
@@ -146,11 +146,11 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	it("shows clean git rows with passed status icons", async () => {
 		renderInspector();
 
-		await screen.findByText("Up to date with nathan/main");
+		await screen.findByText("Up to date with testuser/main");
 
 		const actions = screen.getByLabelText("Inspector section Actions");
 		expect(
-			within(actions).getByText("Up to date with nathan/main"),
+			within(actions).getByText("Up to date with testuser/main"),
 		).toBeInTheDocument();
 		expect(
 			within(actions).getByText("Waiting for PR review"),
@@ -164,7 +164,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	it("keeps the actions scroll area shrinkable when tabs are collapsed", async () => {
 		renderInspector();
 
-		await screen.findByText("Up to date with nathan/main");
+		await screen.findByText("Up to date with testuser/main");
 
 		const actionsBody = screen.getByLabelText("Actions panel body");
 		expect(actionsBody).toHaveClass("min-h-0");
@@ -203,7 +203,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 
 		renderInspector();
 
-		await screen.findByText("2 commits behind nathan/main");
+		await screen.findByText("2 commits behind testuser/main");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
 
 		await waitFor(() => {
@@ -238,7 +238,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			expect(onQueuePendingPromptForSession).toHaveBeenCalledWith({
 				sessionId: "session-1",
 				prompt:
-					"Commit uncommitted changes, then merge nathan/main into this branch. Then push.",
+					"Commit uncommitted changes, then merge testuser/main into this branch. Then push.",
 			});
 		});
 	});
@@ -261,13 +261,13 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 
 		renderInspector({ onQueuePendingPromptForSession });
 
-		await screen.findByText("2 commits behind nathan/main");
+		await screen.findByText("2 commits behind testuser/main");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
 
 		await waitFor(() => {
 			expect(onQueuePendingPromptForSession).toHaveBeenCalledWith({
 				sessionId: "session-1",
-				prompt: "Merge nathan/main into this branch. Then push.",
+				prompt: "Merge testuser/main into this branch. Then push.",
 			});
 		});
 	});
@@ -277,13 +277,13 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		const onQueuePendingPromptForSession = vi.fn();
 		apiMocks.syncWorkspaceWithTargetBranch.mockResolvedValue({
 			outcome: "conflict",
-			targetBranch: "nathan/testing",
+			targetBranch: "testuser/testing",
 			conflictedFiles: ["README.md"],
 		});
 		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
 			uncommittedCount: 0,
 			conflictCount: 0,
-			syncTargetBranch: "nathan/testing",
+			syncTargetBranch: "testuser/testing",
 			syncStatus: "behind",
 			behindTargetCount: 2,
 		});
@@ -293,13 +293,13 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			workspaceRemote: "Origin",
 		});
 
-		await screen.findByText("2 commits behind nathan/testing");
+		await screen.findByText("2 commits behind testuser/testing");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
 
 		await waitFor(() => {
 			expect(onQueuePendingPromptForSession).toHaveBeenCalledWith({
 				sessionId: "session-1",
-				prompt: "Merge Origin/nathan/testing into this branch. Then push.",
+				prompt: "Merge Origin/testuser/testing into this branch. Then push.",
 			});
 		});
 	});
@@ -327,7 +327,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			sendingSessionIds: new Set(["session-1"]),
 		});
 
-		await screen.findByText("2 commits behind nathan/main");
+		await screen.findByText("2 commits behind testuser/main");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
 
 		await waitFor(() => {
@@ -362,7 +362,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			sendingSessionIds: new Set(["session-1"]),
 		});
 
-		await screen.findByText("2 commits behind nathan/main");
+		await screen.findByText("2 commits behind testuser/main");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
 
 		await waitFor(() => {
@@ -386,14 +386,14 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			syncTargetBranch: "main",
 			syncStatus: "upToDate",
 			behindTargetCount: 0,
-			remoteTrackingRef: "refs/remotes/origin/dohooo/short-reply-setting",
+			remoteTrackingRef: "refs/remotes/origin/testuser/short-reply-setting",
 			aheadOfRemoteCount: 2,
 		});
 
 		renderInspector({ onCommitAction });
 
 		await screen.findByText(
-			"2 commits ahead of refs/remotes/origin/dohooo/short-reply-setting",
+			"2 commits ahead of refs/remotes/origin/testuser/short-reply-setting",
 		);
 		await user.click(screen.getByRole("button", { name: "Push" }));
 
@@ -429,7 +429,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			syncTargetBranch: "main",
 			syncStatus: "behind",
 			behindTargetCount: 23,
-			remoteTrackingRef: "origin/dohooo/leo",
+			remoteTrackingRef: "origin/testuser/leo",
 			aheadOfRemoteCount: 6,
 		});
 		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
@@ -441,17 +441,17 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 
 		renderInspector();
 
-		await screen.findByText("6 commits ahead of origin/dohooo/leo");
+		await screen.findByText("6 commits ahead of origin/testuser/leo");
 
 		const actions = screen.getByLabelText("Inspector section Actions");
 		expectTextBefore(
 			actions,
-			"6 commits ahead of origin/dohooo/leo",
+			"6 commits ahead of origin/testuser/leo",
 			"No uncommitted changes",
 		);
 		expectTextBefore(
 			actions,
-			"23 commits behind nathan/main",
+			"23 commits behind testuser/main",
 			"No uncommitted changes",
 		);
 		expectTextBefore(actions, "No uncommitted changes", "Review approved");
@@ -514,7 +514,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			syncTargetBranch: "main",
 			syncStatus: "upToDate",
 			behindTargetCount: 0,
-			remoteTrackingRef: "refs/remotes/origin/dohooo/short-reply-setting",
+			remoteTrackingRef: "refs/remotes/origin/testuser/short-reply-setting",
 			aheadOfRemoteCount: 2,
 			pushStatus: "published",
 		});
