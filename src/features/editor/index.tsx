@@ -8,12 +8,6 @@ import {
 } from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
-import { KbdKey } from "@/components/ui/kbd-key";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import type { EditorSessionState } from "@/lib/editor-session";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 
@@ -397,28 +391,16 @@ export function WorkspaceEditorSurface({
 				<div className="min-w-0 flex-1" data-tauri-drag-region />
 
 				<div className="flex shrink-0 items-center pr-2">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-xs"
-								onClick={onExit}
-								aria-label="Close"
-								className="aspect-square h-full text-[#8f8f8f] hover:bg-transparent hover:text-white"
-							>
-								<X className="size-3.5" strokeWidth={1.8} />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent
-							side="bottom"
-							sideOffset={6}
-							className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
-						>
-							<span className="leading-none">Close</span>
-							<KbdKey name="Esc" className="ml-1" />
-						</TooltipContent>
-					</Tooltip>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={onExit}
+						aria-label="Close"
+						className="aspect-square h-full text-[#8f8f8f] hover:bg-transparent hover:text-white"
+					>
+						<X className="size-3.5" strokeWidth={1.8} />
+					</Button>
 				</div>
 			</div>
 
