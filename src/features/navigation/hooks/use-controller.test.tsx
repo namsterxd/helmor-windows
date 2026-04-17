@@ -606,22 +606,30 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			);
 		});
 
+		const upgradedGroups = [
+			{
+				...workspaceGroups[0],
+				rows: [
+					{
+						...workspaceGroups[0].rows[0],
+						id: "ws-created",
+						title: "Workspace created",
+						state: "initializing" as const,
+						branch: "testuser/helmor",
+					},
+					...workspaceGroups[0].rows,
+				],
+			},
+		];
+
+		// Keep `loadWorkspaceGroups` aligned with the injected cache so the
+		// post-success `refetchNavigation()` inside the hook does not race with
+		// reconciliation and replace the cache with a stale ws-1/ws-2 snapshot
+		// that lacks ws-created (which was flaky under slow CI timing).
+		apiMocks.loadWorkspaceGroups.mockResolvedValue(upgradedGroups);
+
 		act(() => {
-			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, [
-				{
-					...workspaceGroups[0],
-					rows: [
-						{
-							...workspaceGroups[0].rows[0],
-							id: "ws-created",
-							title: "Workspace created",
-							state: "initializing",
-							branch: "testuser/helmor",
-						},
-						...workspaceGroups[0].rows,
-					],
-				},
-			]);
+			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, upgradedGroups);
 		});
 
 		await act(async () => {

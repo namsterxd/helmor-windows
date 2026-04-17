@@ -1,6 +1,13 @@
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
 import { createElement, type SVGProps } from "react";
 import { vi } from "vitest";
+
+// Default 1000ms is too tight for GitHub Actions runners where a 55-test
+// file can take ~55s of transform+import time; waitFor checks bump into the
+// ceiling during multi-render settling. Only affects vitest; production code
+// is unchanged.
+configure({ asyncUtilTimeout: 3000 });
 
 vi.mock("lottie-web/build/player/lottie_svg", () => ({
 	default: {
