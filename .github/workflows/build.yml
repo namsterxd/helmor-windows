@@ -1,5 +1,9 @@
 name: Build
 
+# macOS-only frontend + storybook build verification. Full Tauri Windows/
+# Linux/macOS bundles are produced by publish.yml on tag push; this
+# workflow just ensures the frontend still compiles under Vite.
+
 on:
   pull_request:
   push:
@@ -18,51 +22,9 @@ env:
   CI: true
 
 jobs:
-  changes:
-    name: Detect Changes
-    runs-on: ubuntu-latest
-    outputs:
-      app_build: ${{ steps.filter.outputs.app_build }}
-      storybook_build: ${{ steps.filter.outputs.storybook_build }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Filter changed paths
-        id: filter
-        uses: dorny/paths-filter@v4
-        with:
-          filters: |
-            app_build:
-              - '.github/**'
-              - 'package.json'
-              - 'bun.lock'
-              - 'tsconfig.json'
-              - 'tsconfig.node.json'
-              - 'vite.config.ts'
-              - 'vitest.shims.d.ts'
-              - 'components.json'
-              - 'index.html'
-              - 'public/**'
-              - 'src/**'
-            storybook_build:
-              - '.github/**'
-              - 'package.json'
-              - 'bun.lock'
-              - 'tsconfig.json'
-              - 'tsconfig.node.json'
-              - 'vite.config.ts'
-              - 'components.json'
-              - 'index.html'
-              - '.storybook/**'
-              - 'public/**'
-              - 'src/**'
-
   app-build:
     name: App Build
-    needs: changes
-    if: needs.changes.outputs.app_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -76,9 +38,7 @@ jobs:
 
   storybook-build:
     name: Storybook Build
-    needs: changes
-    if: needs.changes.outputs.storybook_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - name: Checkout

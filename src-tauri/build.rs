@@ -6,46 +6,7 @@ const UPDATER_ENDPOINTS_KEY: &str = "HELMOR_UPDATER_ENDPOINTS";
 const UPDATER_PUBKEY_KEY: &str = "HELMOR_UPDATER_PUBKEY";
 
 fn main() {
-    // Windows target: embed Common-Controls v6 manifest for EVERY link
-    // invocation (bins + lib test + [[test]] + examples + benches).
-    // `rustc-link-arg-tests` only covers integration tests under
-    // `tests/*.rs`, not the lib-under-test binary (`helmor_lib-HASH.exe`)
-    // that nextest lists first; that one aborts with
-    // STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139) because the v5 comctl32
-    // stub lacks the v6 entry points that tauri 2 imports.
-    //
-    // Using bare `rustc-link-arg` would normally duplicate tauri-winres's
-    // bin manifest (CVT1100 / LNK1123). We side-step that by telling
-    // `tauri_build::try_build` to skip its default manifest; the content
-    // we embed is byte-identical to tauri-build's default (both just
-    // declare the Common-Controls v6 dependency), so production bins end
-    // up with the same manifest they had before — only now tests get it
-    // too.
-    //
-    // See windows-app-manifest.xml for the upstream issue links. Keyed on
-    // CARGO_CFG_TARGET_OS so cross-compiles from non-Windows hosts to
-    // Windows still hit this branch, and Windows-hosted builds targeting
-    // non-Windows take the default path.
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if target_os == "windows" {
-        let manifest_dir =
-            env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set");
-        let manifest_path = Path::new(&manifest_dir).join("windows-app-manifest.xml");
-        println!("cargo:rerun-if-changed={}", manifest_path.display());
-        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
-        println!(
-            "cargo:rustc-link-arg=/MANIFESTINPUT:{}",
-            manifest_path.display()
-        );
-
-        tauri_build::try_build(
-            tauri_build::Attributes::new()
-                .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest()),
-        )
-        .expect("failed to run tauri-build");
-    } else {
-        tauri_build::build();
-    }
+    tauri_build::build();
 
     println!("cargo:rerun-if-changed=build.rs");
 
