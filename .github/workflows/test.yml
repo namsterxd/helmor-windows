@@ -1,5 +1,9 @@
 name: Test
 
+# Runs the three test suites (frontend vitest, sidecar bun test, rust cargo
+# test). Uses dorny/paths-filter so each suite only runs when its own source
+# tree changed; see the `filters` block in the `changes` job below.
+
 on:
   pull_request:
   push:
