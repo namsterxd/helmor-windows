@@ -111,7 +111,9 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
 
 pub fn load_workspace_records() -> Result<Vec<WorkspaceRecord>> {
     let connection = db::open_connection(false)?;
-    let sql = format!("{WORKSPACE_RECORD_SQL} ORDER BY w.updated_at DESC");
+    let sql = format!(
+        "{WORKSPACE_RECORD_SQL} ORDER BY datetime(w.created_at) DESC, datetime(w.updated_at) DESC, w.id DESC"
+    );
     let mut statement = connection.prepare(&sql)?;
 
     let rows = statement.query_map([], workspace_record_from_row)?;

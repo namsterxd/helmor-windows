@@ -42,6 +42,7 @@ pub struct ArchiveWorkspaceResponse {
 pub struct CreateWorkspaceResponse {
     pub created_workspace_id: String,
     pub selected_workspace_id: String,
+    pub initial_session_id: String,
     pub created_state: String,
     pub directory_name: String,
     pub branch: String,
@@ -159,6 +160,7 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
         Ok(CreateWorkspaceResponse {
             created_workspace_id: workspace_id.clone(),
             selected_workspace_id: workspace_id.clone(),
+            initial_session_id: session_id.clone(),
             created_state: final_state.to_string(),
             directory_name,
             branch: branch.clone(),

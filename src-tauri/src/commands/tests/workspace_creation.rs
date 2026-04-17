@@ -21,6 +21,7 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
         "Expected testuser/ prefix, got: {}",
         response.branch
     );
+    assert!(!response.initial_session_id.is_empty());
 
     let workspace_dir = harness.workspace_dir(&response.directory_name);
     assert!(workspace_dir.join(".git").exists());
@@ -82,6 +83,7 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
     assert_eq!(initialization_parent_branch, "main");
     assert_eq!(intended_target_branch, "main");
     assert!(initialization_files_copied > 0);
+    assert_eq!(response.initial_session_id, active_session_id);
     assert_eq!(session_title, "Untitled");
     assert_eq!(session_model, None, "new session should have no model");
     assert_eq!(

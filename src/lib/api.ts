@@ -296,6 +296,7 @@ export type ArchiveExecutionSucceededPayload = {
 export type CreateWorkspaceResponse = {
 	createdWorkspaceId: string;
 	selectedWorkspaceId: string;
+	initialSessionId: string;
 	createdState: string;
 	directoryName: string;
 	branch: string;

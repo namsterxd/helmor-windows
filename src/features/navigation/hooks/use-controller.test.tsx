@@ -401,6 +401,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			| ((value: {
 					createdWorkspaceId: string;
 					selectedWorkspaceId: string;
+					initialSessionId: string;
 					createdState: string;
 					directoryName: string;
 					branch: string;
@@ -451,6 +452,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			resolveCreate?.({
 				createdWorkspaceId: "ws-created",
 				selectedWorkspaceId: "ws-created",
+				initialSessionId: "session-created",
 				createdState: "ready",
 				directoryName: "vega",
 				branch: "feature/vega",
@@ -475,6 +477,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			| ((value: {
 					createdWorkspaceId: string;
 					selectedWorkspaceId: string;
+					initialSessionId: string;
 					createdState: string;
 					directoryName: string;
 					branch: string;
@@ -527,6 +530,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			resolveCreate?.({
 				createdWorkspaceId: "ws-created",
 				selectedWorkspaceId: "ws-created",
+				initialSessionId: "session-created",
 				createdState: "initializing",
 				directoryName: "testuser-helmor",
 				branch: "testuser/helmor",
@@ -546,7 +550,13 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		});
 		expect(
 			queryClient.getQueryData(helmorQueryKeys.workspaceSessions("ws-created")),
-		).toEqual([]);
+		).toMatchObject([
+			{
+				id: "session-created",
+				workspaceId: "ws-created",
+				active: true,
+			},
+		]);
 		expect(onSelectWorkspace).toHaveBeenCalledWith("ws-created");
 	});
 
@@ -565,6 +575,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			| ((value: {
 					createdWorkspaceId: string;
 					selectedWorkspaceId: string;
+					initialSessionId: string;
 					createdState: string;
 					directoryName: string;
 					branch: string;
@@ -643,6 +654,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			resolveCreate?.({
 				createdWorkspaceId: "ws-created",
 				selectedWorkspaceId: "ws-created",
+				initialSessionId: "session-created",
 				createdState: "initializing",
 				directoryName: "testuser-helmor",
 				branch: "testuser/helmor",

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHelmorQueryClient, helmorQueryKeys } from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
+import { createOptimisticCreatingWorkspaceId } from "@/lib/workspace-helpers";
 import { renderWithProviders } from "@/test/render-with-providers";
 
 const apiMocks = vi.hoisted(() => ({
@@ -891,6 +892,168 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		await waitFor(() => {
 			expect(getSessionPaneIds()).toEqual(["session-created"]);
 		});
+	});
+
+	it("does not auto-create a duplicate session for a newly created workspace", async () => {
+		const queryClient = createHelmorQueryClient();
+		const detailDeferred =
+			createDeferred<ReturnType<typeof createWorkspaceDetail>>();
+		const sessionsDeferred =
+			createDeferred<ReturnType<typeof createWorkspaceSessions>>();
+
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceDetail("workspace-created"),
+			{
+				...createWorkspaceDetail("workspace-created", null),
+				activeSessionAgentType: null,
+				activeSessionStatus: null,
+				sessionCount: 0,
+			},
+		);
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceSessions("workspace-created"),
+			[],
+		);
+
+		apiMocks.createSession.mockResolvedValue({
+			sessionId: "session-duplicate",
+		});
+		apiMocks.loadWorkspaceDetail.mockImplementation(
+			async (workspaceId?: string) =>
+				detailDeferred.promise.then(() =>
+					createWorkspaceDetail(
+						workspaceId ?? "workspace-created",
+						"session-1",
+					),
+				),
+		);
+		apiMocks.loadWorkspaceSessions.mockImplementation(
+			async (workspaceId?: string) =>
+				sessionsDeferred.promise.then(() => [
+					createWorkspaceSessionSummary("session-1", {
+						workspaceId: workspaceId ?? "workspace-created",
+						active: true,
+					}),
+				]),
+		);
+		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId="workspace-created"
+				displayedWorkspaceId="workspace-created"
+				selectedSessionId={null}
+				displayedSessionId={null}
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(apiMocks.loadWorkspaceDetail).toHaveBeenCalledWith(
+				"workspace-created",
+			);
+			expect(apiMocks.loadWorkspaceSessions).toHaveBeenCalledWith(
+				"workspace-created",
+			);
+		});
+		expect(apiMocks.createSession).not.toHaveBeenCalled();
+
+		detailDeferred.resolve(
+			createWorkspaceDetail("workspace-created", "session-1"),
+		);
+		sessionsDeferred.resolve(
+			createWorkspaceSessions("workspace-created", ["session-1"]),
+		);
+
+		await waitFor(() => {
+			expect(getSessionPaneIds()).toEqual(["session-1"]);
+		});
+		expect(apiMocks.createSession).not.toHaveBeenCalled();
+	});
+
+	it("does not auto-create when workspace detail already reports a session", async () => {
+		const queryClient = createHelmorQueryClient();
+
+		apiMocks.createSession.mockResolvedValue({
+			sessionId: "session-duplicate",
+		});
+		apiMocks.loadWorkspaceDetail.mockResolvedValue(
+			createWorkspaceDetail("workspace-1", "session-1"),
+		);
+		apiMocks.loadWorkspaceSessions.mockResolvedValue([]);
+		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId="workspace-1"
+				displayedWorkspaceId="workspace-1"
+				selectedSessionId={null}
+				displayedSessionId={null}
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(apiMocks.loadWorkspaceDetail).toHaveBeenCalledWith("workspace-1");
+			expect(apiMocks.loadWorkspaceSessions).toHaveBeenCalledWith(
+				"workspace-1",
+			);
+		});
+
+		expect(apiMocks.createSession).not.toHaveBeenCalled();
+	});
+
+	it("does not request thread messages for an optimistic workspace session", async () => {
+		const queryClient = createHelmorQueryClient();
+		const optimisticWorkspaceId = createOptimisticCreatingWorkspaceId("repo-1");
+		const optimisticSessionId = `${optimisticWorkspaceId}:initial-session`;
+
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceDetail(optimisticWorkspaceId),
+			createWorkspaceDetail(optimisticWorkspaceId, optimisticSessionId),
+		);
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceSessions(optimisticWorkspaceId),
+			[
+				createWorkspaceSessionSummary(optimisticSessionId, {
+					workspaceId: optimisticWorkspaceId,
+					active: true,
+				}),
+			],
+		);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId={optimisticWorkspaceId}
+				displayedWorkspaceId={optimisticWorkspaceId}
+				selectedSessionId={null}
+				displayedSessionId={null}
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(getLatestPanelProps().sessions).toMatchObject([
+				{ id: optimisticSessionId },
+			]);
+		});
+
+		expect(apiMocks.loadSessionThreadMessages).not.toHaveBeenCalledWith(
+			optimisticSessionId,
+		);
+		expect(apiMocks.loadRepoScripts).not.toHaveBeenCalledWith(
+			expect.any(String),
+			optimisticWorkspaceId,
+		);
 	});
 
 	it("renders plan-review messages from DB as read-only cards", async () => {

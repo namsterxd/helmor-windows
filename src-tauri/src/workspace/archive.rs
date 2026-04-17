@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -11,6 +11,11 @@ use super::lifecycle::{execute_archive_plan, prepare_archive_plan, ArchivePrepar
 
 pub const ARCHIVE_EXECUTION_FAILED_EVENT: &str = "archive-execution-failed";
 pub const ARCHIVE_EXECUTION_SUCCEEDED_EVENT: &str = "archive-execution-succeeded";
+
+fn archive_execution_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,8 +113,13 @@ pub fn start_archive_workspace<R: Runtime>(app: &AppHandle<R>, workspace_id: &st
             .state::<git_watcher::GitWatcherManager>()
             .unwatch(&workspace_id);
 
-        let result =
-            tauri::async_runtime::spawn_blocking(move || execute_archive_plan(&plan)).await;
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let _guard = archive_execution_lock()
+                .lock()
+                .map_err(|_| anyhow::anyhow!("archive execution lock poisoned"))?;
+            execute_archive_plan(&plan)
+        })
+        .await;
 
         match result {
             Ok(Ok(_)) => {

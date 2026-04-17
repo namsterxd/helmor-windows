@@ -73,18 +73,16 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 }: WorkspacePanelContainerProps) {
 	const queryClient = useQueryClient();
 	const { settings } = useSettings();
+	const isOptimisticWorkspace =
+		isOptimisticCreatingWorkspaceId(displayedWorkspaceId);
 
 	const detailQuery = useQuery({
 		...workspaceDetailQueryOptions(displayedWorkspaceId ?? "__none__"),
-		enabled:
-			Boolean(displayedWorkspaceId) &&
-			!isOptimisticCreatingWorkspaceId(displayedWorkspaceId),
+		enabled: Boolean(displayedWorkspaceId) && !isOptimisticWorkspace,
 	});
 	const sessionsQuery = useQuery({
 		...workspaceSessionsQueryOptions(displayedWorkspaceId ?? "__none__"),
-		enabled:
-			Boolean(displayedWorkspaceId) &&
-			!isOptimisticCreatingWorkspaceId(displayedWorkspaceId),
+		enabled: Boolean(displayedWorkspaceId) && !isOptimisticWorkspace,
 	});
 
 	const workspace = detailQuery.data ?? null;
@@ -112,14 +110,28 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			return;
 		}
 
+		// Only auto-create after one real fetch cycle. Newly created workspaces
+		// are optimistically seeded with an empty session list before the backend
+		// response with the initial session lands.
+		if (
+			!detailQuery.isFetchedAfterMount ||
+			!sessionsQuery.isFetchedAfterMount
+		) {
+			return;
+		}
+
 		if (!workspace || sessionsQuery.data === undefined) {
 			return;
 		}
 
+		const hasNoPersistedSessions =
+			workspace.sessionCount === 0 && workspace.activeSessionId === null;
+
 		if (
 			workspace.state === "archived" ||
 			workspace.state === "initializing" ||
-			sessions.length > 0
+			sessions.length > 0 ||
+			!hasNoPersistedSessions
 		) {
 			autoCreatingWorkspaceRef.current.delete(displayedWorkspaceId);
 			return;
@@ -222,7 +234,9 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		};
 	}, [
 		displayedWorkspaceId,
+		detailQuery.isFetchedAfterMount,
 		queryClient,
+		sessionsQuery.isFetchedAfterMount,
 		selectedWorkspaceId,
 		sessions.length,
 		sessionsQuery.data,
@@ -263,18 +277,18 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	}, [displayedSessionId, onResolveDisplayedSession, threadSessionId]);
 
 	useEffect(() => {
-		if (!threadSessionId) {
+		if (!threadSessionId || isOptimisticWorkspace) {
 			return;
 		}
 
 		void queryClient.prefetchQuery(
 			sessionThreadMessagesQueryOptions(threadSessionId),
 		);
-	}, [queryClient, threadSessionId]);
+	}, [isOptimisticWorkspace, queryClient, threadSessionId]);
 
 	const messagesQuery = useQuery({
 		...sessionThreadMessagesQueryOptions(threadSessionId ?? "__none__"),
-		enabled: Boolean(threadSessionId),
+		enabled: Boolean(threadSessionId) && !isOptimisticWorkspace,
 	});
 	const repoScriptsQuery = useQuery({
 		queryKey: helmorQueryKeys.repoScripts(
@@ -282,7 +296,9 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			displayedWorkspaceId,
 		),
 		queryFn: () => loadRepoScripts(workspace!.repoId, displayedWorkspaceId),
-		enabled: Boolean(workspace?.repoId && displayedWorkspaceId),
+		enabled:
+			Boolean(workspace?.repoId && displayedWorkspaceId) &&
+			!isOptimisticWorkspace,
 		staleTime: 0,
 	});
 

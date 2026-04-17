@@ -141,9 +141,9 @@ pub fn list_workspace_groups() -> Result<Vec<WorkspaceSidebarGroup>> {
     let mut backlog = Vec::new();
     let mut canceled = Vec::new();
 
-    // `load_workspace_records` already returns rows in `updated_at DESC` order
-    // (newest first). Iterating in that order and bucketing into status groups
-    // means each group naturally inherits the same stable order, no per-group
+    // `load_workspace_records` already returns rows in newest-created-first
+    // order. Iterating in that order and bucketing into status groups means
+    // each group naturally inherits the same stable order, no per-group
     // re-sort needed.
     for record in workspace_models::load_workspace_records()? {
         if record.state == "archived" {

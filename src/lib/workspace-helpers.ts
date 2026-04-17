@@ -30,6 +30,7 @@ export function isOptimisticCreatingWorkspaceId(
 export function createOptimisticCreatingWorkspaceDetail(
 	row: WorkspaceRow,
 	repoId: string,
+	initialSessionId: string | null = null,
 ): WorkspaceDetail {
 	return {
 		id: row.id,
@@ -50,10 +51,10 @@ export function createOptimisticCreatingWorkspaceDetail(
 		unreadSessionCount: 0,
 		derivedStatus: row.derivedStatus ?? "in-progress",
 		manualStatus: row.manualStatus ?? null,
-		activeSessionId: null,
-		activeSessionTitle: null,
+		activeSessionId: initialSessionId,
+		activeSessionTitle: initialSessionId ? "Untitled" : null,
 		activeSessionAgentType: null,
-		activeSessionStatus: null,
+		activeSessionStatus: initialSessionId ? "idle" : null,
 		branch: row.branch ?? null,
 		initializationParentBranch: null,
 		intendedTargetBranch: null,
@@ -62,7 +63,7 @@ export function createOptimisticCreatingWorkspaceDetail(
 		prTitle: null,
 		prDescription: null,
 		archiveCommit: null,
-		sessionCount: 0,
+		sessionCount: initialSessionId ? 1 : 0,
 		messageCount: 0,
 		attachmentCount: 0,
 	};

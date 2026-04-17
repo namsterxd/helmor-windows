@@ -230,6 +230,7 @@ describe("App create workspace flow", () => {
 			return {
 				createdWorkspaceId: "workspace-created",
 				selectedWorkspaceId: "workspace-created",
+				initialSessionId: "session-created",
 				createdState: "ready",
 				directoryName: "acamar",
 				branch: "testuser/acamar",
