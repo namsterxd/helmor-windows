@@ -5,7 +5,7 @@ name: Publish Release
 #     (Intel support fixes the latent arm64-only DMG bug in publish-macos.yml)
 #   - Ubuntu 22.04 deb + rpm + AppImage (+ AppImage.tar.gz updater)
 #   - Windows x64 NSIS + MSI (+ .sig)
-# tauri-action@v1 merges each runner's per-platform entry into the same
+# tauri-action@v0.6 merges each runner's per-platform entry into the same
 # latest.json on the release.
 #
 # The Phase 4 single-platform publish-{macos,linux,windows}.yml files still
@@ -159,7 +159,7 @@ jobs:
 
       - name: Build and publish (${{ matrix.target-triple }})
         id: tauri
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Apple env is harmless on non-macOS runners (unreferenced).
