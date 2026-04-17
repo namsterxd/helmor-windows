@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!--
+    Windows side-by-side manifest that declares a dependency on
+    Microsoft.Windows.Common-Controls v6. Without this, test binaries in
+    target\debug\deps\ load the v5 comctl32.dll stub and abort with
+    STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139) before any test runs.
+
+    tauri-winres already embeds a similar manifest for the production bin,
+    but it does so via `rustc-link-arg-bins` which skips [[test]] targets
+    (see upstream issues tauri-apps/tauri#13419, #13948 and
+    rust-embed-resource#69). build.rs uses /MANIFESTINPUT with this file to
+    cover every link invocation on Windows.
+
+    Only consumed on Windows via build.rs's #[cfg(windows)] block; macOS and
+    Linux builds never touch this file.
+  -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>
