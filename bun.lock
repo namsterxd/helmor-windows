@@ -68,6 +68,7 @@
         "@changesets/changelog-github": "^0.5.1",
         "@changesets/cli": "^2.29.7",
         "@chromatic-com/storybook": "^5.1.2",
+        "@playwright/test": "^1.59.1",
         "@rolldown/plugin-babel": "^0.2.2",
         "@storybook/addon-a11y": "^10.3.5",
         "@storybook/addon-docs": "^10.3.5",
@@ -789,6 +790,8 @@
     "@pierre/diffs": ["@pierre/diffs@1.1.15", "", { "dependencies": { "@pierre/theme": "0.0.28", "@shikijs/transformers": "^3.0.0", "diff": "8.0.3", "hast-util-to-html": "9.0.5", "lru_map": "0.4.1", "shiki": "^3.0.0" }, "peerDependencies": { "react": "^18.3.1 || ^19.0.0", "react-dom": "^18.3.1 || ^19.0.0" } }, "sha512-Gj863E+aSpc0H3C4cH0fQTaF/tP9yYfhnilR7/dS72qq8thqNpR3fo3jURHRtRKz6KJJ10anxcurHP7b3ZUQkw=="],
 
     "@pierre/theme": ["@pierre/theme@0.0.28", "", {}, "sha512-1j/H/fECBuc9dEvntdWI+l435HZapw+RCJTlqCA6BboQ5TjlnE005j/ROWutXIs8aq5OAc82JI2Kwk4A1WWBgw=="],
+
+    "@playwright/test": ["@playwright/test@1.59.1", "", { "dependencies": { "playwright": "1.59.1" }, "bin": { "playwright": "cli.js" } }, "sha512-PG6q63nQg5c9rIi4/Z5lR5IVF7yU5MqmKaPOe0HSc0O2cX1fPi96sUQu5j7eo4gKCkB2AnNGoWt7y4/Xx3Kcqg=="],
 
     "@pmmmwh/react-refresh-webpack-plugin": ["@pmmmwh/react-refresh-webpack-plugin@0.4.3", "", { "dependencies": { "ansi-html": "^0.0.7", "error-stack-parser": "^2.0.6", "html-entities": "^1.2.1", "native-url": "^0.2.6", "schema-utils": "^2.6.5", "source-map": "^0.7.3" }, "peerDependencies": { "@types/webpack": "4.x", "react-refresh": ">=0.8.3 <0.10.0", "sockjs-client": "^1.4.0", "type-fest": "^0.13.1", "webpack": ">=4.43.0 <6.0.0", "webpack-dev-server": "3.x", "webpack-hot-middleware": "2.x", "webpack-plugin-serve": "0.x || 1.x" }, "optionalPeers": ["@types/webpack", "sockjs-client", "type-fest", "webpack-dev-server", "webpack-hot-middleware", "webpack-plugin-serve"] }, "sha512-br5Qwvh8D2OQqSXpd1g/xqXKnK0r+Jz6qVKBbWmpUcrbGOxUrf39V5oZ1876084CGn18uMdR5uvPqBv9UqtBjQ=="],
 

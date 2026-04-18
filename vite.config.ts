@@ -99,6 +99,7 @@ export default defineConfig(async () => ({
 			"sidecar/**",
 			"src-tauri/**",
 			"fixtures/**",
+			"e2e/**",
 		],
 	},
 }));
