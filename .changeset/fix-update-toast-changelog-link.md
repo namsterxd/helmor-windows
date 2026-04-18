@@ -2,4 +2,5 @@
 "helmor": patch
 ---
 
-- Fix the "View change log" link never showing in the update-ready toast (and the Settings → App Updates panel). The release page URL is now derived deterministically from the update version instead of relying on a field that `latest.json` never actually contains.
+Fix the missing change-log link in the app update flow:
+- The "View change log" button now appears in the update-ready toast and in Settings → App Updates, opening the matching GitHub release page.
