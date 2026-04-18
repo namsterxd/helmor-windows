@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5
+
+### Patch Changes
+
+- [`fdfbab4`](https://github.com/dohooo/helmor/commit/fdfbab4d5703d1d349f73067555d4c2205d8c1e1) Thanks [@claude](https://github.com/claude)! - Fix the missing change-log link in the app update flow:
+  - The "View change log" button now appears in the update-ready toast and in Settings → App Updates, opening the matching GitHub release page.
+
 ## 0.1.4
 
 ### Patch Changes
