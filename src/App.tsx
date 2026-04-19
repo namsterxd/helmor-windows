@@ -695,6 +695,10 @@ function AppShell({
 			const effective = resolveTheme(appSettings.theme);
 			document.documentElement.classList.toggle("dark", effective === "dark");
 			document.documentElement.style.colorScheme = effective;
+			// Monaco's theme is synced via a MutationObserver inside
+			// `monaco-runtime.ts` — avoid importing it here to keep Monaco out
+			// of the critical boot path and out of tests that never open the
+			// editor.
 		};
 
 		apply();
