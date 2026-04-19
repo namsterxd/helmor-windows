@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
@@ -9,9 +10,10 @@ import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
+import type { ScriptStatus } from "./script-store";
 import { ActionsSection } from "./sections/actions";
 import { ChangesSection } from "./sections/changes";
-import { RunTab } from "./sections/run";
+import { OpenDevServerButton, RunTab } from "./sections/run";
 import { SetupTab } from "./sections/setup";
 
 type WorkspaceInspectorSidebarProps = {
@@ -98,6 +100,17 @@ export function WorkspaceInspectorSidebar({
 		scriptsLoaded,
 	});
 
+	// Run-script state lifted to the sidebar so the tab header can render
+	// the "Open dev server" shortcut. The button only appears while the
+	// run script is actually running (a "resident" dev server). Once it's
+	// visible it self-tunes: disabled "Open" until a URL is detected in
+	// stdout, "Open:PORT" for a single URL, or a hover picker for 2+.
+	const [runStatus, setRunStatus] = useState<ScriptStatus>("idle");
+	const [runUrls, setRunUrls] = useState<string[]>([]);
+
+	const runTabActions =
+		runStatus === "running" ? <OpenDevServerButton urls={runUrls} /> : null;
+
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
 	return (
@@ -158,6 +171,7 @@ export function WorkspaceInspectorSidebar({
 				onToggle={handleToggleTabs}
 				activeTab={activeTab}
 				onTabChange={setActiveTab}
+				tabActions={runTabActions}
 			>
 				<SetupTab
 					repoId={repoId ?? null}
@@ -174,6 +188,8 @@ export function WorkspaceInspectorSidebar({
 					pendingRun={pendingRunScript}
 					onPendingRunHandled={clearPendingRunScript}
 					onOpenSettings={handleOpenSettings}
+					onStatusChange={setRunStatus}
+					onUrlsChange={setRunUrls}
 				/>
 			</InspectorTabsSection>
 		</div>

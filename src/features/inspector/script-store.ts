@@ -1,16 +1,24 @@
 import { executeRepoScript, type ScriptEvent, stopRepoScript } from "@/lib/api";
+import { dedupUrlKey, extractLocalUrls } from "./detect-urls";
 
 export type ScriptStatus = "idle" | "running" | "exited";
 
 type Listener = {
 	onChunk: (data: string) => void;
 	onStatusChange: (status: ScriptStatus) => void;
+	onUrlsChange?: (urls: string[]) => void;
 };
 
 export type ScriptEntry = {
 	chunks: string[];
 	status: ScriptStatus;
 	exitCode: number | null;
+	/**
+	 * Localhost-style dev-server URLs detected in stdout/stderr so far, in
+	 * first-seen order and deduped via {@link dedupUrlKey}. Populated lazily
+	 * as new chunks arrive. Empty when the script hasn't printed any banner.
+	 */
+	urls: string[];
 };
 
 /** Module-level stores — survive React mount/unmount cycles. */
@@ -36,10 +44,13 @@ export function startScript(
 		chunks: [],
 		status: "running",
 		exitCode: null,
+		urls: [],
 	};
 	entries.set(k, entry);
 
 	listeners.get(k)?.onStatusChange("running");
+	// Reset URL listener to empty — previous run's URLs don't apply.
+	listeners.get(k)?.onUrlsChange?.([]);
 
 	executeRepoScript(
 		repoId,
@@ -51,10 +62,45 @@ export function startScript(
 				case "started":
 					break;
 				case "stdout":
-				case "stderr":
+				case "stderr": {
 					entry.chunks.push(event.data);
 					listeners.get(k)?.onChunk(event.data);
+
+					// Cheap short-circuit: once a dev server has settled into
+					// steady-state, ~every chunk is HMR / request-log noise with
+					// no URL. Skip the regex work when the chunk can't possibly
+					// contain one. `event.data.includes("http")` is a plain
+					// substring scan — ~100x faster than the ANSI+URL regex
+					// combo and totally safe (any real localhost URL has "http"
+					// verbatim in bytes, even when wrapped in ANSI).
+					//
+					// We still run detection on every chunk until we've seen at
+					// least one URL, so the initial banner is never missed.
+					if (entry.urls.length > 0 && !event.data.includes("http")) {
+						break;
+					}
+
+					// Scan the fresh chunk for dev-server URLs. We keep a deduped,
+					// first-seen-ordered list on the entry and only fire the listener
+					// when something actually changed.
+					const fresh = extractLocalUrls(event.data);
+					if (fresh.length > 0) {
+						const seen = new Set(entry.urls.map(dedupUrlKey));
+						let changed = false;
+						for (const url of fresh) {
+							const k2 = dedupUrlKey(url);
+							if (!seen.has(k2)) {
+								seen.add(k2);
+								entry.urls.push(url);
+								changed = true;
+							}
+						}
+						if (changed) {
+							listeners.get(k)?.onUrlsChange?.([...entry.urls]);
+						}
+					}
 					break;
+				}
 				case "exited":
 					entry.status = "exited";
 					entry.exitCode = event.code;

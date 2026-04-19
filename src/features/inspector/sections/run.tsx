@@ -1,11 +1,18 @@
-import { Play, RotateCcw, Settings2, Square } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ExternalLink, Play, RotateCcw, Settings2, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type TerminalHandle,
 	TerminalOutput,
 } from "@/components/terminal-output";
 import { Button } from "@/components/ui/button";
+import {
+	HoverCard,
+	HoverCardContent,
+	HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
+import { extractPort } from "../detect-urls";
 import {
 	attach,
 	detach,
@@ -22,7 +29,107 @@ type RunTabProps = {
 	pendingRun?: boolean;
 	onPendingRunHandled?: () => void;
 	onOpenSettings: () => void;
+	onStatusChange?: (status: ScriptStatus) => void;
+	onUrlsChange?: (urls: string[]) => void;
 };
+
+/**
+ * Compact outlined action button rendered in the Run tab header. Three
+ * states driven by how many dev-server URLs have been detected in the
+ * script's stdout so far:
+ *
+ *   - 0 URLs → disabled "Open"
+ *   - 1 URL  → "Open:PORT", click opens the URL directly
+ *   - 2+ URLs → hover reveals a list of URLs, click an entry to open it
+ *
+ * URL detection lives in {@link ../detect-urls} and runs chunk-by-chunk
+ * in the script store.
+ */
+export function OpenDevServerButton({ urls }: { urls: string[] }) {
+	const handleOpen = useCallback((url: string) => {
+		void openUrl(url);
+	}, []);
+
+	// No URLs detected yet — keep the button visible but inert, so the
+	// control is discoverable while the dev server is still booting.
+	if (urls.length === 0) {
+		return (
+			<Button
+				type="button"
+				variant="outline"
+				size="xs"
+				className="text-muted-foreground hover:text-foreground"
+				disabled
+				aria-label="Open dev server (no URL detected yet)"
+			>
+				<ExternalLink strokeWidth={1.8} />
+				Open
+			</Button>
+		);
+	}
+
+	// Single URL — direct click-to-open, port inlined in the label.
+	if (urls.length === 1) {
+		const url = urls[0];
+		const port = extractPort(url);
+		return (
+			<Button
+				type="button"
+				variant="outline"
+				size="xs"
+				className="text-muted-foreground hover:text-foreground"
+				onClick={() => handleOpen(url)}
+				aria-label={`Open dev server at ${url}`}
+			>
+				<ExternalLink strokeWidth={1.8} />
+				{port ? `Open:${port}` : "Open"}
+			</Button>
+		);
+	}
+
+	// Multiple URLs — hover reveals a picker. Label stays generic ("Open")
+	// since port info would be ambiguous.
+	return (
+		<HoverCard openDelay={80} closeDelay={120}>
+			<HoverCardTrigger asChild>
+				<Button
+					type="button"
+					variant="outline"
+					size="xs"
+					className="text-muted-foreground hover:text-foreground"
+					aria-label={`Open dev server (${urls.length} URLs detected)`}
+				>
+					<ExternalLink strokeWidth={1.8} />
+					Open
+				</Button>
+			</HoverCardTrigger>
+			<HoverCardContent side="top" align="end" className="w-auto min-w-48 p-1">
+				<div role="menu" className="flex flex-col">
+					{urls.map((url) => {
+						const port = extractPort(url);
+						return (
+							<button
+								key={url}
+								type="button"
+								role="menuitem"
+								onClick={() => handleOpen(url)}
+								className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+							>
+								<ExternalLink
+									className="size-3 shrink-0 text-muted-foreground"
+									strokeWidth={1.8}
+								/>
+								<span className="truncate">
+									{port ? `localhost:${port}` : url}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+			</HoverCardContent>
+		</HoverCard>
+	);
+}
 
 export function RunTab({
 	repoId,
@@ -32,22 +139,37 @@ export function RunTab({
 	pendingRun,
 	onPendingRunHandled,
 	onOpenSettings,
+	onStatusChange,
+	onUrlsChange,
 }: RunTabProps) {
 	const termRef = useRef<TerminalHandle | null>(null);
 	const [status, setStatus] = useState<ScriptStatus>("idle");
 	const [hasRun, setHasRun] = useState(false);
 
+	// Notify parent whenever the run-script status transitions so the tab
+	// header can conditionally show controls like the Open-dev-server button.
 	useEffect(() => {
-		if (!workspaceId) return;
+		onStatusChange?.(status);
+	}, [status, onStatusChange]);
+
+	useEffect(() => {
+		if (!workspaceId) {
+			onUrlsChange?.([]);
+			return;
+		}
 
 		const existing = attach(workspaceId, "run", {
 			onChunk: (data) => termRef.current?.write(data),
 			onStatusChange: setStatus,
+			onUrlsChange: (urls) => onUrlsChange?.(urls),
 		});
 
 		if (existing) {
 			setHasRun(true);
 			setStatus(existing.status);
+			// Replay URLs already detected on this entry so the parent's state
+			// mirrors the store the moment the component mounts.
+			onUrlsChange?.([...existing.urls]);
 			const replay = () => {
 				const t = termRef.current;
 				if (!t) return;
@@ -59,6 +181,7 @@ export function RunTab({
 		} else {
 			setHasRun(false);
 			setStatus("idle");
+			onUrlsChange?.([]);
 			termRef.current?.clear();
 		}
 

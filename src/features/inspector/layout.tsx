@@ -46,6 +46,12 @@ type InspectorTabsSectionProps = {
 	onToggle: () => void;
 	activeTab: string;
 	onTabChange: (tab: string) => void;
+	/**
+	 * Optional slot for tab-specific actions rendered on the right side of the
+	 * header, just before the collapse/expand chevron. Used e.g. to expose the
+	 * "Open dev server" shortcut while the Run script is live.
+	 */
+	tabActions?: React.ReactNode;
 	children?: React.ReactNode;
 };
 
@@ -55,6 +61,7 @@ export function InspectorTabsSection({
 	onToggle,
 	activeTab,
 	onTabChange,
+	tabActions,
 	children,
 }: InspectorTabsSectionProps) {
 	return (
@@ -126,23 +133,26 @@ export function InspectorTabsSection({
 								/>
 							</button>
 						</div>
-						<Button
-							type="button"
-							aria-label="Toggle inspector tabs section"
-							onClick={onToggle}
-							variant="ghost"
-							size="icon-sm"
-							className="ml-auto shrink-0 self-center text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-						>
-							<ChevronDown
-								className="size-3.5"
-								strokeWidth={1.9}
-								style={{
-									transform: open ? "rotate(0deg)" : "rotate(-90deg)",
-									transition: `transform ${TABS_ANIMATION_MS}ms ${TABS_EASING}`,
-								}}
-							/>
-						</Button>
+						<div className="ml-auto flex shrink-0 items-center gap-1 self-center">
+							{tabActions}
+							<Button
+								type="button"
+								aria-label="Toggle inspector tabs section"
+								onClick={onToggle}
+								variant="ghost"
+								size="icon-sm"
+								className="shrink-0 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+							>
+								<ChevronDown
+									className="size-3.5"
+									strokeWidth={1.9}
+									style={{
+										transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+										transition: `transform ${TABS_ANIMATION_MS}ms ${TABS_EASING}`,
+									}}
+								/>
+							</Button>
+						</div>
 					</div>
 
 					{open && (
