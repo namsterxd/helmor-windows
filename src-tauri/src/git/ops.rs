@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::{
     ffi::OsStr,
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::mpsc,
     thread,
@@ -395,37 +395,44 @@ pub fn create_worktree_from_start_point(
 
 pub fn remove_worktree(repo_root: &Path, workspace_dir: &Path) -> Result<()> {
     let repo_root_str = repo_root.display().to_string();
-    let workspace_dir_arg = workspace_dir.display().to_string();
-    let result = run_git(
-        [
-            "-C",
-            repo_root_str.as_str(),
-            "worktree",
-            "remove",
-            "--force",
-            workspace_dir_arg.as_str(),
-        ],
-        None,
-    );
-
-    if result.is_ok() {
-        return Ok(());
-    }
-
-    // Fallback: `git worktree remove --force` can fail with "Directory not
-    // empty" when a process still holds a file handle open (e.g. file watcher).
-    // Manually nuke the directory and prune the stale worktree entry.
     if workspace_dir.exists() {
-        fs::remove_dir_all(workspace_dir).with_context(|| {
-            format!(
-                "Failed to remove worktree directory at {}",
-                workspace_dir.display()
-            )
-        })?;
+        // Rename to a sibling temp dir (instant O(1) on the same filesystem),
+        // then spawn a background thread for the slow recursive delete so the
+        // archive path returns immediately.
+        let trash_dir = renamed_to_trash(workspace_dir)?;
+        std::thread::spawn(move || {
+            if let Err(e) = fs::remove_dir_all(&trash_dir) {
+                tracing::warn!(
+                    path = %trash_dir.display(),
+                    error = %e,
+                    "Background worktree cleanup failed"
+                );
+            }
+        });
     }
     run_git(["-C", repo_root_str.as_str(), "worktree", "prune"], None)
         .map(|_| ())
         .with_context(|| format!("Failed to prune worktree for {}", workspace_dir.display()))
+}
+
+/// Rename `dir` to a `.trash-*` sibling so the caller can treat it as gone.
+fn renamed_to_trash(dir: &Path) -> Result<PathBuf> {
+    let parent = dir
+        .parent()
+        .with_context(|| format!("No parent for {}", dir.display()))?;
+    let name = dir
+        .file_name()
+        .with_context(|| format!("No filename for {}", dir.display()))?;
+    let trash_name = format!(".trash-{}-{}", name.to_string_lossy(), std::process::id());
+    let trash_dir = parent.join(&trash_name);
+    fs::rename(dir, &trash_dir).with_context(|| {
+        format!(
+            "Failed to rename {} to {}",
+            dir.display(),
+            trash_dir.display()
+        )
+    })?;
+    Ok(trash_dir)
 }
 
 pub fn remove_branch(repo_root: &Path, branch: &str) -> Result<()> {

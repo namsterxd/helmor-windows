@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -14,11 +14,6 @@ use super::lifecycle::{execute_archive_plan, prepare_archive_plan, ArchivePrepar
 
 pub const ARCHIVE_EXECUTION_FAILED_EVENT: &str = "archive-execution-failed";
 pub const ARCHIVE_EXECUTION_SUCCEEDED_EVENT: &str = "archive-execution-succeeded";
-
-fn archive_execution_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,21 +108,35 @@ pub fn start_archive_workspace<R: Runtime>(app: &AppHandle<R>, workspace_id: &st
     let workspace_id = workspace_id.to_string();
 
     tauri::async_runtime::spawn(async move {
+        let task_started = std::time::Instant::now();
+
+        let unwatch_started = std::time::Instant::now();
         app_handle
             .state::<git_watcher::GitWatcherManager>()
             .unwatch(&workspace_id);
+        tracing::debug!(
+            workspace_id,
+            elapsed_ms = unwatch_started.elapsed().as_millis(),
+            "Archive: git unwatch finished"
+        );
 
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            let _guard = archive_execution_lock()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("archive execution lock poisoned"))?;
-            execute_archive_plan(&plan)
-        })
-        .await;
+        let result =
+            tauri::async_runtime::spawn_blocking(move || execute_archive_plan(&plan)).await;
 
         match result {
             Ok(Ok(_)) => {
+                let sync_started = std::time::Instant::now();
                 git_watcher::notify_workspace_changed(&app_handle);
+                tracing::debug!(
+                    workspace_id,
+                    elapsed_ms = sync_started.elapsed().as_millis(),
+                    "Archive: notify_workspace_changed finished"
+                );
+                tracing::info!(
+                    workspace_id,
+                    total_ms = task_started.elapsed().as_millis(),
+                    "Archive: task finished (success)"
+                );
                 let _ = app_handle.emit(
                     ARCHIVE_EXECUTION_SUCCEEDED_EVENT,
                     ArchiveExecutionSucceededPayload {

@@ -291,7 +291,6 @@ export function useWorkspacesSidebarController({
 				next.set(payload.workspaceId, {
 					...existing,
 					stage: "confirmed",
-					sortTimestamp: Date.now(),
 				});
 				return next;
 			});

@@ -59,11 +59,13 @@ export function projectSidebarLists({
 	const archivedById = new Map<string, ProjectedArchivedRow>();
 	for (let index = 0; index < baseArchivedSummaries.length; index += 1) {
 		const summary = baseArchivedSummaries[index];
+		const pending = pendingArchives.get(summary.id);
 		archivedById.set(summary.id, {
 			row: summaryToArchivedRow(summary),
-			// Keep the server ordering stable while allowing newer optimistic
-			// placeholders to sit above previously archived rows.
-			sortTimestamp: -index,
+			// While a pending entry exists, inherit its sortTimestamp so the
+			// item doesn't jump when server data arrives. Once the pending
+			// entry is reconciled away, fall back to stable server ordering.
+			sortTimestamp: pending ? pending.sortTimestamp : -index,
 		});
 	}
 

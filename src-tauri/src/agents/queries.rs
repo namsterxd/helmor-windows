@@ -420,6 +420,29 @@ pub async fn list_slash_commands(
         "list_slash_commands request"
     );
 
+    // Guard: if cwd is provided but doesn't exist (archived/deleted workspace),
+    // skip the sidecar call. Spawning Claude CLI in a missing dir makes bun
+    // auto-create `node_modules/.bun` at that path, resurrecting the dir.
+    if !cwd.is_empty() && !std::path::Path::new(cwd).is_dir() {
+        tracing::debug!(
+            cwd,
+            "list_slash_commands: cwd missing, returning empty (cached repo fallback may still apply)"
+        );
+        if !repo_id.is_empty() {
+            let rkey = super::slash_commands::repo_key(&request.provider, repo_id);
+            if let Some((commands, _)) = cache.get_repo(&rkey) {
+                return Ok(SlashCommandsResponse {
+                    commands,
+                    is_complete: false,
+                });
+            }
+        }
+        return Ok(SlashCommandsResponse {
+            commands: Vec::new(),
+            is_complete: true,
+        });
+    }
+
     let ws_key = super::slash_commands::workspace_key(
         &request.provider,
         request.working_directory.as_deref(),
@@ -496,6 +519,18 @@ pub fn prewarm_slash_command_cache_for_workspace(app: &AppHandle, workspace_id: 
                     return;
                 }
             };
+            // Skip archived workspaces — their `root_path` still points at the
+            // old worktree location in DB, but the directory is gone. Spawning
+            // Claude CLI there makes bun auto-create `node_modules/.bun`,
+            // resurrecting the archived dir as a ghost.
+            if !record.state.is_operational() {
+                tracing::debug!(
+                    workspace_id,
+                    state = %record.state,
+                    "Slash-command prewarm: skipping non-operational workspace"
+                );
+                return;
+            }
             let Some(root_path) = record
                 .root_path
                 .as_deref()

@@ -466,6 +466,7 @@ pub(crate) fn run_archive_hook_inner(
 }
 
 pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
+    let timing = std::time::Instant::now();
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
         .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
@@ -502,6 +503,11 @@ pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
         );
     }
 
+    tracing::debug!(
+        workspace_id,
+        elapsed_ms = timing.elapsed().as_millis(),
+        "Archive: prepare_archive_plan finished"
+    );
     Ok(ArchivePreparedPlan {
         workspace_id: workspace_id.to_string(),
         repo_root,
@@ -527,8 +533,14 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
     let archived_context_dir = &plan.archived_context_dir;
     let workspace_id = &plan.workspace_id;
     let timing = std::time::Instant::now();
+    let git_started = std::time::Instant::now();
     let archive_commit = git_ops::current_workspace_head_commit(workspace_dir)?;
     git_ops::verify_commit_exists(repo_root, &archive_commit)?;
+    tracing::debug!(
+        workspace_id,
+        elapsed_ms = git_started.elapsed().as_millis(),
+        "Archive: HEAD resolve + verify finished"
+    );
 
     // Run archive script (best-effort, don't block archive on script failure).
     let hook_started = std::time::Instant::now();
@@ -573,6 +585,7 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
         "Archive worktree removal finished"
     );
 
+    let branch_delete_started = std::time::Instant::now();
     git_ops::run_git(
         [
             "-C",
@@ -584,6 +597,11 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
         None,
     )
     .ok();
+    tracing::debug!(
+        workspace_id,
+        elapsed_ms = branch_delete_started.elapsed().as_millis(),
+        "Archive: branch delete finished"
+    );
 
     if let Err(error) = fs::rename(&staged_archive_dir, archived_context_dir) {
         cleanup_failed_archive(
@@ -601,6 +619,7 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
         );
     }
 
+    let db_started = std::time::Instant::now();
     if let Err(error) =
         workspace_models::update_archived_workspace_state(workspace_id, &archive_commit)
     {
@@ -616,6 +635,11 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
         return Err(error);
     }
 
+    tracing::debug!(
+        workspace_id,
+        elapsed_ms = db_started.elapsed().as_millis(),
+        "Archive: DB state update finished"
+    );
     tracing::info!(
         workspace_id,
         elapsed_ms = timing.elapsed().as_millis(),
