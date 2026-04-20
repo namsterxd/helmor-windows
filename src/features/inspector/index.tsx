@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
@@ -10,9 +11,10 @@ import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
 import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
+import type { ScriptStatus } from "./script-store";
 import { ActionsSection } from "./sections/actions";
 import { ChangesSection } from "./sections/changes";
-import { RunTab } from "./sections/run";
+import { OpenDevServerButton, RunTab } from "./sections/run";
 import { SetupTab } from "./sections/setup";
 
 type WorkspaceInspectorSidebarProps = {
@@ -97,6 +99,17 @@ export function WorkspaceInspectorSidebar({
 		scriptsLoaded,
 	});
 
+	// Run-script state lifted to the sidebar so the tab header can render
+	// the "Open dev server" shortcut. The button only appears while the
+	// run script is actually running (a "resident" dev server). Once it's
+	// visible it self-tunes: disabled "Open" until a URL is detected in
+	// stdout, "Open:PORT" for a single URL, or a hover picker for 2+.
+	const [runStatus, setRunStatus] = useState<ScriptStatus>("idle");
+	const [runUrls, setRunUrls] = useState<string[]>([]);
+
+	const runTabActions =
+		runStatus === "running" ? <OpenDevServerButton urls={runUrls} /> : null;
+
 	// Per-tab status for the small indicator rendered next to each tab label.
 	// Subscribes at the sidebar level so the icons stay live even when the
 	// tab body itself is collapsed / not mounted.
@@ -171,6 +184,7 @@ export function WorkspaceInspectorSidebar({
 				onToggle={handleToggleTabs}
 				activeTab={activeTab}
 				onTabChange={setActiveTab}
+				tabActions={runTabActions}
 				setupScriptState={setupScriptState}
 				runScriptState={runScriptState}
 			>
@@ -187,6 +201,8 @@ export function WorkspaceInspectorSidebar({
 					runScript={repoScripts?.runScript ?? null}
 					isActive={activeTab === "run"}
 					onOpenSettings={handleOpenSettings}
+					onStatusChange={setRunStatus}
+					onUrlsChange={setRunUrls}
 				/>
 			</InspectorTabsSection>
 		</div>
