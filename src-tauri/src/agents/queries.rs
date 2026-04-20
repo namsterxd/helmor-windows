@@ -261,8 +261,23 @@ pub async fn generate_session_title(
                     "Skipping auto branch rename: branch already differs from default"
                 );
             } else {
-                let new_branch =
+                let base_branch =
                     crate::helpers::branch_name_for_directory(branch_segment, &branch_settings);
+
+                // Deduplicate: if the target branch already exists in git,
+                // append -2, -3, ... until we find a free name. Prevents
+                // collisions when multiple workspaces generate the same
+                // branch name from similar prompts.
+                let new_branch = if let Some(ref repo_root) = root_path {
+                    let repo = std::path::Path::new(repo_root);
+                    if repo.is_dir() {
+                        deduplicate_branch_name(&base_branch, repo)
+                    } else {
+                        base_branch
+                    }
+                } else {
+                    base_branch
+                };
 
                 if old_branch.as_deref() != Some(new_branch.as_str()) {
                     let fs_rename_attempted = matches!(
@@ -323,6 +338,38 @@ pub async fn generate_session_title(
         branch_renamed,
         skipped: false,
     })
+}
+
+/// If `base` already exists as a local branch, try `base-2`, `base-3`, …
+/// up to a small limit. Returns the first free name, or `base` unchanged
+/// if the check itself fails (defensive: let `git branch -m` report the
+/// real error).
+fn deduplicate_branch_name(base: &str, repo_root: &std::path::Path) -> String {
+    let repo_root_str = repo_root.display().to_string();
+    let exists = |name: &str| -> bool {
+        crate::git_ops::run_git(
+            [
+                "-C",
+                &repo_root_str,
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{name}"),
+            ],
+            None,
+        )
+        .is_ok()
+    };
+    if !exists(base) {
+        return base.to_string();
+    }
+    for n in 2..=100 {
+        let candidate = format!("{base}-{n}");
+        if !exists(&candidate) {
+            return candidate;
+        }
+    }
+    // All 100 slots taken — return base and let git report the error.
+    base.to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
