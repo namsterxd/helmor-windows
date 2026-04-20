@@ -49,6 +49,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 				};
 			},
 		),
+		setBadgeCount: vi.fn(async () => {}),
 	}),
 }));
 

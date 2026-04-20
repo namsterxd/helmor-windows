@@ -31,6 +31,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceCommitLifecycle } from "@/features/commit/hooks/use-commit-lifecycle";
 import { WorkspaceConversationContainer } from "@/features/conversation";
+import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
@@ -441,6 +442,7 @@ function AppShell({
 
 	const { settings: appSettings } = useSettings();
 	useAppUpdater();
+	useDockUnreadBadge();
 	const notify = useOsNotifications(appSettings);
 	const [installedEditors, setInstalledEditors] = useState<DetectedEditor[]>(
 		[],
