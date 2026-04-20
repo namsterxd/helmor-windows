@@ -16,10 +16,12 @@ import { extractPort } from "../detect-urls";
 import {
 	attach,
 	detach,
+	resizeScript,
 	type ScriptStatus,
 	startScript,
 	stopScript,
 	TRUNCATION_NOTICE,
+	writeStdin,
 } from "../script-store";
 
 type RunTabProps = {
@@ -206,6 +208,24 @@ export function RunTab({
 		stopScript(repoId, "run", workspaceId);
 	}, [repoId, workspaceId]);
 
+	// Forward keystrokes to the PTY. The backend silently ignores writes
+	// when no script is live, so we don't gate this on status.
+	const handleData = useCallback(
+		(data: string) => {
+			if (!repoId || !workspaceId) return;
+			writeStdin(repoId, "run", workspaceId, data);
+		},
+		[repoId, workspaceId],
+	);
+
+	const handleResize = useCallback(
+		(cols: number, rows: number) => {
+			if (!repoId || !workspaceId) return;
+			resizeScript(repoId, "run", workspaceId, cols, rows);
+		},
+		[repoId, workspaceId],
+	);
+
 	const hasScript = !!runScript?.trim();
 
 	return (
@@ -222,7 +242,12 @@ export function RunTab({
 			{hasRun ? (
 				<>
 					<div className="min-h-0 flex-1">
-						<TerminalOutput terminalRef={termRef} className="h-full" />
+						<TerminalOutput
+							terminalRef={termRef}
+							className="h-full"
+							onData={handleData}
+							onResize={handleResize}
+						/>
 					</div>
 
 					{(status === "running" || status === "exited") && (

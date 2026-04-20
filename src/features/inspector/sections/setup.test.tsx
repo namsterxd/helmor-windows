@@ -11,6 +11,8 @@ import { SetupTab } from "./setup";
 const apiMocks = vi.hoisted(() => ({
 	executeRepoScript: vi.fn(),
 	stopRepoScript: vi.fn(),
+	writeRepoScriptStdin: vi.fn(),
+	resizeRepoScript: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -19,6 +21,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		...actual,
 		executeRepoScript: apiMocks.executeRepoScript,
 		stopRepoScript: apiMocks.stopRepoScript,
+		writeRepoScriptStdin: apiMocks.writeRepoScriptStdin,
+		resizeRepoScript: apiMocks.resizeRepoScript,
 	};
 });
 
@@ -53,6 +57,8 @@ describe("SetupTab", () => {
 	beforeEach(() => {
 		apiMocks.executeRepoScript.mockReset().mockResolvedValue(undefined);
 		apiMocks.stopRepoScript.mockReset().mockResolvedValue(true);
+		apiMocks.writeRepoScriptStdin.mockReset().mockResolvedValue(true);
+		apiMocks.resizeRepoScript.mockReset().mockResolvedValue(true);
 	});
 
 	afterEach(() => {

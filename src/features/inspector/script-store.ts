@@ -1,4 +1,10 @@
-import { executeRepoScript, type ScriptEvent, stopRepoScript } from "@/lib/api";
+import {
+	executeRepoScript,
+	resizeRepoScript,
+	type ScriptEvent,
+	stopRepoScript,
+	writeRepoScriptStdin,
+} from "@/lib/api";
 import { dedupUrlKey, extractLocalUrls } from "./detect-urls";
 
 export type ScriptStatus = "idle" | "running" | "exited";
@@ -199,6 +205,35 @@ export function stopScript(
 	workspaceId: string,
 ) {
 	void stopRepoScript(repoId, scriptType, workspaceId);
+}
+
+/**
+ * Forward a keystroke / paste to the backend PTY. Fire-and-forget:
+ * xterm produces the bytes synchronously, we don't want typing to await
+ * IPC. The backend silently ignores writes if no script is live.
+ */
+export function writeStdin(
+	repoId: string,
+	scriptType: "setup" | "run",
+	workspaceId: string,
+	data: string,
+) {
+	void writeRepoScriptStdin(repoId, scriptType, workspaceId, data);
+}
+
+/**
+ * Forward a terminal resize to the backend PTY. Fire-and-forget for the
+ * same reason as writeStdin — resize events fire rapidly during window
+ * drags and we don't want to stall the frontend.
+ */
+export function resizeScript(
+	repoId: string,
+	scriptType: "setup" | "run",
+	workspaceId: string,
+	cols: number,
+	rows: number,
+) {
+	void resizeRepoScript(repoId, scriptType, workspaceId, cols, rows);
 }
 
 /** Attach a live listener. Returns current entry for replay, or null. */

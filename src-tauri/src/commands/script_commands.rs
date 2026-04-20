@@ -114,3 +114,33 @@ pub async fn stop_repo_script(
     let key = (repo_id, script_type, workspace_id);
     Ok(manager.kill(&key))
 }
+
+/// Write raw bytes to the PTY master of a running script. The kernel's tty
+/// line discipline turns `\x03` into SIGINT for the foreground process group,
+/// so this is what makes Ctrl+C inside the terminal tab actually work.
+#[tauri::command]
+pub async fn write_repo_script_stdin(
+    manager: State<'_, ScriptProcessManager>,
+    repo_id: String,
+    script_type: String,
+    workspace_id: Option<String>,
+    data: String,
+) -> CmdResult<bool> {
+    let key = (repo_id, script_type, workspace_id);
+    Ok(manager.write_stdin(&key, data.as_bytes())?)
+}
+
+/// Update the PTY's window size. The kernel delivers SIGWINCH to the
+/// foreground process group so interactive tools (vim, htop, less) re-layout.
+#[tauri::command]
+pub async fn resize_repo_script(
+    manager: State<'_, ScriptProcessManager>,
+    repo_id: String,
+    script_type: String,
+    workspace_id: Option<String>,
+    cols: u16,
+    rows: u16,
+) -> CmdResult<bool> {
+    let key = (repo_id, script_type, workspace_id);
+    Ok(manager.resize(&key, cols, rows)?)
+}
