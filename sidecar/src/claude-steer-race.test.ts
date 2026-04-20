@@ -144,3 +144,97 @@ describe("ClaudeSessionManager.steer ghost-steer guards", () => {
 		});
 	});
 });
+
+describe("ClaudeSessionManager.steer @-ref preservation", () => {
+	/**
+	 * The synthetic event's `text` MUST be the raw prompt, not the
+	 * `parseImageRefs`-stripped version. `split_user_text_with_files`
+	 * (both the Rust adapter and the frontend mirror) finds
+	 * `@<path>` tokens by exact match — if we strip them the bubble
+	 * loses its FileMention badges after the accumulator flush
+	 * replaces the optimistic append. Same shape as
+	 * `persist_user_message` writes for initial prompts.
+	 */
+	test("preserves image refs in synthetic event text", async () => {
+		const manager = new ClaudeSessionManager();
+		const { emitter, passthroughs } = makeSpyEmitter();
+		const promptSource = createPushable<SDKUserMessage>();
+
+		injectSession(manager, "s1", {
+			query: queryStub,
+			abortController: new AbortController(),
+			promptSource,
+			requestId: "rid-1",
+			emitter,
+		});
+
+		await manager.steer("s1", "check this @/tmp/foo.png please", []);
+
+		const [first] = passthroughs;
+		if (!first) throw new Error("expected emit");
+		// Image ref must still be in text. If the old
+		// parseImageRefs-stripped version leaks back in, this reads
+		// "check this  please" (double space + missing ref) and the
+		// bubble loses every `@/image.png` on reload.
+		expect(first.message).toMatchObject({
+			type: "user_prompt",
+			text: "check this @/tmp/foo.png please",
+			steer: true,
+		});
+	});
+
+	test("preserves file mention refs in synthetic event text", async () => {
+		const manager = new ClaudeSessionManager();
+		const { emitter, passthroughs } = makeSpyEmitter();
+		const promptSource = createPushable<SDKUserMessage>();
+
+		injectSession(manager, "s1", {
+			query: queryStub,
+			abortController: new AbortController(),
+			promptSource,
+			requestId: "rid-1",
+			emitter,
+		});
+
+		await manager.steer("s1", "review @src/foo.ts and @src/bar.ts", [
+			"src/foo.ts",
+			"src/bar.ts",
+		]);
+
+		const [first] = passthroughs;
+		if (!first) throw new Error("expected emit");
+		// Both `@<file>` tokens AND the `files` array must be intact —
+		// the adapter uses both to build FileMention parts.
+		expect(first.message).toMatchObject({
+			type: "user_prompt",
+			text: "review @src/foo.ts and @src/bar.ts",
+			steer: true,
+			files: ["src/foo.ts", "src/bar.ts"],
+		});
+	});
+
+	test("preserves mixed image + file + custom-tag inline text", async () => {
+		const manager = new ClaudeSessionManager();
+		const { emitter, passthroughs } = makeSpyEmitter();
+		const promptSource = createPushable<SDKUserMessage>();
+
+		injectSession(manager, "s1", {
+			query: queryStub,
+			abortController: new AbortController(),
+			promptSource,
+			requestId: "rid-1",
+			emitter,
+		});
+
+		// The composer inlines custom-tag submitText into the prompt
+		// before submit (see `$extractComposerContent`), so from the
+		// sidecar's viewpoint they look like any other text. The steer
+		// path must pass the whole thing through untouched.
+		const raw = "@tasks:cleanup inspect @/img.png for @src/a.ts issues";
+		await manager.steer("s1", raw, ["src/a.ts"]);
+
+		const [first] = passthroughs;
+		if (!first) throw new Error("expected emit");
+		expect((first.message as { text: string }).text).toBe(raw);
+	});
+});

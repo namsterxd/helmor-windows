@@ -617,9 +617,16 @@ export class ClaudeSessionManager implements SessionManager {
 	 * streaming-input queue so the SDK folds it into the current extended
 	 * turn, and emit a `user_prompt` passthrough event so the accumulator
 	 * renders the user bubble at the correct position AND streaming.rs
-	 * persists it exactly once (no extra DB path). Event shape matches
-	 * what the adapter's `user_prompt` branch reads on reload so
-	 * live/reload rendering stay identical — `files` included.
+	 * persists it exactly once (no extra DB path).
+	 *
+	 * Event shape matches `persist_user_message`'s DB row exactly:
+	 * `{ type: "user_prompt", text: <raw prompt>, steer: true, files }`.
+	 * We emit the RAW prompt (not the image-stripped version), keeping
+	 * every `@/image.png` / `@src/foo.ts` / custom-tag sigil intact —
+	 * that's what the adapter's `split_user_text_with_files` relies on
+	 * to produce FileMention badges, and matches what a non-steer
+	 * initial prompt stores. The image stripping is ONLY used to build
+	 * the `SDKUserMessage` base64 image blocks we hand to the SDK.
 	 *
 	 * Two correctness properties this method enforces:
 	 *
@@ -650,15 +657,18 @@ export class ClaudeSessionManager implements SessionManager {
 			return false;
 		}
 
-		const { text, imagePaths } = parseImageRefs(prompt);
+		// Strip image refs to build the SDK's base64 image content. Keep
+		// the raw prompt separately — that's what the synthetic event +
+		// DB row need so `@-refs` survive the round-trip.
+		const { text: stripped, imagePaths } = parseImageRefs(prompt);
 		const sdkMessage =
 			imagePaths.length === 0
 				? ({
 						type: "user",
-						message: { role: "user", content: text },
+						message: { role: "user", content: prompt },
 						parent_tool_use_id: null,
 					} as SDKUserMessage)
-				: await buildUserMessageWithImages(text, imagePaths);
+				: await buildUserMessageWithImages(stripped, imagePaths);
 
 		// Re-check after the image-loading await — during those awaits
 		// the for-await loop may have hit the extended turn's single
@@ -673,13 +683,14 @@ export class ClaudeSessionManager implements SessionManager {
 			text: string;
 			steer: true;
 			files?: string[];
-		} = { type: "user_prompt", text, steer: true };
+		} = { type: "user_prompt", text: prompt, steer: true };
 		if (files.length > 0) event.files = [...files];
 		session.emitter.passthrough(session.requestId, event);
 		session.promptSource.push(sdkMessage);
 		logger.info(`steer ${sessionId}`, {
-			preview: text.slice(0, 60),
+			preview: prompt.slice(0, 60),
 			fileCount: files.length,
+			imageCount: imagePaths.length,
 		});
 		return true;
 	}
