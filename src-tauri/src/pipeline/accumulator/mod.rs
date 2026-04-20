@@ -795,9 +795,15 @@ impl StreamAccumulator {
             let cumulative_snapshot = same_msg_id
                 && cumulative_assistant_snapshot_prefix_matches(&self.cur_asst_blocks, blocks);
 
-            if !same_msg_id || cumulative_snapshot {
+            // Cumulative: reset count so reused indices produce stable part_ids.
+            // Non-cumulative new-msg: clear buffer but keep count monotonic so
+            // part_ids don't collide with the previous message when two events
+            // share the same active turn_id (e.g. no explicit `message.id`).
+            if cumulative_snapshot {
                 self.cur_asst_blocks.clear();
                 self.cur_asst_block_count = 0;
+            } else if !same_msg_id {
+                self.cur_asst_blocks.clear();
             }
             let mut stamped_blocks = blocks.clone();
             for (i, block) in stamped_blocks.iter_mut().enumerate() {
