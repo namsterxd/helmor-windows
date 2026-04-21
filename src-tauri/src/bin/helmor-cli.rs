@@ -4,7 +4,8 @@
 //! to the same SQLite database and worktree layout.
 //!
 //! Cargo binary name is `helmor-cli` (to avoid conflicting with the Tauri GUI
-//! binary). The install process copies it as `helmor` to the user's PATH.
+//! binary). The install process exposes it as `helmor` in release builds and
+//! `helmor-dev` in debug builds.
 //!
 //! The CLI body lives in `helmor_lib::cli` so it can reach crate-private
 //! domain logic. This binary is just the entry point.

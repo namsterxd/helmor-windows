@@ -1,9 +1,10 @@
-//! `helmor cli-status`, `completions`, `quit` — meta / system commands.
+//! `helmor` / `helmor-dev` meta / system commands.
 //!
 //! `install_cli` is intentionally omitted: the installer copies the
-//! currently-running binary to `/usr/local/bin/helmor`, which is how the
+//! currently-running binary to `/usr/local/bin/helmor` (or `helmor-dev` in
+//! debug builds), which is how the
 //! desktop Settings UI already handles it. From the CLI, the analogous
-//! operation is just `cp "$(command -v helmor)" /usr/local/bin/helmor`
+//! operation is just `cp "$(command -v helmor)" /usr/local/bin/<name>`
 //! and we shouldn't invite accidental privilege escalation.
 
 use std::io::Write;
@@ -27,7 +28,7 @@ struct CliStatusPayload {
 }
 
 pub fn cli_status(cli: &Cli) -> Result<()> {
-    let install_path = std::path::PathBuf::from("/usr/local/bin/helmor");
+    let install_path = std::path::PathBuf::from(format!("/usr/local/bin/{}", installed_cli_name()));
     let installed = install_path.exists();
     let current = std::env::current_exe()
         .ok()
@@ -72,9 +73,17 @@ pub fn completions(shell: CompletionShell) -> Result<()> {
         CompletionShell::Elvish => Shell::Elvish,
     };
     let mut stdout = std::io::stdout();
-    clap_complete::generate(clap_shell, &mut cmd, "helmor", &mut stdout);
+    clap_complete::generate(clap_shell, &mut cmd, installed_cli_name(), &mut stdout);
     stdout.flush()?;
     Ok(())
+}
+
+fn installed_cli_name() -> &'static str {
+    if crate::data_dir::is_dev() {
+        "helmor-dev"
+    } else {
+        "helmor"
+    }
 }
 
 /// Tell the running app to shut down.

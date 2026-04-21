@@ -1,4 +1,4 @@
-//! Clap argument definitions for every `helmor` subcommand.
+//! Clap argument definitions for every installed Helmor CLI subcommand.
 //!
 //! Split out from `mod.rs` so dispatch logic and argument schema evolve
 //! independently — adding a new flag only touches this file plus the
@@ -91,7 +91,7 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: CompletionShell,
     },
-    /// Report whether `helmor` is installed to PATH and which data mode it uses.
+    /// Report whether the current Helmor CLI entrypoint is installed to PATH and which data mode it uses.
     CliStatus,
     /// Ask a running Helmor app to quit (noop when it isn't running).
     Quit,

@@ -29,14 +29,29 @@ mod workspace;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 
 pub use self::args::{Cli, Commands};
+
+fn installed_cli_name() -> &'static str {
+    if crate::data_dir::is_dev() {
+        "helmor-dev"
+    } else {
+        "helmor"
+    }
+}
 
 /// Entry point. Parses arguments, initialises the data directory and
 /// schema, then dispatches. Returns a process exit code.
 pub fn run() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = {
+        let command_name = installed_cli_name();
+        let matches = Cli::command()
+            .name(command_name)
+            .bin_name(command_name)
+            .get_matches();
+        Cli::from_arg_matches(&matches).expect("command matches should parse into Cli")
+    };
 
     if let Some(ref dir) = cli.data_dir {
         // SAFETY: called in main() before any threads are spawned.

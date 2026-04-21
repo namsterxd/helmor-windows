@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 const GITHUB_CLIENT_ID_KEY: &str = "HELMOR_GITHUB_CLIENT_ID";
@@ -6,6 +7,7 @@ const UPDATER_ENDPOINTS_KEY: &str = "HELMOR_UPDATER_ENDPOINTS";
 const UPDATER_PUBKEY_KEY: &str = "HELMOR_UPDATER_PUBKEY";
 
 fn main() {
+    ensure_bundled_cli_placeholder();
     tauri_build::build();
 
     println!("cargo:rerun-if-changed=build.rs");
@@ -20,6 +22,30 @@ fn main() {
         load_env_var(&env_path, GITHUB_CLIENT_ID_KEY);
         load_env_var(&env_path, UPDATER_ENDPOINTS_KEY);
         load_env_var(&env_path, UPDATER_PUBKEY_KEY);
+    }
+}
+
+fn ensure_bundled_cli_placeholder() {
+    let Ok(target) = env::var("TARGET") else {
+        return;
+    };
+
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"));
+    let bundled_dir = manifest_dir.join("target").join("bundled");
+    let bundled_cli = bundled_dir.join(format!("helmor-cli-{target}"));
+
+    if bundled_cli.exists() {
+        return;
+    }
+
+    let _ = fs::create_dir_all(&bundled_dir);
+    let _ = fs::write(&bundled_cli, "#!/bin/sh\nexit 0\n");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&bundled_cli, fs::Permissions::from_mode(0o755));
     }
 }
 

@@ -530,6 +530,7 @@ export type CliStatus = {
 	installed: boolean;
 	installPath: string | null;
 	buildMode: string;
+	installState: "missing" | "managed" | "stale";
 };
 
 export async function getCliStatus(): Promise<CliStatus> {
