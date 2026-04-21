@@ -23,7 +23,9 @@ import {
 	type ActionProvider,
 	type ActionStatusKind,
 	getWorkspacePrCheckInsertText,
+	loadRepoPreferences,
 	type PullRequestInfo,
+	type RepoPreferences,
 	type SyncWorkspaceTargetResponse,
 	syncWorkspaceWithTargetBranch,
 	type WorkspaceGitActionStatus,
@@ -36,6 +38,7 @@ import {
 	workspaceGitActionStatusQueryOptions,
 	workspacePrActionStatusQueryOptions,
 } from "@/lib/query-client";
+import { resolveRepoPreferencePrompt } from "@/lib/repo-preferences-prompts";
 import { cn } from "@/lib/utils";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import {
@@ -91,6 +94,7 @@ const EMPTY_PR_ACTION_STATUS: WorkspacePrActionStatus = {
 
 type ActionsSectionProps = {
 	workspaceId: string | null;
+	repoId?: string | null;
 	workspaceRemote?: string | null;
 	sectionRef?: React.RefObject<HTMLElement | null>;
 	bodyHeight: number;
@@ -112,6 +116,7 @@ type ActionsSectionProps = {
 
 function buildSyncResolutionPrompt(
 	result: SyncWorkspaceTargetResponse,
+	repoPreferences: RepoPreferences | null,
 	workspaceRemote?: string | null,
 ): string {
 	const remote = workspaceRemote?.trim();
@@ -126,15 +131,17 @@ function buildSyncResolutionPrompt(
 				? `${remote}/${targetBranch}`
 				: targetBranch;
 
-	if (result.outcome === "dirtyWorktree") {
-		return `Commit uncommitted changes, then merge ${targetRef} into this branch. Then push.`;
-	}
-
-	return `Merge ${targetRef} into this branch. Then push.`;
+	return resolveRepoPreferencePrompt({
+		key: "resolveConflicts",
+		repoPreferences,
+		targetRef,
+		dirtyWorktree: result.outcome === "dirtyWorktree",
+	});
 }
 
 export function ActionsSection({
 	workspaceId,
+	repoId,
 	workspaceRemote,
 	sectionRef,
 	bodyHeight,
@@ -169,7 +176,7 @@ export function ActionsSection({
 		: Math.max(0, Math.round(bodyHeight * 0.3));
 	const actionDisabled = commitButtonState === "busy";
 	const queueSyncResolutionPrompt = useCallback(
-		(result: SyncWorkspaceTargetResponse) => {
+		async (result: SyncWorkspaceTargetResponse) => {
 			if (!currentSessionId || !onQueuePendingPromptForSession) {
 				return false;
 			}
@@ -180,10 +187,14 @@ export function ActionsSection({
 				);
 				return false;
 			}
-
+			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
 			onQueuePendingPromptForSession({
 				sessionId: currentSessionId,
-				prompt: buildSyncResolutionPrompt(result, workspaceRemote),
+				prompt: buildSyncResolutionPrompt(
+					result,
+					repoPreferences,
+					workspaceRemote,
+				),
 			});
 			return true;
 		},
@@ -191,6 +202,7 @@ export function ActionsSection({
 			currentSessionId,
 			onQueuePendingPromptForSession,
 			pushToast,
+			repoId,
 			sendingSessionIds,
 			workspaceRemote,
 		],
@@ -209,9 +221,9 @@ export function ActionsSection({
 			} else if (result.outcome === "alreadyUpToDate") {
 				toast(`Already up to date with ${target}`);
 			} else if (result.outcome === "conflict") {
-				queueSyncResolutionPrompt(result);
+				await queueSyncResolutionPrompt(result);
 			} else {
-				queueSyncResolutionPrompt(result);
+				await queueSyncResolutionPrompt(result);
 			}
 		} catch (error) {
 			const message =

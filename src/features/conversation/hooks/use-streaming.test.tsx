@@ -16,6 +16,7 @@ import { useConversationStreaming } from "./use-streaming";
 
 const apiMocks = vi.hoisted(() => ({
 	generateSessionTitle: vi.fn(),
+	loadRepoPreferences: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
 	renameSession: vi.fn(),
 	respondToDeferredTool: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 	return {
 		...actual,
 		generateSessionTitle: apiMocks.generateSessionTitle,
+		loadRepoPreferences: apiMocks.loadRepoPreferences,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
 		renameSession: apiMocks.renameSession,
 		respondToDeferredTool: apiMocks.respondToDeferredTool,
@@ -150,6 +152,7 @@ function assistantMessage(
 describe("useConversationStreaming", () => {
 	beforeEach(() => {
 		apiMocks.generateSessionTitle.mockReset();
+		apiMocks.loadRepoPreferences.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
 		apiMocks.renameSession.mockReset();
 		apiMocks.respondToDeferredTool.mockReset();
@@ -157,6 +160,7 @@ describe("useConversationStreaming", () => {
 		apiMocks.startAgentMessageStream.mockReset();
 		apiMocks.steerAgentStream.mockReset();
 		apiMocks.stopAgentStream.mockReset();
+		apiMocks.loadRepoPreferences.mockResolvedValue({});
 
 		apiMocks.generateSessionTitle.mockResolvedValue(null);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
@@ -481,6 +485,57 @@ describe("useConversationStreaming", () => {
 			}),
 		);
 		expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
+	});
+
+	it("prepends the repo general preference to the first prompt only", async () => {
+		apiMocks.loadRepoPreferences.mockResolvedValue({
+			general: "Always summarize the repo conventions first.",
+		});
+		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
+
+		const { Wrapper, queryClient } = createWrapper();
+		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+			{
+				id: "session-1",
+				title: "Untitled",
+			},
+		]);
+		queryClient.setQueryData(sessionThreadCacheKey("session-1"), []);
+
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					repoId: "repo-1",
+					selectionPending: false,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "Fix the failing tests.",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/repo",
+				effortLevel: "high",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt:
+					"Always summarize the repo conventions first.\n\nUser request:\nFix the failing tests.",
+			}),
+			expect.any(Function),
+		);
 	});
 
 	it("restores draft and surfaces error when steer is rejected", async () => {

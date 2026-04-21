@@ -29,6 +29,7 @@ type WorkspaceConversationContainerProps = {
 	displayedWorkspaceId: string | null;
 	selectedSessionId: string | null;
 	displayedSessionId: string | null;
+	repoId?: string | null;
 	sessionSelectionHistory?: string[];
 	onSelectSession: (sessionId: string | null) => void;
 	onResolveDisplayedSession: (sessionId: string | null) => void;
@@ -74,6 +75,7 @@ export const WorkspaceConversationContainer = memo(
 		displayedWorkspaceId,
 		selectedSessionId,
 		displayedSessionId,
+		repoId = null,
 		sessionSelectionHistory = [],
 		onSelectSession,
 		onResolveDisplayedSession,
@@ -138,6 +140,7 @@ export const WorkspaceConversationContainer = memo(
 			displayedSelectedModelId,
 			displayedSessionId,
 			displayedWorkspaceId,
+			repoId,
 			selectionPending,
 			onSendingSessionsChange,
 			onSendingWorkspacesChange,

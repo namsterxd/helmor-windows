@@ -19,12 +19,12 @@ import { SetupTab } from "./sections/setup";
 
 type WorkspaceInspectorSidebarProps = {
 	workspaceId?: string | null;
+	repoId?: string | null;
 	workspaceRootPath?: string | null;
 	workspaceBranch?: string | null;
 	workspaceTargetBranch?: string | null;
 	workspaceRemote?: string | null;
 	workspaceState?: string | null;
-	repoId?: string | null;
 	editorMode: boolean;
 	activeEditorPath?: string | null;
 	onOpenEditorFile(path: string, options?: DiffOpenOptions): void;
@@ -168,6 +168,7 @@ export function WorkspaceInspectorSidebar({
 
 			<ActionsSection
 				workspaceId={workspaceId ?? null}
+				repoId={repoId ?? null}
 				workspaceRemote={workspaceRemote ?? null}
 				sectionRef={actionsRef}
 				bodyHeight={actionsHeight}

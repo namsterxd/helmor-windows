@@ -13,6 +13,7 @@ import { stabilizeStreamingMessages } from "@/features/conversation/streaming-ta
 import type { AgentModelOption, ThreadMessageLike } from "@/lib/api";
 import {
 	generateSessionTitle,
+	loadRepoPreferences,
 	renameSession,
 	respondToDeferredTool,
 	respondToElicitationRequest,
@@ -27,6 +28,7 @@ import {
 	helmorQueryKeys,
 	sessionThreadMessagesQueryOptions,
 } from "@/lib/query-client";
+import { prependGeneralPreferencePrompt } from "@/lib/repo-preferences-prompts";
 import {
 	appendUserMessage,
 	readSessionThread,
@@ -98,6 +100,7 @@ type UseConversationStreamingArgs = {
 	composerContextKey: string;
 	displayedSessionId: string | null;
 	displayedWorkspaceId: string | null;
+	repoId?: string | null;
 	displayedSelectedModelId: string | null;
 	selectionPending: boolean;
 	onSendingWorkspacesChange?: (workspaceIds: Set<string>) => void;
@@ -113,6 +116,7 @@ export function useConversationStreaming({
 	composerContextKey,
 	displayedSessionId,
 	displayedWorkspaceId,
+	repoId,
 	displayedSelectedModelId,
 	selectionPending,
 	onSendingWorkspacesChange,
@@ -1053,15 +1057,6 @@ export function useConversationStreaming({
 				}
 			}
 
-			const now = new Date().toISOString();
-			const userMessageId = crypto.randomUUID();
-			const optimisticUserMessage = createLiveThreadMessage({
-				id: userMessageId,
-				role: "user",
-				text: trimmedPrompt,
-				createdAt: now,
-				files: filePaths,
-			});
 			const previousLiveSession = liveSessionsByContext[contextKey];
 			const providerSessionId =
 				previousLiveSession?.provider === model.provider
@@ -1087,6 +1082,19 @@ export function useConversationStreaming({
 			const isFirstUserMessage =
 				(currentThread ?? []).every((message) => message.role !== "user") &&
 				(currentTitle == null || currentTitle === "Untitled");
+			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
+			const finalPrompt = isFirstUserMessage
+				? prependGeneralPreferencePrompt(trimmedPrompt, repoPreferences)
+				: trimmedPrompt;
+			const now = new Date().toISOString();
+			const userMessageId = crypto.randomUUID();
+			const optimisticUserMessage = createLiveThreadMessage({
+				id: userMessageId,
+				role: "user",
+				text: finalPrompt,
+				createdAt: now,
+				files: filePaths,
+			});
 			let titleSeed: string | null = null;
 			if (isFirstUserMessage) {
 				titleSeed = buildTitleSeed(trimmedPrompt);
@@ -1208,7 +1216,7 @@ export function useConversationStreaming({
 					{
 						provider: model.provider,
 						modelId: model.id,
-						prompt: trimmedPrompt,
+						prompt: finalPrompt,
 						sessionId: providerSessionId,
 						helmorSessionId: displayedSessionId,
 						workingDirectory,
@@ -1408,6 +1416,7 @@ export function useConversationStreaming({
 			liveSessionsByContext,
 			pushToast,
 			queryClient,
+			repoId,
 			rememberInteractionWorkspace,
 			selectionPending,
 			refreshSessionThreadFromDb,

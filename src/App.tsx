@@ -1227,6 +1227,7 @@ function AppShell({
 		queryClient,
 		selectedWorkspaceId,
 		selectedWorkspaceIdRef,
+		selectedRepoId: selectedWorkspaceDetailQuery.data?.repoId ?? null,
 		workspaceManualStatus: selectedWorkspaceManualStatus,
 		workspacePrInfo,
 		workspacePrActionStatus,
@@ -1936,6 +1937,9 @@ function AppShell({
 												displayedWorkspaceId={displayedWorkspaceId}
 												selectedSessionId={selectedSessionId}
 												displayedSessionId={displayedSessionId}
+												repoId={
+													selectedWorkspaceDetailQuery.data?.repoId ?? null
+												}
 												sessionSelectionHistory={
 													selectedWorkspaceId
 														? (sessionSelectionHistoryByWorkspaceRef.current[
