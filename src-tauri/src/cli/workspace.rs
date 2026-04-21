@@ -22,7 +22,13 @@ pub fn dispatch(action: &WorkspaceAction, cli: &Cli) -> Result<()> {
             status,
             repo_ref,
             pinned,
-        } => list(*archived, status.as_deref(), repo_ref.as_deref(), *pinned, cli),
+        } => list(
+            *archived,
+            status.as_deref(),
+            repo_ref.as_deref(),
+            *pinned,
+            cli,
+        ),
         WorkspaceAction::Show { workspace_ref } => show(workspace_ref, cli),
         WorkspaceAction::New { repo } => new(repo, cli),
         WorkspaceAction::Delete { workspace_ref } => delete(workspace_ref, cli),
@@ -34,7 +40,10 @@ pub fn dispatch(action: &WorkspaceAction, cli: &Cli) -> Result<()> {
         WorkspaceAction::Status { workspace_ref } => status(workspace_ref, cli),
         WorkspaceAction::Pin { workspace_ref } => pin(workspace_ref, cli),
         WorkspaceAction::Unpin { workspace_ref } => unpin(workspace_ref, cli),
-        WorkspaceAction::Mark { state, workspace_ref } => mark(*state, workspace_ref, cli),
+        WorkspaceAction::Mark {
+            state,
+            workspace_ref,
+        } => mark(*state, workspace_ref, cli),
         WorkspaceAction::ManualStatus { action } => manual_status(action, cli),
         WorkspaceAction::Branch { action } => branch(action, cli),
         WorkspaceAction::TargetBranch { action } => target_branch(action, cli),
@@ -59,7 +68,12 @@ fn list(
                 "No archived workspaces.".to_string()
             } else {
                 rows.iter()
-                    .map(|r| format!("{}/{}\t{}\t{}", r.repo_name, r.directory_name, r.id, r.title))
+                    .map(|r| {
+                        format!(
+                            "{}/{}\t{}\t{}",
+                            r.repo_name, r.directory_name, r.id, r.title
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             }
@@ -395,7 +409,8 @@ fn linked_dirs(action: &LinkedDirsAction, cli: &Cli) -> Result<()> {
             directories,
         } => {
             let id = service::resolve_workspace_ref(workspace_ref)?;
-            let normalized = workspaces::set_workspace_linked_directories(&id, directories.clone())?;
+            let normalized =
+                workspaces::set_workspace_linked_directories(&id, directories.clone())?;
             output::print(cli, &normalized, |items| {
                 format!("Linked directories:\n{}", items.join("\n"))
             })

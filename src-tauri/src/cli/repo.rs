@@ -63,7 +63,14 @@ fn list(cli: &Cli) -> Result<()> {
         }
         items
             .iter()
-            .map(|r| format!("{}\t{}\t{}", r.id, r.name, r.default_branch.as_deref().unwrap_or("-")))
+            .map(|r| {
+                format!(
+                    "{}\t{}\t{}",
+                    r.id,
+                    r.name,
+                    r.default_branch.as_deref().unwrap_or("-")
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n")
     })

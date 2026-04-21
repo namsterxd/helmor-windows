@@ -56,16 +56,14 @@ pub fn send(args: &SendArgs, cli: &Cli) -> Result<()> {
                 resolved_model,
                 session_id,
                 ..
-            } => {
-                if !quiet {
-                    let _ = writeln!(stdout);
-                    let _ = writeln!(stdout, "---");
-                    let _ = writeln!(
-                        stdout,
-                        "Done ({provider}/{resolved_model}) session={}",
-                        session_id.as_deref().unwrap_or("-")
-                    );
-                }
+            } if !quiet => {
+                let _ = writeln!(stdout);
+                let _ = writeln!(stdout, "---");
+                let _ = writeln!(
+                    stdout,
+                    "Done ({provider}/{resolved_model}) session={}",
+                    session_id.as_deref().unwrap_or("-")
+                );
             }
             AgentStreamEvent::Aborted { reason, .. } => {
                 let _ = writeln!(stdout);
@@ -114,10 +112,7 @@ fn list_models(cli: &Cli) -> Result<()> {
     output::print(cli, &sections, |all| {
         let mut lines = Vec::new();
         for section in all {
-            lines.push(format!(
-                "{} ({:?})",
-                section.label, section.status,
-            ));
+            lines.push(format!("{} ({:?})", section.label, section.status,));
             for option in &section.options {
                 lines.push(format!("  {}\t{}", option.id, option.label));
             }

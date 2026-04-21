@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use crate::agents::ActionKind;
 use crate::pipeline::MessagePipeline;
-use crate::sessions;
 use crate::service;
+use crate::sessions;
 
 use super::args::{Cli, ReadState, SessionAction};
 use super::output;
@@ -150,12 +150,7 @@ fn compact_json(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_default()
 }
 
-fn new(
-    workspace_ref: &str,
-    plan: bool,
-    action_kind: Option<&str>,
-    cli: &Cli,
-) -> Result<()> {
+fn new(workspace_ref: &str, plan: bool, action_kind: Option<&str>, cli: &Cli) -> Result<()> {
     let workspace_id = service::resolve_workspace_ref(workspace_ref)?;
     let kind = match action_kind {
         Some(raw) => Some(parse_action_kind(raw)?),
@@ -169,8 +164,7 @@ fn new(
 
 fn parse_action_kind(raw: &str) -> Result<ActionKind> {
     let value = Value::String(raw.to_string());
-    serde_json::from_value(value)
-        .map_err(|e| anyhow::anyhow!("Unknown action kind '{raw}': {e}"))
+    serde_json::from_value(value).map_err(|e| anyhow::anyhow!("Unknown action kind '{raw}': {e}"))
 }
 
 fn rename(workspace_ref: &str, session: &str, title: &str, cli: &Cli) -> Result<()> {
@@ -205,12 +199,7 @@ fn unhide(workspace_ref: &str, session: &str, cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn mark(
-    workspace_ref: &str,
-    state: ReadState,
-    session: &str,
-    cli: &Cli,
-) -> Result<()> {
+fn mark(workspace_ref: &str, state: ReadState, session: &str, cli: &Cli) -> Result<()> {
     let workspace_id = service::resolve_workspace_ref(workspace_ref)?;
     let session_id = refs::resolve_session_ref(&workspace_id, session)?;
     match state {

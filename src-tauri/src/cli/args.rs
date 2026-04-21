@@ -116,14 +116,9 @@ pub enum DataAction {
 #[derive(Subcommand)]
 pub enum SettingsAction {
     /// Read a single setting value by key.
-    Get {
-        key: String,
-    },
+    Get { key: String },
     /// Set a setting key to a string value.
-    Set {
-        key: String,
-        value: String,
-    },
+    Set { key: String, value: String },
     /// List settings. Defaults to `app.*` and `branch_prefix_*`; pass
     /// `--all` for every key.
     List {
@@ -131,9 +126,7 @@ pub enum SettingsAction {
         all: bool,
     },
     /// Delete a setting key.
-    Delete {
-        key: String,
-    },
+    Delete { key: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -150,9 +143,7 @@ pub enum RepoAction {
         repo_ref: String,
     },
     /// Register a Git repository at `<path>`. Creates the first workspace.
-    Add {
-        path: String,
-    },
+    Add { path: String },
     /// Delete a repository and all its workspaces, sessions, messages.
     Delete {
         #[arg(name = "ref")]

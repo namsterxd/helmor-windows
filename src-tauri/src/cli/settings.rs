@@ -47,9 +47,7 @@ fn list(all: bool, cli: &Cli) -> Result<()> {
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
-    let map: BTreeMap<String, String> = rows
-        .filter_map(|r| r.ok())
-        .collect();
+    let map: BTreeMap<String, String> = rows.filter_map(|r| r.ok()).collect();
 
     output::print(cli, &map, |m| {
         m.iter()
