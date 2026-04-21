@@ -40,7 +40,6 @@ import {
 } from "@/lib/query-client";
 import { resolveRepoPreferencePrompt } from "@/lib/repo-preferences-prompts";
 import { cn } from "@/lib/utils";
-import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import {
 	INSPECTOR_SECTION_HEADER_CLASS,
 	INSPECTOR_SECTION_TITLE_CLASS,
@@ -101,14 +100,13 @@ type ActionsSectionProps = {
 	expanded: boolean;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	currentSessionId?: string | null;
-	sendingSessionIds?: Set<string>;
 	onQueuePendingPromptForSession?: (request: {
 		sessionId: string;
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		forceQueue?: boolean;
 	}) => void;
-	pushToast?: PushWorkspaceToast;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo: PullRequestInfo | null;
@@ -148,9 +146,7 @@ export function ActionsSection({
 	expanded,
 	onCommitAction,
 	currentSessionId,
-	sendingSessionIds,
 	onQueuePendingPromptForSession,
-	pushToast,
 	commitButtonMode,
 	commitButtonState,
 	prInfo,
@@ -180,14 +176,11 @@ export function ActionsSection({
 			if (!currentSessionId || !onQueuePendingPromptForSession) {
 				return false;
 			}
-			if (sendingSessionIds?.has(currentSessionId)) {
-				pushToast?.(
-					"AI is still responding in the current chat. Wait for that reply to finish, then retry Pull so Helmor can send the merge task in this conversation.",
-					"AI is still responding",
-				);
-				return false;
-			}
 			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
+			// `forceQueue: true` — if a turn is already streaming, the
+			// prompt MUST queue (never steer), regardless of the user's
+			// followUpBehavior setting. The merge task is a fresh task,
+			// not a course correction for the current turn.
 			onQueuePendingPromptForSession({
 				sessionId: currentSessionId,
 				prompt: buildSyncResolutionPrompt(
@@ -195,17 +188,11 @@ export function ActionsSection({
 					repoPreferences,
 					workspaceRemote,
 				),
+				forceQueue: true,
 			});
 			return true;
 		},
-		[
-			currentSessionId,
-			onQueuePendingPromptForSession,
-			pushToast,
-			repoId,
-			sendingSessionIds,
-			workspaceRemote,
-		],
+		[currentSessionId, onQueuePendingPromptForSession, repoId, workspaceRemote],
 	);
 	const handleSync = useCallback(async () => {
 		if (!workspaceId || syncPending) {

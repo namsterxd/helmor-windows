@@ -6,7 +6,6 @@ import type {
 import type { PullRequestInfo } from "@/lib/api";
 import type { DiffOpenOptions } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
-import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
 import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
@@ -31,14 +30,13 @@ type WorkspaceInspectorSidebarProps = {
 	onOpenMockReview?: (path: string) => void;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	currentSessionId?: string | null;
-	sendingSessionIds?: Set<string>;
 	onQueuePendingPromptForSession?: (request: {
 		sessionId: string;
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		forceQueue?: boolean;
 	}) => void;
-	pushToast?: PushWorkspaceToast;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo?: PullRequestInfo | null;
@@ -57,9 +55,7 @@ export function WorkspaceInspectorSidebar({
 	onOpenEditorFile,
 	onCommitAction,
 	currentSessionId,
-	sendingSessionIds,
 	onQueuePendingPromptForSession,
-	pushToast,
 	commitButtonMode,
 	commitButtonState,
 	prInfo,
@@ -175,9 +171,7 @@ export function WorkspaceInspectorSidebar({
 				expanded={!tabsOpen}
 				onCommitAction={onCommitAction}
 				currentSessionId={currentSessionId ?? null}
-				sendingSessionIds={sendingSessionIds}
 				onQueuePendingPromptForSession={onQueuePendingPromptForSession}
-				pushToast={pushToast}
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
 				prInfo={prInfo ?? null}

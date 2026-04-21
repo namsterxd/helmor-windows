@@ -2139,11 +2139,9 @@ function AppShell({
 										onOpenEditorFile={handleOpenEditorFile}
 										onCommitAction={handleInspectorCommitAction}
 										currentSessionId={displayedSessionId}
-										sendingSessionIds={sendingSessionIds}
 										onQueuePendingPromptForSession={
 											queuePendingPromptForSession
 										}
-										pushToast={pushWorkspaceToast}
 										commitButtonMode={commitButtonMode}
 										commitButtonState={commitButtonState}
 										prInfo={workspacePrInfo}
