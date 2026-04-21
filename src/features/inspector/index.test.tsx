@@ -1,4 +1,10 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -910,5 +916,26 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		renderInspector({ workspaceRemote: "upstream" });
 
 		await screen.findByText("Up to date with upstream/main");
+	});
+
+	it("does not blur the tabs panel when hover zoom never became eligible", async () => {
+		const user = userEvent.setup();
+		renderInspector();
+
+		await user.click(
+			screen.getByRole("button", { name: "Toggle inspector tabs section" }),
+		);
+
+		const tabsBody = await screen.findByLabelText("Inspector tabs body");
+		const filterLayer = tabsBody.parentElement;
+		const tabsSection = screen.getByLabelText("Inspector section Tabs");
+
+		expect(filterLayer).not.toBeNull();
+		expect(filterLayer).toHaveStyle({ filter: "blur(0)" });
+
+		fireEvent.mouseEnter(tabsBody);
+		fireEvent.mouseLeave(tabsSection.parentElement as HTMLElement);
+
+		expect(filterLayer).toHaveStyle({ filter: "blur(0)" });
 	});
 });
