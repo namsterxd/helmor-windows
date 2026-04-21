@@ -409,7 +409,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 			) : hasPendingDeferredTool ? (
 				<DeferredToolPanel
 					deferred={pendingDeferredTool!}
-					disabled={disabled || sending}
+					disabled={disabled}
 					onResponse={onDeferredToolResponse}
 				/>
 			) : (
