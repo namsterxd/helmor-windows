@@ -45,7 +45,6 @@ const WORKSPACE: WorkspaceDetail = {
 	state: "ready",
 	hasUnread: false,
 	workspaceUnread: 0,
-	sessionUnreadTotal: 0,
 	unreadSessionCount: 0,
 	derivedStatus: "in-progress",
 	manualStatus: null,

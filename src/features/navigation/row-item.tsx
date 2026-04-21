@@ -59,7 +59,6 @@ export type WorkspaceRowItemProps = {
 	row: WorkspaceRow;
 	selected: boolean;
 	isSending?: boolean;
-	isCompleted?: boolean;
 	isInteractionRequired?: boolean;
 	rowRef?: (element: HTMLDivElement | null) => void;
 	onSelect?: (workspaceId: string) => void;
@@ -84,7 +83,6 @@ export const WorkspaceRowItem = memo(
 		row,
 		selected,
 		isSending,
-		isCompleted,
 		isInteractionRequired,
 		rowRef,
 		onSelect,
@@ -143,11 +141,9 @@ export const WorkspaceRowItem = memo(
 		});
 		const statusDotLabel = isInteractionRequired
 			? "Interaction required"
-			: isCompleted
-				? "Session completed"
-				: row.hasUnread
-					? "Unread"
-					: null;
+			: row.hasUnread
+				? "Unread"
+				: null;
 		const statusDotClassName = isInteractionRequired
 			? "bg-yellow-500"
 			: "bg-chart-2";
@@ -381,7 +377,6 @@ export const WorkspaceRowItem = memo(
 			previous.row === next.row &&
 			previous.selected === next.selected &&
 			previous.isSending === next.isSending &&
-			previous.isCompleted === next.isCompleted &&
 			previous.isInteractionRequired === next.isInteractionRequired &&
 			previous.archivingWorkspaceIds === next.archivingWorkspaceIds &&
 			previous.markingUnreadWorkspaceId === next.markingUnreadWorkspaceId &&

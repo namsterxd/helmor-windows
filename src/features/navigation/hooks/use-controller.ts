@@ -8,7 +8,6 @@ import {
 	listenArchiveExecutionFailed,
 	listenArchiveExecutionSucceeded,
 	loadAddRepositoryDefaults,
-	markWorkspaceRead,
 	markWorkspaceUnread,
 	permanentlyDeleteWorkspace,
 	pinWorkspace,
@@ -37,13 +36,10 @@ import {
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
 import {
-	clearWorkspaceUnreadFromGroups,
-	clearWorkspaceUnreadFromSummaries,
 	createOptimisticCreatingWorkspaceDetail,
 	describeUnknownError,
 	findInitialWorkspaceId,
 	findReplacementWorkspaceIdAfterRemoval,
-	findWorkspaceRowById,
 	hasWorkspaceId,
 	rowToWorkspaceSummary,
 	summaryToArchivedRow,
@@ -91,12 +87,6 @@ export function useWorkspacesSidebarController({
 	const [archivingWorkspaceIds, setArchivingWorkspaceIds] = useState<
 		Set<string>
 	>(() => new Set());
-	const [markingReadWorkspaceId, setMarkingReadWorkspaceId] = useState<
-		string | null
-	>(null);
-	const [suppressedWorkspaceReadId, setSuppressedWorkspaceReadId] = useState<
-		string | null
-	>(null);
 	const [pendingArchives, setPendingArchives] = useState<
 		Map<string, PendingArchiveEntry>
 	>(() => new Map());
@@ -487,146 +477,12 @@ export function useWorkspacesSidebarController({
 		[flushSidebarLists, queryClient],
 	);
 
-	const markWorkspaceReadOptimistically = useCallback(
-		(workspaceId: string) => {
-			const selectedRow = findWorkspaceRowById(
-				workspaceId,
-				groups,
-				archivedRows,
-			);
-
-			if (
-				!selectedRow?.hasUnread ||
-				markingReadWorkspaceId === workspaceId ||
-				suppressedWorkspaceReadId === workspaceId
-			) {
-				return;
-			}
-
-			setMarkingReadWorkspaceId(workspaceId);
-
-			const previousGroups = queryClient.getQueryData(
-				helmorQueryKeys.workspaceGroups,
-			);
-			const previousArchived = queryClient.getQueryData(
-				helmorQueryKeys.archivedWorkspaces,
-			);
-			const previousDetail = queryClient.getQueryData(
-				helmorQueryKeys.workspaceDetail(workspaceId),
-			);
-			const previousSessions = queryClient.getQueryData(
-				helmorQueryKeys.workspaceSessions(workspaceId),
-			);
-
-			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
-				current
-					? clearWorkspaceUnreadFromGroups(
-							current as typeof groups,
-							workspaceId,
-						)
-					: current,
-			);
-			queryClient.setQueryData(helmorQueryKeys.archivedWorkspaces, (current) =>
-				current
-					? clearWorkspaceUnreadFromSummaries(
-							current as typeof archivedSummaries,
-							workspaceId,
-						)
-					: current,
-			);
-			queryClient.setQueryData(
-				helmorQueryKeys.workspaceDetail(workspaceId),
-				(current) =>
-					current
-						? {
-								...(current as Record<string, unknown>),
-								hasUnread: false,
-								workspaceUnread: 0,
-								sessionUnreadTotal: 0,
-								unreadSessionCount: 0,
-							}
-						: current,
-			);
-			queryClient.setQueryData(
-				helmorQueryKeys.workspaceSessions(workspaceId),
-				(current) =>
-					Array.isArray(current)
-						? (current as WorkspaceSessionSummary[]).map((session) => ({
-								...session,
-								unreadCount: 0,
-							}))
-						: current,
-			);
-
-			void markWorkspaceRead(workspaceId)
-				.then(() =>
-					invalidateWorkspaceSummary(workspaceId, {
-						skipSidebarFlush: true,
-					}),
-				)
-				.catch((error) => {
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceGroups,
-						previousGroups,
-					);
-					queryClient.setQueryData(
-						helmorQueryKeys.archivedWorkspaces,
-						previousArchived,
-					);
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceDetail(workspaceId),
-						previousDetail,
-					);
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceSessions(workspaceId),
-						previousSessions,
-					);
-					pushWorkspaceToast(
-						describeUnknownError(error, "Unable to mark workspace as read."),
-					);
-				})
-				.finally(() => {
-					setMarkingReadWorkspaceId((current) =>
-						current === workspaceId ? null : current,
-					);
-				});
-		},
-		[
-			archivedRows,
-			archivedSummaries,
-			groups,
-			invalidateWorkspaceSummary,
-			markingReadWorkspaceId,
-			pushWorkspaceToast,
-			queryClient,
-			suppressedWorkspaceReadId,
-		],
-	);
-
 	const handleSelectWorkspace = useCallback(
 		(workspaceId: string) => {
 			onSelectWorkspace(workspaceId);
-			markWorkspaceReadOptimistically(workspaceId);
 		},
-		[markWorkspaceReadOptimistically, onSelectWorkspace],
+		[onSelectWorkspace],
 	);
-
-	useEffect(() => {
-		if (
-			suppressedWorkspaceReadId &&
-			selectedWorkspaceId !== suppressedWorkspaceReadId
-		) {
-			setSuppressedWorkspaceReadId(null);
-		}
-	}, [selectedWorkspaceId, suppressedWorkspaceReadId]);
-
-	useEffect(() => {
-		if (!selectedWorkspaceId) {
-			return;
-		}
-
-		markWorkspaceReadOptimistically(selectedWorkspaceId);
-	}, [markWorkspaceReadOptimistically, selectedWorkspaceId]);
 
 	const handleMarkWorkspaceUnread = useCallback(
 		(workspaceId: string) => {
@@ -640,18 +496,16 @@ export function useWorkspacesSidebarController({
 				helmorQueryKeys.workspaceDetail(workspaceId),
 			);
 
+			// Optimistic flash of the red dot. `workspaceUnread` /
+			// `unreadSessionCount` are derived from sessions on the backend, so
+			// we only flip `hasUnread` here and rely on the post-IPC
+			// invalidation to backfill the real per-session counts.
 			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
 				Array.isArray(current)
 					? (current as typeof groups).map((group) => ({
 							...group,
 							rows: group.rows.map((row) =>
-								row.id === workspaceId
-									? {
-											...row,
-											hasUnread: true,
-											workspaceUnread: Math.max(1, row.workspaceUnread ?? 0),
-										}
-									: row,
+								row.id === workspaceId ? { ...row, hasUnread: true } : row,
 							),
 						}))
 					: current,
@@ -660,11 +514,7 @@ export function useWorkspacesSidebarController({
 				Array.isArray(current)
 					? (current as typeof archivedSummaries).map((summary) =>
 							summary.id === workspaceId
-								? {
-										...summary,
-										hasUnread: true,
-										workspaceUnread: Math.max(1, summary.workspaceUnread ?? 0),
-									}
+								? { ...summary, hasUnread: true }
 								: summary,
 						)
 					: current,
@@ -676,20 +526,9 @@ export function useWorkspacesSidebarController({
 						? {
 								...(current as Record<string, unknown>),
 								hasUnread: true,
-								workspaceUnread: Math.max(
-									1,
-									Number(
-										(current as { workspaceUnread?: number }).workspaceUnread ??
-											0,
-									),
-								),
 							}
 						: current,
 			);
-
-			if (selectedWorkspaceId === workspaceId) {
-				setSuppressedWorkspaceReadId(workspaceId);
-			}
 
 			void markWorkspaceUnread(workspaceId)
 				.then(() =>
@@ -715,12 +554,7 @@ export function useWorkspacesSidebarController({
 					);
 				});
 		},
-		[
-			invalidateWorkspaceSummary,
-			pushWorkspaceToast,
-			queryClient,
-			selectedWorkspaceId,
-		],
+		[invalidateWorkspaceSummary, pushWorkspaceToast, queryClient],
 	);
 
 	const handleTogglePin = useCallback(
@@ -1608,7 +1442,6 @@ function createPreparedWorkspaceRow(
 		state: prepared.state,
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,

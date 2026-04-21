@@ -61,7 +61,6 @@ export type WorkspaceRow = {
 	state?: WorkspaceState;
 	hasUnread?: boolean;
 	workspaceUnread?: number;
-	sessionUnreadTotal?: number;
 	unreadSessionCount?: number;
 	derivedStatus?: DerivedStatus;
 	manualStatus?: DerivedStatus | null;
@@ -137,7 +136,6 @@ export type WorkspaceSummary = {
 	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
-	sessionUnreadTotal: number;
 	unreadSessionCount: number;
 	derivedStatus: DerivedStatus;
 	manualStatus?: DerivedStatus | null;
@@ -256,7 +254,6 @@ export type WorkspaceDetail = {
 	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
-	sessionUnreadTotal: number;
 	unreadSessionCount: number;
 	derivedStatus: DerivedStatus;
 	manualStatus?: DerivedStatus | null;
@@ -1516,6 +1513,14 @@ export async function markSessionRead(
 	sessionId: string,
 ): Promise<MarkWorkspaceReadResponse> {
 	return invoke<MarkWorkspaceReadResponse>("mark_session_read", {
+		sessionId,
+	});
+}
+
+export async function markSessionUnread(
+	sessionId: string,
+): Promise<MarkWorkspaceReadResponse> {
+	return invoke<MarkWorkspaceReadResponse>("mark_session_unread", {
 		sessionId,
 	});
 }

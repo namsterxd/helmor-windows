@@ -27,7 +27,6 @@ fn workspace_record_marks_unread_when_session_has_unread_even_if_workspace_flag_
 
     assert!(record.has_unread);
     assert_eq!(record.workspace_unread, 0);
-    assert_eq!(record.session_unread_total, 1);
     assert_eq!(record.unread_session_count, 1);
 }
 
@@ -58,7 +57,6 @@ fn archived_workspace_summary_reports_unread_state() {
     let summary = workspaces::record_to_summary(record);
 
     assert!(summary.has_unread);
-    assert_eq!(summary.session_unread_total, 1);
     assert_eq!(summary.unread_session_count, 1);
 }
 
@@ -134,7 +132,7 @@ fn mark_workspace_read_clears_all_workspace_sessions() {
 
     workspaces::mark_workspace_read(&harness.workspace_id).unwrap();
 
-    let (session_unread_total, workspace_unread): (i64, i64) = connection
+    let (unread_session_sum, workspace_unread): (i64, i64) = connection
         .query_row(
             "SELECT (SELECT COALESCE(SUM(unread_count), 0) FROM sessions WHERE workspace_id = ?1), (SELECT unread FROM workspaces WHERE id = ?1)",
             [&harness.workspace_id],
@@ -142,12 +140,58 @@ fn mark_workspace_read_clears_all_workspace_sessions() {
         )
         .unwrap();
 
-    assert_eq!(session_unread_total, 0);
+    assert_eq!(unread_session_sum, 0);
     assert_eq!(workspace_unread, 0);
 }
 
 #[test]
-fn mark_workspace_unread_sets_workspace_flag_without_touching_sessions() {
+fn mark_session_unread_bumps_session_and_syncs_workspace() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = ArchiveTestHarness::new(true);
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+
+    connection
+        .execute(
+            "UPDATE sessions SET unread_count = 0 WHERE id = ?1",
+            [&harness.session_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET unread = 0 WHERE id = ?1",
+            [&harness.workspace_id],
+        )
+        .unwrap();
+
+    sessions::mark_session_unread(&harness.session_id).unwrap();
+
+    let (session_unread, workspace_unread): (i64, i64) = connection
+        .query_row(
+            "SELECT (SELECT unread_count FROM sessions WHERE id = ?1), (SELECT unread FROM workspaces WHERE id = ?2)",
+            (&harness.session_id, &harness.workspace_id),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(session_unread, 1);
+    assert_eq!(workspace_unread, 1);
+
+    // Idempotent — second call must not drift the counter.
+    sessions::mark_session_unread(&harness.session_id).unwrap();
+    let session_unread_again: i64 = connection
+        .query_row(
+            "SELECT unread_count FROM sessions WHERE id = ?1",
+            [&harness.session_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(session_unread_again, 1);
+}
+
+#[test]
+fn mark_workspace_unread_bumps_a_session_and_derives_workspace_flag() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -169,14 +213,15 @@ fn mark_workspace_unread_sets_workspace_flag_without_touching_sessions() {
 
     workspaces::mark_workspace_unread(&harness.workspace_id).unwrap();
 
-    let (session_unread_total, workspace_unread): (i64, i64) = connection
+    let (session_unread, workspace_unread): (i64, i64) = connection
         .query_row(
-            "SELECT (SELECT COALESCE(SUM(unread_count), 0) FROM sessions WHERE workspace_id = ?1), (SELECT unread FROM workspaces WHERE id = ?1)",
-            [&harness.workspace_id],
+            "SELECT (SELECT unread_count FROM sessions WHERE id = ?1), (SELECT unread FROM workspaces WHERE id = ?2)",
+            (&harness.session_id, &harness.workspace_id),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
 
-    assert_eq!(session_unread_total, 0);
+    // Workspace flag derives from the bumped session, never written directly.
+    assert_eq!(session_unread, 1);
     assert_eq!(workspace_unread, 1);
 }

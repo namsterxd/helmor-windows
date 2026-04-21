@@ -21,7 +21,6 @@ pub struct WorkspaceRecord {
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
-    pub session_unread_total: i64,
     pub unread_session_count: i64,
     pub derived_status: DerivedStatus,
     pub manual_status: Option<DerivedStatus>,
@@ -47,7 +46,6 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
     WITH session_stats AS (
       SELECT
         workspace_id,
-        SUM(COALESCE(unread_count, 0)) AS session_unread_total,
         SUM(CASE WHEN COALESCE(unread_count, 0) > 0 THEN 1 ELSE 0 END) AS unread_session_count,
         COUNT(*) AS session_count
       FROM sessions
@@ -79,11 +77,10 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       w.directory_name,
       w.state,
       CASE
-        WHEN COALESCE(w.unread, 0) > 0 OR COALESCE(ss.session_unread_total, 0) > 0 THEN 1
+        WHEN COALESCE(w.unread, 0) > 0 OR COALESCE(ss.unread_session_count, 0) > 0 THEN 1
         ELSE 0
       END AS has_unread,
       COALESCE(w.unread, 0) AS workspace_unread,
-      COALESCE(ss.session_unread_total, 0) AS session_unread_total,
       COALESCE(ss.unread_session_count, 0) AS unread_session_count,
       COALESCE(w.derived_status, 'in-progress') AS derived_status,
       w.manual_status,
@@ -456,25 +453,24 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         state: row.get(7)?,
         has_unread: row.get::<_, i64>(8)? != 0,
         workspace_unread: row.get(9)?,
-        session_unread_total: row.get(10)?,
-        unread_session_count: row.get(11)?,
-        derived_status: row.get(12)?,
-        manual_status: row.get(13)?,
-        branch: row.get(14)?,
-        initialization_parent_branch: row.get(15)?,
-        intended_target_branch: row.get(16)?,
-        notes: row.get(17)?,
-        pinned_at: row.get(18)?,
-        active_session_id: row.get(19)?,
-        active_session_title: row.get(20)?,
-        active_session_agent_type: row.get(21)?,
-        active_session_status: row.get(22)?,
-        pr_title: row.get(23)?,
-        pr_description: row.get(24)?,
-        archive_commit: row.get(25)?,
-        session_count: row.get(26)?,
-        message_count: row.get(27)?,
-        attachment_count: row.get(28)?,
-        remote: row.get(29)?,
+        unread_session_count: row.get(10)?,
+        derived_status: row.get(11)?,
+        manual_status: row.get(12)?,
+        branch: row.get(13)?,
+        initialization_parent_branch: row.get(14)?,
+        intended_target_branch: row.get(15)?,
+        notes: row.get(16)?,
+        pinned_at: row.get(17)?,
+        active_session_id: row.get(18)?,
+        active_session_title: row.get(19)?,
+        active_session_agent_type: row.get(20)?,
+        active_session_status: row.get(21)?,
+        pr_title: row.get(22)?,
+        pr_description: row.get(23)?,
+        archive_commit: row.get(24)?,
+        session_count: row.get(25)?,
+        message_count: row.get(26)?,
+        attachment_count: row.get(27)?,
+        remote: row.get(28)?,
     })
 }

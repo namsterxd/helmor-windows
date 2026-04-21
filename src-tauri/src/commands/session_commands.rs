@@ -75,6 +75,12 @@ pub async fn mark_session_read(session_id: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
+pub async fn mark_session_unread(session_id: String) -> CmdResult<()> {
+    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    Ok(sessions::mark_session_unread(&session_id)?)
+}
+
+#[tauri::command]
 pub async fn update_session_settings(
     session_id: String,
     model: Option<String>,

@@ -33,7 +33,6 @@ export function createOptimisticCreatingWorkspaceDetail(
 		state: "initializing",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: row.derivedStatus ?? "in-progress",
 		manualStatus: row.manualStatus ?? null,
@@ -221,7 +220,6 @@ export function clearWorkspaceUnreadFromRow(row: WorkspaceRow): WorkspaceRow {
 		...row,
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 	};
 }
@@ -238,6 +236,45 @@ export function clearWorkspaceUnreadFromGroups(
 	}));
 }
 
+/**
+ * Apply "this workspace now has N unread sessions" to the groups cache.
+ * Recomputes `hasUnread` / `workspaceUnread` / `unreadSessionCount` as purely
+ * derived values. Used for the optimistic patch that drops the sidebar dot
+ * the moment the user opens a session — before the IPC + refetch round-trip.
+ */
+export function recomputeWorkspaceUnreadInGroups(
+	groups: WorkspaceGroup[] | undefined,
+	workspaceId: string | null,
+	remainingUnreadSessionCount: number,
+): WorkspaceGroup[] | undefined {
+	if (!groups || !workspaceId) return groups;
+	return groups.map((group) => ({
+		...group,
+		rows: group.rows.map((row) =>
+			row.id === workspaceId
+				? {
+						...row,
+						unreadSessionCount: remainingUnreadSessionCount,
+						workspaceUnread: remainingUnreadSessionCount > 0 ? 1 : 0,
+						hasUnread: remainingUnreadSessionCount > 0,
+					}
+				: row,
+		),
+	}));
+}
+
+export function recomputeWorkspaceDetailUnread(
+	detail: WorkspaceDetail,
+	remainingUnreadSessionCount: number,
+): WorkspaceDetail {
+	return {
+		...detail,
+		unreadSessionCount: remainingUnreadSessionCount,
+		workspaceUnread: remainingUnreadSessionCount > 0 ? 1 : 0,
+		hasUnread: remainingUnreadSessionCount > 0,
+	};
+}
+
 export function clearWorkspaceUnreadFromSummaries(
 	summaries: WorkspaceSummary[],
 	workspaceId: string,
@@ -248,7 +285,6 @@ export function clearWorkspaceUnreadFromSummaries(
 					...summary,
 					hasUnread: false,
 					workspaceUnread: 0,
-					sessionUnreadTotal: 0,
 					unreadSessionCount: 0,
 				}
 			: summary,
@@ -266,7 +302,6 @@ export function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
 		state: summary.state,
 		hasUnread: summary.hasUnread,
 		workspaceUnread: summary.workspaceUnread,
-		sessionUnreadTotal: summary.sessionUnreadTotal,
 		unreadSessionCount: summary.unreadSessionCount,
 		derivedStatus: summary.derivedStatus,
 		manualStatus: summary.manualStatus ?? null,
@@ -362,7 +397,6 @@ export function rowToWorkspaceSummary(
 		state: row.state ?? "archived",
 		hasUnread: row.hasUnread ?? false,
 		workspaceUnread: row.workspaceUnread ?? 0,
-		sessionUnreadTotal: row.sessionUnreadTotal ?? 0,
 		unreadSessionCount: row.unreadSessionCount ?? 0,
 		derivedStatus: row.derivedStatus ?? "in-progress",
 		manualStatus: row.manualStatus ?? null,

@@ -65,7 +65,6 @@ type WorkspacePanelHeaderProps = {
 	sessionDisplayProviders?: Record<string, AgentProvider>;
 	sending: boolean;
 	sendingSessionIds?: Set<string>;
-	completedSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	loadingWorkspace: boolean;
 	headerActions?: React.ReactNode;
@@ -85,7 +84,6 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	sessionDisplayProviders,
 	sending,
 	sendingSessionIds,
-	completedSessionIds,
 	interactionRequiredSessionIds,
 	loadingWorkspace,
 	headerActions,
@@ -524,15 +522,12 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 											? sendingSessionIds.has(session.id)
 											: selected && sending;
 										const hasUnread = session.unreadCount > 0;
-										const isCompleted =
-											completedSessionIds?.has(session.id) ?? false;
 										const isInteractionRequired =
 											interactionRequiredSessionIds?.has(session.id) ?? false;
 										const isActive =
 											isActivelySending && !isInteractionRequired;
 										const hasStatusDot =
-											isInteractionRequired ||
-											(!selected && (hasUnread || isCompleted));
+											isInteractionRequired || (!selected && hasUnread);
 										const isEditing = editingSessionId === session.id;
 
 										return (
@@ -594,9 +589,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 																	aria-label={
 																		isInteractionRequired
 																			? "Interaction required"
-																			: isCompleted
-																				? "Session completed"
-																				: "Unread session"
+																			: "Unread session"
 																	}
 																	className={cn(
 																		"size-1.5 shrink-0 rounded-full",

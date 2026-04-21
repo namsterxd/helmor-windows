@@ -69,11 +69,14 @@ import {
 	listConductorWorkspaces,
 	listenGitBranchChanged,
 	listenGitRefsChanged,
+	markSessionRead,
+	markSessionUnread,
 	openWorkspaceInEditor,
 	prewarmSlashCommandsForWorkspace,
 	setWorkspaceManualStatus,
 	triggerWorkspaceFetch,
 	type WorkspaceDetail,
+	type WorkspaceGroup,
 	type WorkspaceSessionSummary,
 } from "./lib/api";
 import {
@@ -110,7 +113,11 @@ import {
 	useSettings,
 } from "./lib/settings";
 import { useOsNotifications } from "./lib/use-os-notifications";
-import { summaryToArchivedRow } from "./lib/workspace-helpers";
+import {
+	recomputeWorkspaceDetailUnread,
+	recomputeWorkspaceUnreadInGroups,
+	summaryToArchivedRow,
+} from "./lib/workspace-helpers";
 import {
 	type WorkspaceToastOptions,
 	WorkspaceToastProvider,
@@ -264,6 +271,10 @@ function AppShell({
 	const warmedWorkspaceIdsRef = useRef<Set<string>>(new Set());
 	const selectedWorkspaceIdRef = useRef<string | null>(null);
 	const selectedSessionIdRef = useRef<string | null>(null);
+	// Tracks which session we last persisted as "read" so the auto-read effect
+	// stays idempotent when interaction-required state churns without the
+	// displayed session changing.
+	const lastMarkedReadSessionIdRef = useRef<string | null>(null);
 
 	const workspaceViewModeRef = useRef<"conversation" | "editor">(
 		"conversation",
@@ -379,28 +390,15 @@ function AppShell({
 	const [pendingComposerInserts, setPendingComposerInserts] = useState<
 		ResolvedComposerInsertRequest[]
 	>([]);
-	// Sessions that finished streaming while the user was viewing a different
-	// session. Map of sessionId → workspaceId so we can derive both per-session
-	// and per-workspace red-dot indicators.
-	const [completedSessions, setCompletedSessions] = useState<
-		Map<string, string>
-	>(() => new Map());
-	// Tracks sessions that have reached a terminal "done" event at least once.
-	// This is separate from `completedSessions`, which only drives away-from-tab
-	// UI badges and intentionally excludes the currently-viewed session.
+	// Tracks sessions that have reached a terminal "done" event at least once
+	// in this app run. Used by the commit lifecycle to know when to prompt.
+	// Distinct from "unread" — `unreadCount` is the persisted, cross-restart
+	// signal driven entirely from the backend.
 	const [settledSessionIds, setSettledSessionIds] = useState<Set<string>>(
 		() => new Set(),
 	);
 	const [interactionRequiredSessions, setInteractionRequiredSessions] =
 		useState<Map<string, string>>(() => new Map());
-	const completedSessionIds = useMemo(
-		() => new Set(completedSessions.keys()),
-		[completedSessions],
-	);
-	const completedWorkspaceIds = useMemo(
-		() => new Set(completedSessions.values()),
-		[completedSessions],
-	);
 	const interactionRequiredSessionIds = useMemo(
 		() => new Set(interactionRequiredSessions.keys()),
 		[interactionRequiredSessions],
@@ -410,19 +408,125 @@ function AppShell({
 		[interactionRequiredSessions],
 	);
 
-	// Clear the completed-session dot for whichever session the user
-	// is actually viewing. This fires on workspace switches (where the
-	// default session resolves through cache or async prime) and on
-	// direct session tab clicks alike.
+	// Persist "session read" once the user actually views a session AND it is
+	// not waiting on an interaction prompt. Workspace.unread is purely derived
+	// from sessions, so clearing the session naturally drops the workspace red
+	// dot when no other sessions remain unread. Selecting a workspace alone
+	// must NOT clear unread state — only opening a session does.
+	//
+	// Optimistically applies the cleared state to the cache so the sidebar dot
+	// and dock badge react instantly, then commits via IPC + invalidate. If the
+	// IPC fails the optimistic patch is rolled back.
 	useEffect(() => {
-		if (!displayedSessionId) return;
-		setCompletedSessions((prev) => {
-			if (!prev.has(displayedSessionId)) return prev;
-			const next = new Map(prev);
-			next.delete(displayedSessionId);
-			return next;
-		});
-	}, [displayedSessionId]);
+		if (!displayedSessionId) {
+			lastMarkedReadSessionIdRef.current = null;
+			return;
+		}
+		if (interactionRequiredSessionIds.has(displayedSessionId)) {
+			// Reset the dedupe key so once the interaction completes the next
+			// effect run will fire the IPC.
+			lastMarkedReadSessionIdRef.current = null;
+			return;
+		}
+		if (lastMarkedReadSessionIdRef.current === displayedSessionId) return;
+
+		const sessionId = displayedSessionId;
+		const workspaceId = selectedWorkspaceIdRef.current;
+		lastMarkedReadSessionIdRef.current = sessionId;
+
+		// Snapshot for rollback on IPC failure.
+		const previousGroups = queryClient.getQueryData(
+			helmorQueryKeys.workspaceGroups,
+		);
+		const previousDetail = workspaceId
+			? queryClient.getQueryData(helmorQueryKeys.workspaceDetail(workspaceId))
+			: undefined;
+		const previousSessions = workspaceId
+			? queryClient.getQueryData(helmorQueryKeys.workspaceSessions(workspaceId))
+			: undefined;
+
+		// Optimistic: clear this session's unread in the sessions cache, then
+		// recompute the owning workspace's hasUnread / unreadSessionCount /
+		// workspaceUnread from the patched session list. Sidebar dot and dock
+		// badge react instantly; the IPC + invalidate afterwards reconciles.
+		let remainingUnread = 0;
+		if (workspaceId) {
+			const currentSessions = queryClient.getQueryData<
+				WorkspaceSessionSummary[] | undefined
+			>(helmorQueryKeys.workspaceSessions(workspaceId));
+			if (Array.isArray(currentSessions)) {
+				const patched = currentSessions.map((session) =>
+					session.id === sessionId ? { ...session, unreadCount: 0 } : session,
+				);
+				remainingUnread = patched.filter((s) => s.unreadCount > 0).length;
+				queryClient.setQueryData<WorkspaceSessionSummary[]>(
+					helmorQueryKeys.workspaceSessions(workspaceId),
+					patched,
+				);
+			}
+			queryClient.setQueryData<WorkspaceGroup[] | undefined>(
+				helmorQueryKeys.workspaceGroups,
+				(current) =>
+					recomputeWorkspaceUnreadInGroups(
+						current,
+						workspaceId,
+						remainingUnread,
+					),
+			);
+			queryClient.setQueryData<WorkspaceDetail | null | undefined>(
+				helmorQueryKeys.workspaceDetail(workspaceId),
+				(current) =>
+					current
+						? recomputeWorkspaceDetailUnread(current, remainingUnread)
+						: current,
+			);
+		}
+
+		void markSessionRead(sessionId)
+			.then(() => {
+				const invalidations = [
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceGroups,
+					}),
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.archivedWorkspaces,
+					}),
+				];
+				if (workspaceId) {
+					invalidations.push(
+						queryClient.invalidateQueries({
+							queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+						}),
+						queryClient.invalidateQueries({
+							queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+						}),
+					);
+				}
+				return Promise.all(invalidations);
+			})
+			.catch((error) => {
+				// Roll back the optimistic patch and reset dedupe so a retry can
+				// succeed.
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceGroups,
+					previousGroups,
+				);
+				if (workspaceId) {
+					queryClient.setQueryData(
+						helmorQueryKeys.workspaceDetail(workspaceId),
+						previousDetail,
+					);
+					queryClient.setQueryData(
+						helmorQueryKeys.workspaceSessions(workspaceId),
+						previousSessions,
+					);
+				}
+				if (lastMarkedReadSessionIdRef.current === sessionId) {
+					lastMarkedReadSessionIdRef.current = null;
+				}
+				console.error("[app] mark session read on view:", error);
+			});
+	}, [displayedSessionId, interactionRequiredSessionIds, queryClient]);
 
 	useEffect(() => {
 		if (!showOnboarding) return;
@@ -1163,15 +1267,6 @@ function AppShell({
 			rememberSessionSelection(selectedWorkspaceIdRef.current, sessionId);
 			selectedSessionIdRef.current = sessionId;
 			setSelectedSessionId(sessionId);
-			// Clear the "completed while away" dot for this session
-			if (sessionId) {
-				setCompletedSessions((prev) => {
-					if (!prev.has(sessionId)) return prev;
-					const next = new Map(prev);
-					next.delete(sessionId);
-					return next;
-				});
-			}
 			if (sessionId === null) {
 				if (sessionSelectionRequestRef.current !== requestId) {
 					return;
@@ -1249,13 +1344,30 @@ function AppShell({
 			});
 
 			const isCurrentSession = sessionId === selectedSessionIdRef.current;
-			// Green dot only for sessions the user isn't viewing
+			// Bump session-level unread for sessions the user isn't viewing.
+			// Workspace.unread is purely derived, so this also drives the
+			// sidebar workspace dot and the dock badge.
 			if (!isCurrentSession) {
-				setCompletedSessions((prev) => {
-					const next = new Map(prev);
-					next.set(sessionId, workspaceId);
-					return next;
-				});
+				void markSessionUnread(sessionId)
+					.then(() =>
+						Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.workspaceGroups,
+							}),
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.archivedWorkspaces,
+							}),
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+							}),
+						]),
+					)
+					.catch((error) => {
+						console.error("[app] mark session unread on completion:", error);
+					});
 			}
 			// OS notification: skip when user is focused on this session
 			if (document.hasFocus() && isCurrentSession) return;
@@ -1836,7 +1948,6 @@ function AppShell({
 													<WorkspacesSidebarContainer
 														selectedWorkspaceId={selectedWorkspaceId}
 														sendingWorkspaceIds={sendingWorkspaceIds}
-														completedWorkspaceIds={completedWorkspaceIds}
 														interactionRequiredWorkspaceIds={
 															interactionRequiredWorkspaceIds
 														}
@@ -1956,7 +2067,6 @@ function AppShell({
 												onInteractionSessionsChange={
 													handleInteractionSessionsChange
 												}
-												completedSessionIds={completedSessionIds}
 												interactionRequiredSessionIds={
 													interactionRequiredSessionIds
 												}

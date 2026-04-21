@@ -1,4 +1,5 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -10,16 +11,38 @@ const apiMocks = vi.hoisted(() => ({
 	loadSessionThreadMessages: vi.fn(),
 	loadSessionAttachments: vi.fn(),
 	markWorkspaceRead: vi.fn(),
+	markSessionRead: vi.fn(),
+	markSessionUnread: vi.fn(),
 }));
 
 const unreadRuntime = vi.hoisted(() => ({
 	workspaceUnread: 0,
-	sessionUnreadTotal: 2,
 	unreadSessionCount: 1,
 	sessionUnreadCount: 2,
+	emitSessionCompleted: false,
+	completedSessionId: "session-2",
+	completedWorkspaceId: "workspace-unread",
 }));
 
 vi.mock("./App.css", () => ({}));
+
+vi.mock("@/features/conversation", () => ({
+	WorkspaceConversationContainer: ({
+		onSessionCompleted,
+	}: {
+		onSessionCompleted?: (sessionId: string, workspaceId: string) => void;
+	}) => {
+		useEffect(() => {
+			if (!unreadRuntime.emitSessionCompleted) return;
+			onSessionCompleted?.(
+				unreadRuntime.completedSessionId,
+				unreadRuntime.completedWorkspaceId,
+			);
+		}, [onSessionCompleted]);
+
+		return <div data-testid="mock-conversation" />;
+	},
+}));
 
 vi.mock("./lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./lib/api")>();
@@ -35,6 +58,8 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionAttachments: apiMocks.loadSessionAttachments,
 		markWorkspaceRead: apiMocks.markWorkspaceRead,
+		markSessionRead: apiMocks.markSessionRead,
+		markSessionUnread: apiMocks.markSessionUnread,
 	};
 });
 
@@ -43,9 +68,11 @@ import App from "./App";
 describe("App unread lifecycle", () => {
 	beforeEach(() => {
 		unreadRuntime.workspaceUnread = 0;
-		unreadRuntime.sessionUnreadTotal = 2;
 		unreadRuntime.unreadSessionCount = 1;
 		unreadRuntime.sessionUnreadCount = 2;
+		unreadRuntime.emitSessionCompleted = false;
+		unreadRuntime.completedSessionId = "session-2";
+		unreadRuntime.completedWorkspaceId = "workspace-unread";
 
 		apiMocks.loadWorkspaceGroups.mockReset();
 		apiMocks.loadArchivedWorkspaces.mockReset();
@@ -55,6 +82,8 @@ describe("App unread lifecycle", () => {
 		apiMocks.loadSessionThreadMessages.mockReset();
 		apiMocks.loadSessionAttachments.mockReset();
 		apiMocks.markWorkspaceRead.mockReset();
+		apiMocks.markSessionRead.mockReset();
+		apiMocks.markSessionUnread.mockReset();
 
 		apiMocks.loadWorkspaceGroups.mockImplementation(async () => [
 			{
@@ -69,9 +98,8 @@ describe("App unread lifecycle", () => {
 						state: "ready",
 						hasUnread:
 							unreadRuntime.workspaceUnread > 0 ||
-							unreadRuntime.sessionUnreadTotal > 0,
+							unreadRuntime.unreadSessionCount > 0,
 						workspaceUnread: unreadRuntime.workspaceUnread,
-						sessionUnreadTotal: unreadRuntime.sessionUnreadTotal,
 						unreadSessionCount: unreadRuntime.unreadSessionCount,
 					},
 				],
@@ -88,9 +116,8 @@ describe("App unread lifecycle", () => {
 			state: "ready",
 			hasUnread:
 				unreadRuntime.workspaceUnread > 0 ||
-				unreadRuntime.sessionUnreadTotal > 0,
+				unreadRuntime.unreadSessionCount > 0,
 			workspaceUnread: unreadRuntime.workspaceUnread,
-			sessionUnreadTotal: unreadRuntime.sessionUnreadTotal,
 			unreadSessionCount: unreadRuntime.unreadSessionCount,
 			derivedStatus: "in-progress",
 			manualStatus: null,
@@ -140,9 +167,20 @@ describe("App unread lifecycle", () => {
 		apiMocks.loadSessionAttachments.mockResolvedValue([]);
 		apiMocks.markWorkspaceRead.mockImplementation(async () => {
 			unreadRuntime.workspaceUnread = 0;
-			unreadRuntime.sessionUnreadTotal = 0;
 			unreadRuntime.unreadSessionCount = 0;
 			unreadRuntime.sessionUnreadCount = 0;
+		});
+		apiMocks.markSessionRead.mockImplementation(async () => {
+			unreadRuntime.sessionUnreadCount = 0;
+			unreadRuntime.unreadSessionCount = 0;
+			unreadRuntime.workspaceUnread = 0;
+		});
+		apiMocks.markSessionUnread.mockImplementation(async () => {
+			unreadRuntime.unreadSessionCount = 1;
+			unreadRuntime.sessionUnreadCount = 1;
+			// Backend's sync_workspace_unread mirrors this onto the workspace
+			// flag; reflect it here so tests see the same shape.
+			unreadRuntime.workspaceUnread = 1;
 		});
 	});
 
@@ -150,14 +188,61 @@ describe("App unread lifecycle", () => {
 		cleanup();
 	});
 
-	it("clears workspace unread when an unread workspace is opened", async () => {
+	it("clears the displayed session's unread but never bulk-clears the workspace", async () => {
 		render(<App />);
 
 		await waitFor(() => {
-			expect(apiMocks.markWorkspaceRead).toHaveBeenCalledWith(
-				"workspace-unread",
-			);
+			expect(apiMocks.markSessionRead).toHaveBeenCalledWith("session-1");
 		});
-		expect(apiMocks.markWorkspaceRead).toHaveBeenCalledTimes(1);
+		// Selecting a workspace must NOT trigger the bulk workspace clear —
+		// only opening individual sessions clears them, one at a time.
+		expect(apiMocks.markWorkspaceRead).not.toHaveBeenCalled();
+	});
+
+	it("re-fetches workspace groups after clearing a session so the sidebar / dock badge clear", async () => {
+		render(<App />);
+
+		await waitFor(() => {
+			expect(apiMocks.markSessionRead).toHaveBeenCalledWith("session-1");
+		});
+
+		// The workspace must be re-fetched after the IPC succeeds, AND that
+		// fresh fetch must reflect the cleared session (otherwise the sidebar
+		// dot stays). We pin both: that loadWorkspaceGroups was invoked at
+		// least twice (initial + post-invalidate) AND the latest result is
+		// hasUnread=false.
+		await waitFor(() => {
+			expect(apiMocks.loadWorkspaceGroups.mock.calls.length).toBeGreaterThan(1);
+		});
+
+		const lastResult = apiMocks.loadWorkspaceGroups.mock.results.at(-1);
+		await expect(lastResult?.value).resolves.toEqual([
+			{
+				id: "progress",
+				label: "In progress",
+				tone: "progress",
+				rows: [
+					expect.objectContaining({
+						id: "workspace-unread",
+						hasUnread: false,
+						workspaceUnread: 0,
+						unreadSessionCount: 0,
+					}),
+				],
+			},
+		]);
+	});
+
+	it("marks a background-completed session as unread", async () => {
+		unreadRuntime.workspaceUnread = 0;
+		unreadRuntime.unreadSessionCount = 0;
+		unreadRuntime.sessionUnreadCount = 0;
+		unreadRuntime.emitSessionCompleted = true;
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(apiMocks.markSessionUnread).toHaveBeenCalledWith("session-2");
+		});
 	});
 });

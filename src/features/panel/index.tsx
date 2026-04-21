@@ -36,7 +36,6 @@ type WorkspacePanelProps = {
 	refreshingSession?: boolean;
 	sending?: boolean;
 	sendingSessionIds?: Set<string>;
-	completedSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	onSelectSession?: (sessionId: string) => void;
 	onPrefetchSession?: (sessionId: string) => void;
@@ -63,7 +62,6 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	refreshingSession: _refreshingSession = false,
 	sending = false,
 	sendingSessionIds,
-	completedSessionIds,
 	interactionRequiredSessionIds,
 	onSelectSession,
 	onPrefetchSession,
@@ -119,7 +117,6 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					sessionDisplayProviders={sessionDisplayProviders}
 					sending={sending}
 					sendingSessionIds={sendingSessionIds}
-					completedSessionIds={completedSessionIds}
 					interactionRequiredSessionIds={interactionRequiredSessionIds}
 					loadingWorkspace={loadingWorkspace}
 					headerActions={headerActions}

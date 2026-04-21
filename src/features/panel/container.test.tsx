@@ -85,7 +85,6 @@ function createWorkspaceDetail(
 		state: "ready",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
@@ -746,7 +745,6 @@ describe("WorkspacePanelContainer loading semantics", () => {
 				displayedSessionId="idle"
 				sending={false}
 				sendingSessionIds={new Set(["running"])}
-				completedSessionIds={new Set(["unread"])}
 				onSelectSession={vi.fn()}
 				onResolveDisplayedSession={vi.fn()}
 			/>,

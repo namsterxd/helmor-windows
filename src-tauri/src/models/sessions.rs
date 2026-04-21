@@ -233,6 +233,47 @@ pub fn mark_session_read(session_id: &str) -> Result<()> {
         .context("Failed to commit session read transaction")
 }
 
+pub fn mark_session_unread(session_id: &str) -> Result<()> {
+    let mut connection = db::open_connection(true)?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start mark-unread transaction")?;
+
+    mark_session_unread_in_transaction(&transaction, session_id)?;
+
+    transaction
+        .commit()
+        .context("Failed to commit session unread transaction")
+}
+
+pub(crate) fn mark_session_unread_in_transaction(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+) -> Result<()> {
+    let workspace_id: String = transaction
+        .query_row(
+            "SELECT workspace_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("Failed to resolve workspace for session {session_id}"))?;
+
+    // Bump to at least 1 — idempotent for a session that's already marked
+    // unread, and avoids drifting upwards on repeated background completions.
+    let updated_rows = transaction
+        .execute(
+            "UPDATE sessions SET unread_count = MAX(COALESCE(unread_count, 0), 1) WHERE id = ?1",
+            [session_id],
+        )
+        .with_context(|| format!("Failed to mark session {session_id} as unread"))?;
+
+    if updated_rows != 1 {
+        bail!("Session unread update affected {updated_rows} rows for session {session_id}");
+    }
+
+    sync_workspace_unread_in_transaction(transaction, &workspace_id)
+}
+
 pub(crate) fn mark_session_read_in_transaction(
     transaction: &Transaction<'_>,
     session_id: &str,
@@ -270,36 +311,46 @@ pub(crate) fn mark_workspace_read_in_transaction(
         )
         .with_context(|| format!("Failed to clear unread sessions for workspace {workspace_id}"))?;
 
-    let updated_rows = transaction
-        .execute(
-            "UPDATE workspaces SET unread = 0 WHERE id = ?1",
-            [workspace_id],
-        )
-        .with_context(|| format!("Failed to mark workspace {workspace_id} as read"))?;
-
-    if updated_rows != 1 {
-        bail!("Workspace read update affected {updated_rows} rows for workspace {workspace_id}");
-    }
-
-    Ok(())
+    // Workspace flag is purely derived; let the sync handle it.
+    sync_workspace_unread_in_transaction(transaction, workspace_id)
 }
 
 pub(crate) fn mark_workspace_unread_in_transaction(
     transaction: &Transaction<'_>,
     workspace_id: &str,
 ) -> Result<()> {
-    let updated_rows = transaction
-        .execute(
-            "UPDATE workspaces SET unread = 1 WHERE id = ?1",
-            [workspace_id],
-        )
-        .with_context(|| format!("Failed to mark workspace {workspace_id} as unread"))?;
+    // Workspace.unread is purely derived from sessions, so bump a real
+    // session and let `sync_workspace_unread_in_transaction` propagate the
+    // flag. Prefer the workspace's active session; fall back to the most
+    // recently updated visible session.
+    let target_session: Option<String> = match transaction.query_row(
+        r#"
+        SELECT s.id
+        FROM sessions s
+        LEFT JOIN workspaces w ON w.id = s.workspace_id
+        WHERE s.workspace_id = ?1
+          AND COALESCE(s.is_hidden, 0) = 0
+        ORDER BY (CASE WHEN w.active_session_id = s.id THEN 1 ELSE 0 END) DESC,
+                 s.updated_at DESC
+        LIMIT 1
+        "#,
+        [workspace_id],
+        |row| row.get::<_, String>(0),
+    ) {
+        Ok(id) => Some(id),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("Failed to pick a session to mark workspace {workspace_id} unread")
+            });
+        }
+    };
 
-    if updated_rows != 1 {
-        bail!("Workspace unread update affected {updated_rows} rows for workspace {workspace_id}");
-    }
+    let Some(session_id) = target_session else {
+        bail!("Cannot mark workspace {workspace_id} as unread: no visible sessions");
+    };
 
-    Ok(())
+    mark_session_unread_in_transaction(transaction, &session_id)
 }
 
 pub(crate) fn sync_workspace_unread_in_transaction(
