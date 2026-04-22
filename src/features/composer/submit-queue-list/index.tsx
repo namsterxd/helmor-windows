@@ -1,20 +1,4 @@
-/**
- * Vertical stack of queued follow-up messages, rendered above the
- * composer when `followUpBehavior === 'queue'` is active and the user
- * has typed additional messages while a turn is still running. Stacked
- * `ActionRow`s (the same primitive the auto-close banner uses) keep
- * the visual continuous-card look: each row's border collapses into
- * the next, and the bottom row overlaps the composer top edge via
- * `-mb-px`.
- *
- * Every row offers two actions: steer (convert this queued entry into
- * a `steerAgentStream` call and send now, interrupting the active
- * turn), or trash (remove from the local queue — no provider side
- * effect).
- *
- * Renders nothing when the queue for the given session is empty — the
- * composer's outer layout doesn't reserve space.
- */
+/** Queue overlay that sits above the composer without reserving layout space. */
 
 import { Clock, CornerDownLeft, Trash2 } from "lucide-react";
 import { ActionRow } from "@/components/action-row";
@@ -42,7 +26,10 @@ export function SubmitQueueList({
 }: SubmitQueueListProps) {
 	if (items.length === 0) return null;
 	return (
-		<div className="relative z-0 mx-auto -mb-px w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-secondary/80 bg-background">
+		<div
+			data-testid="submit-queue-list"
+			className="pointer-events-auto relative z-0 mx-auto w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-secondary/80 bg-background"
+		>
 			{items.map((item, idx) => (
 				<QueueRow
 					key={item.id}

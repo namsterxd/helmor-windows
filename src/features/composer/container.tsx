@@ -728,14 +728,15 @@ export const WorkspaceComposerContainer = memo(
 					/>
 				) : null}
 
-				<SubmitQueueList
-					items={queueItems}
-					onSteer={(id) => onSteerQueued?.(id)}
-					onRemove={(id) => onRemoveQueued?.(id)}
-					disabled={composerUnavailable}
-				/>
-
 				<div className="relative z-10">
+					<div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%-1px)] z-20 flex justify-center">
+						<SubmitQueueList
+							items={queueItems}
+							onSteer={(id) => onSteerQueued?.(id)}
+							onRemove={(id) => onRemoveQueued?.(id)}
+							disabled={composerUnavailable}
+						/>
+					</div>
 					<WorkspaceComposer
 						contextKey={composerContextKey}
 						onSubmit={handleComposerSubmit}

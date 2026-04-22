@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { createHelmorQueryClient, helmorQueryKeys } from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
 
@@ -545,6 +546,83 @@ describe("WorkspaceComposerContainer", () => {
 		const composer = screen.getByTestId("workspace-composer-mock");
 		expect(composer).toHaveAttribute("data-disabled", "false");
 		expect(composer).toHaveAttribute("data-submit-disabled", "false");
+	});
+
+	it("renders queued follow-ups as an overlay above the composer", () => {
+		const queryClient = createHelmorQueryClient();
+		queryClient.setQueryData(
+			helmorQueryKeys.agentModelSections,
+			MODEL_SECTIONS,
+		);
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceDetail("workspace-1"),
+			WORKSPACE_DETAIL,
+		);
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceSessions("workspace-1"),
+			WORKSPACE_SESSIONS,
+		);
+
+		render(
+			<TooltipProvider>
+				<QueryClientProvider client={queryClient}>
+					<WorkspaceComposerContainer
+						displayedWorkspaceId="workspace-1"
+						displayedSessionId="session-1"
+						disabled={false}
+						sending={false}
+						sendError={null}
+						restoreDraft={null}
+						restoreImages={[]}
+						restoreFiles={[]}
+						restoreNonce={0}
+						modelSelections={{}}
+						effortLevels={{}}
+						permissionModes={{}}
+						fastModes={{}}
+						onSelectModel={vi.fn()}
+						onSelectEffort={vi.fn()}
+						onChangePermissionMode={vi.fn()}
+						onChangeFastMode={vi.fn()}
+						onSubmit={vi.fn()}
+						queueItems={[
+							{
+								id: "queued-1",
+								context: {
+									sessionId: "session-1",
+									workspaceId: "workspace-1",
+									contextKey: "session:session-1",
+								},
+								payload: {
+									prompt: "Continue",
+									imagePaths: [],
+									filePaths: [],
+									customTags: [],
+									model: {
+										...MODEL_SECTIONS[0].options[0],
+										effortLevels: [
+											...MODEL_SECTIONS[0].options[0].effortLevels,
+										],
+									},
+									workingDirectory: "/tmp/helmor",
+									effortLevel: "medium",
+									permissionMode: "default",
+									fastMode: false,
+								},
+								enqueuedAt: Date.now(),
+							},
+						]}
+						onSteerQueued={vi.fn()}
+						onRemoveQueued={vi.fn()}
+					/>
+				</QueryClientProvider>
+			</TooltipProvider>,
+		);
+
+		const queueList = screen.getByTestId("submit-queue-list");
+		expect(queueList).toHaveClass("pointer-events-auto");
+		expect(queueList.parentElement).toHaveClass("absolute");
+		expect(queueList.parentElement).toHaveClass("bottom-[calc(100%-1px)]");
 	});
 
 	describe("/add-dir integration", () => {
