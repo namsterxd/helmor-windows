@@ -109,6 +109,9 @@ pub struct SendMessageParams {
     pub prompt: String,
     pub model: Option<String>,
     pub permission_mode: Option<String>,
+    /// Extra linked directories (`/add-dir`). When empty, persisted linked
+    /// directories for the session are used instead.
+    pub linked_directories: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -205,6 +208,16 @@ pub fn send_message(
             params.permission_mode.as_deref(),
         )?;
 
+        let _ = crate::ui_sync::notify_running_app(
+            crate::ui_sync::UiMutationEvent::PendingCliSendQueued {
+                workspace_id: workspace_id.clone(),
+                session_id: session_id.clone(),
+                prompt: params.prompt.clone(),
+                model_id: Some(model_id.to_string()),
+                permission_mode: params.permission_mode.clone(),
+            },
+        );
+
         // Emit a minimal "done" event so the CLI knows the handoff succeeded.
         on_event(&AgentStreamEvent::Done {
             persisted: true,
@@ -229,17 +242,37 @@ pub fn send_message(
 
     // 5. Build and send request
     let request_id = Uuid::new_v4().to_string();
+
+    // Merge explicit linked dirs with any persisted on the workspace so a
+    // resumed CLI turn still sees `/add-dir` context that was set via the
+    // GUI earlier.
+    let mut additional_directories = params.linked_directories.clone();
+    if additional_directories.is_empty() {
+        additional_directories =
+            crate::agents::lookup_workspace_linked_directories(Some(&session_id));
+    }
+
+    let mut payload = serde_json::json!({
+        "sessionId": session_id,
+        "prompt": params.prompt,
+        "model": model.cli_model,
+        "cwd": cwd,
+        "provider": model.provider,
+        "permissionMode": params.permission_mode.as_deref().unwrap_or("auto"),
+    });
+    if !additional_directories.is_empty() {
+        payload["additionalDirectories"] = serde_json::Value::Array(
+            additional_directories
+                .iter()
+                .map(|dir| serde_json::Value::String(dir.clone()))
+                .collect(),
+        );
+    }
+
     let sidecar_req = crate::sidecar::SidecarRequest {
         id: request_id.clone(),
         method: "sendMessage".to_string(),
-        params: serde_json::json!({
-            "sessionId": session_id,
-            "prompt": params.prompt,
-            "model": model.cli_model,
-            "cwd": cwd,
-            "provider": model.provider,
-            "permissionMode": params.permission_mode.as_deref().unwrap_or("auto"),
-        }),
+        params: payload,
     };
 
     let rx = sidecar.subscribe(&request_id);
@@ -563,19 +596,19 @@ pub fn drain_pending_cli_sends() -> Result<Vec<PendingCliSend>> {
 
 /// Check if the Helmor App is running by testing the MCP bridge port.
 pub fn is_app_running() -> bool {
-    is_port_listening(9223)
+    crate::ui_sync::is_listener_running()
 }
 
-/// Return true iff a TCP listener is accepting connections on the given
-/// loopback port right now. Factored out from `is_app_running` so tests can
-/// exercise the probe against an ephemeral port instead of the hard-coded
-/// MCP bridge port (which collides with a locally-running dev build).
-fn is_port_listening(port: u16) -> bool {
-    std::net::TcpStream::connect_timeout(
-        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
-        Duration::from_millis(200),
-    )
-    .is_ok()
+/// Spawn a standalone sidecar, ask it for the combined model catalog (Claude
+/// + Codex), and tear it down. Blocks until the sidecar replies or times out.
+///
+/// Used by `helmor models list` when the GUI isn't hosting a sidecar we can
+/// share.
+pub fn fetch_model_sections() -> Vec<crate::agents::AgentModelSection> {
+    let sidecar = crate::sidecar::ManagedSidecar::new();
+    let sections = crate::agents::fetch_agent_model_sections(&sidecar);
+    sidecar.shutdown(Duration::from_millis(500), Duration::from_secs(2));
+    sections
 }
 
 #[cfg(test)]
@@ -601,6 +634,17 @@ mod tests {
             crate::schema::ensure_schema(&conn).unwrap();
             Self { root }
         }
+    }
+
+    #[test]
+    fn is_app_running_is_false_without_listener() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let data = TestDataDir::new("ui-sync-running");
+        assert!(
+            !crate::ui_sync::is_listener_running(),
+            "expected listener probe to fail without a running app at {}",
+            data.root.display()
+        );
     }
 
     impl Drop for TestDataDir {
@@ -735,24 +779,5 @@ mod tests {
             .unwrap();
 
         assert_eq!(title, "Create PR");
-    }
-
-    #[test]
-    fn is_port_listening_returns_false_when_no_listener() {
-        // Bind an ephemeral port, release it, then probe — nothing should
-        // be listening on a port we just closed. This used to hard-code
-        // 9223, which collides with any locally-running dev build.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        assert!(!is_port_listening(port));
-    }
-
-    #[test]
-    fn is_port_listening_returns_true_when_listener_exists() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        assert!(is_port_listening(port));
-        drop(listener);
     }
 }

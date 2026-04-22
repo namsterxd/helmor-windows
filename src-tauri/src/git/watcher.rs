@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::{
     git_ops,
     models::db,
+    ui_sync,
     workspace_state::{self, WorkspaceState},
 };
 
@@ -383,6 +384,12 @@ fn start_watcher<R: Runtime>(
                 );
             }
             if refs_changed {
+                ui_sync::publish(
+                    &app_handle,
+                    ui_sync::UiMutationEvent::WorkspaceGitStateChanged {
+                        workspace_id: workspace_id.clone(),
+                    },
+                );
                 if let Err(e) = app_handle.emit(
                     GIT_REFS_CHANGED_EVENT,
                     GitRefsChangedPayload {
@@ -619,6 +626,12 @@ fn handle_head_change(
         }
     }
 
+    ui_sync::publish(
+        app,
+        ui_sync::UiMutationEvent::WorkspaceGitStateChanged {
+            workspace_id: workspace_id.to_string(),
+        },
+    );
     if let Err(e) = app.emit(
         GIT_BRANCH_CHANGED_EVENT,
         GitBranchChangedPayload {
@@ -722,6 +735,7 @@ mod tests {
         git(dir.path(), &["checkout", "-b", "main"]);
         git(dir.path(), &["config", "user.email", "test@helmor.dev"]);
         git(dir.path(), &["config", "user.name", "Test"]);
+        git(dir.path(), &["config", "commit.gpgsign", "false"]);
         std::fs::write(dir.path().join("f.txt"), "init\n").unwrap();
         git(dir.path(), &["add", "."]);
         git(dir.path(), &["commit", "-m", "init"]);

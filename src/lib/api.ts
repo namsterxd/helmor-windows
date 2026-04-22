@@ -530,6 +530,7 @@ export type CliStatus = {
 	installed: boolean;
 	installPath: string | null;
 	buildMode: string;
+	installState: "missing" | "managed" | "stale";
 };
 
 export async function getCliStatus(): Promise<CliStatus> {
@@ -837,6 +838,26 @@ export type GitRefsChangedPayload = {
 	workspaceId: string;
 };
 
+export type UiMutationEvent =
+	| { type: "workspaceListChanged" }
+	| { type: "workspaceChanged"; workspaceId: string }
+	| { type: "sessionListChanged"; workspaceId: string }
+	| { type: "workspaceFilesChanged"; workspaceId: string }
+	| { type: "workspaceGitStateChanged"; workspaceId: string }
+	| { type: "workspacePrChanged"; workspaceId: string }
+	| { type: "repositoryListChanged" }
+	| { type: "repositoryChanged"; repoId: string }
+	| { type: "settingsChanged"; key: string | null }
+	| { type: "githubIdentityChanged" }
+	| {
+			type: "pendingCliSendQueued";
+			workspaceId: string;
+			sessionId: string;
+			prompt: string;
+			modelId: string | null;
+			permissionMode: string | null;
+	  };
+
 export async function listenGitBranchChanged(
 	callback: (payload: GitBranchChangedPayload) => void,
 ): Promise<UnlistenFn> {
@@ -851,6 +872,15 @@ export async function listenGitRefsChanged(
 	return listen<GitRefsChangedPayload>("git-refs-changed", (event) =>
 		callback(event.payload),
 	);
+}
+
+export async function subscribeUiMutations(
+	callback: (event: UiMutationEvent) => void,
+): Promise<void> {
+	const { Channel } = await import("@tauri-apps/api/core");
+	const onEvent = new Channel<UiMutationEvent>();
+	onEvent.onmessage = callback;
+	await invoke("subscribe_ui_mutations", { onEvent });
 }
 
 export type PrefetchRemoteRefsResponse = {

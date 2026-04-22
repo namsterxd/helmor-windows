@@ -1313,6 +1313,7 @@ mod tests {
             &["config", "user.email", "helmor@example.com"],
         );
         run(clone_dir.path(), &["config", "user.name", "Helmor Test"]);
+        run(clone_dir.path(), &["config", "commit.gpgsign", "false"]);
         (origin, clone_dir)
     }
 

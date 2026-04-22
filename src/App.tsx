@@ -49,6 +49,7 @@ import { GithubStatusMenu } from "@/shell/github-status-menu";
 import { useEnsureDefaultModel } from "@/shell/hooks/use-ensure-default-model";
 import { useGithubIdentity } from "@/shell/hooks/use-github-identity";
 import { useShellPanels } from "@/shell/hooks/use-panels";
+import { useUiSyncBridge } from "@/shell/hooks/use-ui-sync-bridge";
 import {
 	findAdjacentSessionId,
 	findAdjacentWorkspaceId,
@@ -67,8 +68,6 @@ import {
 	isConductorAvailable,
 	listConductorRepos,
 	listConductorWorkspaces,
-	listenGitBranchChanged,
-	listenGitRefsChanged,
 	markSessionRead,
 	markSessionUnread,
 	openWorkspaceInEditor,
@@ -124,6 +123,8 @@ import {
 } from "./lib/workspace-toast-context";
 import { StreamingFooterOverlapScenario } from "./test/e2e-scenarios/streaming-footer-overlap";
 
+const SETTINGS_RELOAD_EVENT = "helmor:reload-settings";
+
 function App() {
 	const e2eScenario =
 		typeof window === "undefined"
@@ -166,7 +167,6 @@ function MainApp() {
 		}),
 		[appSettings, preloadSettings],
 	);
-
 	const [splashVisible, setSplashVisible] = useState(true);
 	const [splashMounted, setSplashMounted] = useState(true);
 
@@ -180,6 +180,17 @@ function MainApp() {
 				setTimeout(() => setSplashMounted(false), 400);
 			},
 		);
+	}, []);
+
+	useEffect(() => {
+		const handleSettingsReload = () => {
+			void loadSettings().then(setAppSettings);
+		};
+
+		window.addEventListener(SETTINGS_RELOAD_EVENT, handleSettingsReload);
+		return () => {
+			window.removeEventListener(SETTINGS_RELOAD_EVENT, handleSettingsReload);
+		};
 	}, []);
 
 	// Cmd+, (macOS) / Ctrl+, (Windows / Linux) to open settings
@@ -365,6 +376,7 @@ function AppShell({
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
 		handleStartGithubIdentityConnect,
+		refreshGithubIdentityState,
 		isIdentityConnected,
 	} = useGithubIdentity(pushWorkspaceToast);
 	const {
@@ -837,59 +849,6 @@ function AppShell({
 			return () => mq.removeEventListener("change", apply);
 		}
 	}, [appSettings.theme]);
-
-	// ── Git watcher: react to external branch / ref changes ──────────
-	useEffect(() => {
-		let disposed = false;
-		let unlistenBranch: (() => void) | undefined;
-		let unlistenRefs: (() => void) | undefined;
-
-		void listenGitBranchChanged((payload) => {
-			if (disposed) return;
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGroups,
-			});
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceDetail(payload.workspaceId),
-			});
-			// Checkout changes what's uncommitted — refresh file diff
-			queryClient.invalidateQueries({ queryKey: ["workspaceChanges"] });
-		}).then((unlisten) => {
-			if (disposed) {
-				unlisten();
-				return;
-			}
-			unlistenBranch = unlisten;
-		});
-
-		void listenGitRefsChanged((payload) => {
-			if (disposed) return;
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGroups,
-			});
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceDetail(payload.workspaceId),
-			});
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGitActionStatus(payload.workspaceId),
-			});
-			// Ref changes (commit, push, fetch) affect merge-base and
-			// staged/unstaged state — refresh the inspector file diff.
-			queryClient.invalidateQueries({ queryKey: ["workspaceChanges"] });
-		}).then((unlisten) => {
-			if (disposed) {
-				unlisten();
-				return;
-			}
-			unlistenRefs = unlisten;
-		});
-
-		return () => {
-			disposed = true;
-			unlistenBranch?.();
-			unlistenRefs?.();
-		};
-	}, [queryClient]);
 
 	useEffect(() => {
 		if (
@@ -1646,6 +1605,52 @@ function AppShell({
 		[rememberSessionSelection],
 	);
 
+	const processPendingCliSends = useCallback(async () => {
+		try {
+			const sends = await drainPendingCliSends();
+			if (sends.length === 0) return;
+
+			const first = sends[0];
+
+			await queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceGroups,
+			});
+			if (first.workspaceId) {
+				await queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceSessions(first.workspaceId),
+				});
+			}
+
+			handleSelectWorkspace(first.workspaceId);
+
+			setTimeout(() => {
+				queuePendingPromptForSession({
+					sessionId: first.sessionId,
+					prompt: first.prompt,
+					modelId: first.modelId,
+					permissionMode: first.permissionMode,
+				});
+				handleSelectSession(first.sessionId);
+			}, 100);
+		} catch (error) {
+			console.error("[pendingCliSend] drain failed:", error);
+		}
+	}, [
+		handleSelectSession,
+		handleSelectWorkspace,
+		queryClient,
+		queuePendingPromptForSession,
+	]);
+
+	useUiSyncBridge({
+		queryClient,
+		processPendingCliSends,
+		reloadSettings: () => {
+			window.dispatchEvent(new Event(SETTINGS_RELOAD_EVENT));
+		},
+		refreshGithubIdentity: refreshGithubIdentityState,
+	});
+
 	// ── Pending CLI sends: on window focus, drain queued prompts ────────
 	// When `helmor send` detects the App is running it writes the prompt
 	// into `pending_cli_sends` instead of starting its own sidecar. On
@@ -1663,50 +1668,7 @@ function AppShell({
 					triggerWorkspaceFetch(wsId);
 				}
 
-				try {
-					const sends = await drainPendingCliSends();
-					if (sends.length === 0) return;
-
-					// Process the first send immediately. If there are
-					// multiple we queue only the first — subsequent sends
-					// will be picked up on the next focus or could be
-					// extended later to a queue.
-					const first = sends[0];
-					console.log(
-						"[pendingCliSend] picked up",
-						sends.length,
-						"send(s), processing first:",
-						first.sessionId,
-					);
-
-					// Ensure workspace + session data is fresh before navigating
-					await queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceGroups,
-					});
-					if (first.workspaceId) {
-						await queryClient.invalidateQueries({
-							queryKey: helmorQueryKeys.workspaceSessions(first.workspaceId),
-						});
-					}
-
-					// Navigate to the workspace + session
-					handleSelectWorkspace(first.workspaceId);
-
-					// Small delay to let workspace selection settle before
-					// setting the pending prompt — otherwise the conversation
-					// container might not have mounted the target session yet.
-					setTimeout(() => {
-						queuePendingPromptForSession({
-							sessionId: first.sessionId,
-							prompt: first.prompt,
-							modelId: first.modelId,
-							permissionMode: first.permissionMode,
-						});
-						handleSelectSession(first.sessionId);
-					}, 100);
-				} catch (error) {
-					console.error("[pendingCliSend] drain failed:", error);
-				}
+				await processPendingCliSends();
 			}).then((fn) => {
 				unlisten = fn;
 			});
@@ -1715,12 +1677,7 @@ function AppShell({
 		return () => {
 			unlisten?.();
 		};
-	}, [
-		handleSelectWorkspace,
-		handleSelectSession,
-		queryClient,
-		queuePendingPromptForSession,
-	]);
+	}, [processPendingCliSends]);
 
 	// Close-confirmation is handled by <QuitConfirmDialog /> which registers
 	// its own onCloseRequested listener.  No need for a separate hook here.

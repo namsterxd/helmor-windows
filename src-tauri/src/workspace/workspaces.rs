@@ -224,7 +224,36 @@ pub fn get_workspace(workspace_id: &str) -> Result<WorkspaceDetail> {
     Ok(record_to_detail(record))
 }
 
-// ---- Mark unread ----
+// ---- Read / unread ----
+
+pub fn mark_workspace_read(workspace_id: &str) -> Result<()> {
+    let mut connection = db::open_connection(true)?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start workspace-read transaction")?;
+
+    transaction
+        .execute(
+            "UPDATE sessions SET unread_count = 0 WHERE workspace_id = ?1",
+            [workspace_id],
+        )
+        .with_context(|| format!("Failed to clear unread sessions for workspace {workspace_id}"))?;
+
+    let updated_rows = transaction
+        .execute(
+            "UPDATE workspaces SET unread = 0 WHERE id = ?1",
+            [workspace_id],
+        )
+        .with_context(|| format!("Failed to mark workspace {workspace_id} as read"))?;
+
+    if updated_rows != 1 {
+        bail!("Workspace read update affected {updated_rows} rows for workspace {workspace_id}");
+    }
+
+    transaction
+        .commit()
+        .context("Failed to commit workspace read transaction")
+}
 
 pub fn mark_workspace_unread(workspace_id: &str) -> Result<()> {
     let mut connection = db::open_connection(true)?;

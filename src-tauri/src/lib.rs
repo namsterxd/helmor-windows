@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod cli;
 pub(crate) mod commands;
 pub mod data_dir;
 pub mod error;
@@ -13,6 +14,7 @@ pub mod schema;
 pub mod service;
 mod shell_env;
 pub mod sidecar;
+pub mod ui_sync;
 pub mod updater;
 pub mod workspace;
 
@@ -61,6 +63,7 @@ pub fn run() {
         .manage(workspace::archive::ArchiveJobManager::new())
         .manage(git_watcher::GitWatcherManager::new())
         .manage(workspace::scripts::ScriptProcessManager::new())
+        .manage(ui_sync::UiSyncManager::new())
         .setup(|app| {
             // Ensure data directory structure exists
             data_dir::ensure_directory_structure()?;
@@ -126,6 +129,10 @@ pub fn run() {
                 })
             {
                 tracing::error!(error = %error, "Failed to spawn git watcher init thread");
+            }
+
+            if let Err(error) = ui_sync::start_listener(app.handle().clone()) {
+                tracing::error!(error = %error, "Failed to start UI sync listener");
             }
 
             Ok(())
@@ -238,6 +245,7 @@ pub fn run() {
             commands::settings_commands::save_auto_close_action_kinds,
             commands::settings_commands::load_auto_close_opt_in_asked,
             commands::settings_commands::save_auto_close_opt_in_asked,
+            ui_sync::subscribe_ui_mutations,
             commands::updater_commands::get_app_update_status,
             commands::updater_commands::check_for_app_update,
             commands::updater_commands::install_downloaded_app_update,
