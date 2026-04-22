@@ -63,7 +63,7 @@ pub(crate) struct RepositoryRecord {
 }
 
 pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"
@@ -103,7 +103,7 @@ pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
 }
 
 pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"
@@ -137,7 +137,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
 }
 
 pub(crate) fn load_repository_by_root_path(root_path: &str) -> Result<Option<RepositoryRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     if let Some(repository) = query_repository_by_root_path(&connection, root_path)? {
         return Ok(Some(repository));
     }
@@ -245,7 +245,7 @@ fn query_repository_candidates_by_name(
 }
 
 pub(crate) fn insert_repository(repository: &ResolvedRepositoryInput) -> Result<String> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let next_display_order: i64 = connection
         .query_row(
             "SELECT COALESCE(MAX(display_order), 0) + 1 FROM repos",
@@ -315,7 +315,7 @@ pub fn update_repository_remote(
         })?;
     let new_remote_url = resolve_repository_remote_url(&repo_root, remote).ok();
 
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE repos SET remote = ?1, default_branch = ?2, remote_url = ?3, updated_at = datetime('now') WHERE id = ?4",
@@ -371,7 +371,7 @@ pub fn list_repo_remotes(repo_id: &str) -> Result<Vec<String>> {
 }
 
 pub fn update_repository_default_branch(repo_id: &str, default_branch: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE repos SET default_branch = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -444,7 +444,7 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
 
     // Priority 3: DB values — picked up by `pick_script` when the project
     // config doesn't provide a value.
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare("SELECT setup_script, run_script, archive_script FROM repos WHERE id = ?1")
         .with_context(|| format!("Failed to prepare script lookup for {repo_id}"))?;
@@ -537,7 +537,7 @@ pub fn update_repo_scripts(
     run_script: Option<&str>,
     archive_script: Option<&str>,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE repos SET setup_script = ?1, run_script = ?2, archive_script = ?3, updated_at = datetime('now') WHERE id = ?4",
@@ -553,7 +553,7 @@ pub fn update_repo_scripts(
 }
 
 pub fn load_repo_preferences(repo_id: &str) -> Result<RepoPreferences> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"
@@ -583,7 +583,7 @@ pub fn load_repo_preferences(repo_id: &str) -> Result<RepoPreferences> {
 }
 
 pub fn update_repo_preferences(repo_id: &str, preferences: &RepoPreferences) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             r#"
@@ -623,7 +623,7 @@ fn normalize_repo_preference(value: Option<&str>) -> Option<String> {
 }
 
 pub(crate) fn delete_repository(repo_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let deleted_rows = connection
         .execute("DELETE FROM repos WHERE id = ?1", [repo_id])
         .with_context(|| format!("Failed to delete repository {repo_id}"))?;
@@ -637,7 +637,7 @@ pub(crate) fn delete_repository(repo_id: &str) -> Result<()> {
 
 /// Delete a repository and all related data (workspaces, sessions, messages, etc.)
 pub fn delete_repository_cascade(repo_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let tx = connection
         .transaction()
         .context("Failed to start delete repository transaction")?;

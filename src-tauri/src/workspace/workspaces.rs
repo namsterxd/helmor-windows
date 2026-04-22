@@ -227,7 +227,7 @@ pub fn get_workspace(workspace_id: &str) -> Result<WorkspaceDetail> {
 // ---- Read / unread ----
 
 pub fn mark_workspace_read(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start workspace-read transaction")?;
@@ -256,7 +256,7 @@ pub fn mark_workspace_read(workspace_id: &str) -> Result<()> {
 }
 
 pub fn mark_workspace_unread(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start workspace-unread transaction")?;
@@ -269,7 +269,7 @@ pub fn mark_workspace_unread(workspace_id: &str) -> Result<()> {
 }
 
 pub fn pin_workspace(workspace_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE workspaces SET pinned_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
@@ -280,7 +280,7 @@ pub fn pin_workspace(workspace_id: &str) -> Result<()> {
 }
 
 pub fn unpin_workspace(workspace_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE workspaces SET pinned_at = NULL, updated_at = datetime('now') WHERE id = ?1",
@@ -294,7 +294,7 @@ pub fn set_workspace_manual_status(
     workspace_id: &str,
     status: Option<DerivedStatus>,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE workspaces SET manual_status = ?2, updated_at = datetime('now') WHERE id = ?1",
@@ -310,7 +310,7 @@ pub fn set_workspace_manual_status(
 // Schema pre-dates the feature (Conductor import compatibility); we own it now.
 
 pub fn get_workspace_linked_directories(workspace_id: &str) -> Result<Vec<String>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let raw: Option<String> = connection
         .query_row(
             "SELECT linked_directory_paths FROM workspaces WHERE id = ?1",
@@ -394,7 +394,7 @@ pub fn set_workspace_linked_directories(
     } else {
         Some(serde_json::to_string(&normalized).context("Failed to encode linked directories")?)
     };
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE workspaces SET linked_directory_paths = ?2, updated_at = datetime('now') WHERE id = ?1",
@@ -716,7 +716,7 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 /// Archived workspaces are excluded — their worktree is intentionally gone, but
 /// their archived `.context` and session history must be preserved.
 pub fn purge_orphaned_workspaces() -> Result<usize> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut stmt = connection.prepare(
         "SELECT w.id, r.name, w.directory_name, w.state
          FROM workspaces w
@@ -769,7 +769,7 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
 /// attachments, diff_comments) from the database, plus any filesystem
 /// artifacts (worktree directory, archived context).
 pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
 
     // Load workspace info for filesystem cleanup
     let record: Option<(String, String, WorkspaceState)> = connection

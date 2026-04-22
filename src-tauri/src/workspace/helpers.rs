@@ -566,7 +566,7 @@ fn resolve_github_login() -> Result<Option<String>> {
 }
 
 pub fn allocate_directory_name_for_repo(repo_id: &str) -> Result<String> {
-    let connection = crate::db::open_connection(false)?;
+    let connection = crate::db::read_conn()?;
     allocate_directory_name_with_conn(&connection, repo_id)
 }
 

@@ -235,7 +235,7 @@ fn update_settings(
 ) -> Result<()> {
     let workspace_id = service::resolve_workspace_ref(workspace_ref)?;
     let session_id = refs::resolve_session_ref(&workspace_id, session)?;
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     conn.execute(
         r#"
         UPDATE sessions SET

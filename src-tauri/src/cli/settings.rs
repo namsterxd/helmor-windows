@@ -38,7 +38,7 @@ fn set(key: &str, value: &str, cli: &Cli) -> Result<()> {
 }
 
 fn list(all: bool, cli: &Cli) -> Result<()> {
-    let conn = crate::models::db::open_connection(false)?;
+    let conn = crate::models::db::read_conn()?;
     let mut stmt = if all {
         conn.prepare("SELECT key, value FROM settings ORDER BY key ASC")?
     } else {
@@ -62,7 +62,7 @@ fn list(all: bool, cli: &Cli) -> Result<()> {
 }
 
 fn delete(key: &str, cli: &Cli) -> Result<()> {
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     let removed = conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
     if removed == 0 {
         bail!("No setting with key '{key}'");

@@ -310,10 +310,6 @@ fn finalize_session_metadata_in_transaction(
     Ok(())
 }
 
-pub(super) fn open_write_connection() -> Result<Connection> {
-    crate::models::db::open_connection(true)
-}
-
 fn current_timestamp_string() -> Result<String> {
     crate::models::db::current_timestamp()
 }

@@ -58,7 +58,7 @@ pub struct SessionAttachmentRecord {
 }
 
 pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSummary>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let active_session_id: Option<String> = connection.query_row(
         "SELECT active_session_id FROM workspaces WHERE id = ?1",
         [workspace_id],
@@ -131,7 +131,7 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
 }
 
 pub fn list_session_historical_records(session_id: &str) -> Result<Vec<HistoricalRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     list_session_historical_records_with_connection(&connection, session_id)
 }
 
@@ -175,7 +175,7 @@ fn list_session_historical_records_with_connection(
 }
 
 pub fn list_session_attachments(session_id: &str) -> Result<Vec<SessionAttachmentRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection.prepare(
         r#"
             SELECT
@@ -221,7 +221,7 @@ pub fn list_session_attachments(session_id: &str) -> Result<Vec<SessionAttachmen
 // ---- Session read/unread functions ----
 
 pub fn mark_session_read(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start mark-read transaction")?;
@@ -234,7 +234,7 @@ pub fn mark_session_read(session_id: &str) -> Result<()> {
 }
 
 pub fn mark_session_unread(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start mark-unread transaction")?;
@@ -366,7 +366,7 @@ pub fn create_session(
     action_kind: Option<ActionKind>,
     permission_mode: Option<&str>,
 ) -> Result<CreateSessionResponse> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
 
     // `model` is left NULL on create: the frontend owns model selection via
     // `settings.defaultModelId` (kept valid by `useEnsureDefaultModel`), and
@@ -438,7 +438,7 @@ pub fn create_session(
 
 /// Read the `model` column from a session row.
 pub fn get_session_model(session_id: &str) -> Result<Option<String>> {
-    let conn = db::open_connection(false)?;
+    let conn = db::read_conn()?;
     let model: Option<String> = conn
         .query_row(
             "SELECT model FROM sessions WHERE id = ?1",
@@ -450,7 +450,7 @@ pub fn get_session_model(session_id: &str) -> Result<Option<String>> {
 }
 
 pub fn rename_session(session_id: &str, title: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
 
     let updated_rows = connection
         .execute(
@@ -467,7 +467,7 @@ pub fn rename_session(session_id: &str, title: &str) -> Result<()> {
 }
 
 pub fn hide_session(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start hide-session transaction")?;
@@ -530,7 +530,7 @@ pub fn hide_session(session_id: &str) -> Result<()> {
 }
 
 pub fn unhide_session(session_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE sessions SET is_hidden = 0 WHERE id = ?1",
@@ -541,7 +541,7 @@ pub fn unhide_session(session_id: &str) -> Result<()> {
 }
 
 pub fn delete_session(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection.transaction()?;
 
     // Resolve workspace before deleting, so we can fix active_session_id
@@ -586,7 +586,7 @@ pub fn delete_session(session_id: &str) -> Result<()> {
 }
 
 pub fn list_hidden_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSummary>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"

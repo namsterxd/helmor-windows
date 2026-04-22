@@ -109,7 +109,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
 "#;
 
 pub fn load_workspace_records() -> Result<Vec<WorkspaceRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let sql = format!(
         "{WORKSPACE_RECORD_SQL} ORDER BY datetime(w.created_at) DESC, datetime(w.updated_at) DESC, w.id DESC"
     );
@@ -121,7 +121,7 @@ pub fn load_workspace_records() -> Result<Vec<WorkspaceRecord>> {
 }
 
 pub fn load_workspace_record_by_id(workspace_id: &str) -> Result<Option<WorkspaceRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement =
         connection.prepare(format!("{WORKSPACE_RECORD_SQL} WHERE w.id = ?1").as_str())?;
 
@@ -134,7 +134,7 @@ pub fn load_workspace_record_by_id(workspace_id: &str) -> Result<Option<Workspac
 }
 
 pub fn load_archived_workspace_records() -> Result<Vec<WorkspaceRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(&format!(
             // Archived list sorts by `updated_at DESC` so the most recently
@@ -160,7 +160,7 @@ pub(crate) fn insert_initializing_workspace_and_session(
     default_branch: &str,
     timestamp: &str,
 ) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start create-workspace transaction")?;
@@ -233,7 +233,7 @@ pub(crate) fn update_workspace_initialization_metadata(
     initialization_files_copied: i64,
     timestamp: &str,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated_rows = connection
         .execute(
             r#"
@@ -260,7 +260,7 @@ pub(crate) fn update_workspace_state(
     state: WorkspaceState,
     timestamp: &str,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated_rows = connection
         .execute(
             "UPDATE workspaces SET state = ?2, updated_at = ?3 WHERE id = ?1",
@@ -276,7 +276,7 @@ pub(crate) fn update_workspace_state(
 }
 
 pub(crate) fn delete_workspace_and_session_rows(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start create cleanup transaction")?;
@@ -317,7 +317,7 @@ pub(crate) fn delete_workspace_and_session_rows(workspace_id: &str) -> Result<()
 pub(crate) fn list_initializing_workspaces_older_than(
     max_age_seconds: i64,
 ) -> Result<Vec<OrphanedInitializingWorkspace>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let cutoff = format!("datetime('now', '-{} seconds')", max_age_seconds.max(0));
     let sql = format!("{WORKSPACE_RECORD_SQL} WHERE w.state = ?1 AND w.created_at < {cutoff}",);
     let mut statement = connection.prepare(&sql)?;
@@ -342,7 +342,7 @@ pub(crate) fn update_archived_workspace_state(
     workspace_id: &str,
     archive_commit: &str,
 ) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start archive transaction")?;
@@ -381,7 +381,7 @@ pub(crate) fn update_restored_workspace_state(
     workspace_context_dir: &Path,
     target_branch_override: Option<&str>,
 ) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start restore transaction")?;

@@ -1,6 +1,5 @@
 use std::sync::Mutex;
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -45,7 +44,7 @@ pub async fn generate_session_title(
     request: GenerateSessionTitleRequest,
 ) -> CmdResult<GenerateSessionTitleResponse> {
     let connection =
-        open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+        crate::models::db::read_conn().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
     let (current_title, action_kind): (String, Option<super::ActionKind>) = connection
         .query_row(
             "SELECT title, action_kind FROM sessions WHERE id = ?1",
@@ -212,8 +211,8 @@ pub async fn generate_session_title(
     let mut title_renamed = false;
     if should_generate_title {
         if let Some(ref title) = generated_title {
-            let connection =
-                open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+            let connection = crate::models::db::read_conn()
+                .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
             let latest_title: String = connection
                 .query_row(
                     "SELECT title FROM sessions WHERE id = ?1",
@@ -251,13 +250,13 @@ pub async fn generate_session_title(
         {
             // Acquire per-workspace lock so concurrent title-gens serialise
             // their branch renames instead of racing on `git branch -m`.
-            let ws_lock = crate::models::db::workspace_mutation_lock(&workspace_id);
+            let ws_lock = crate::models::db::workspace_fs_mutation_lock(&workspace_id);
             let _guard = ws_lock.lock().await;
 
             // Re-read branch under lock to avoid TOCTOU: if another title-gen
             // already renamed the branch, we'll see the updated value and skip.
-            let connection =
-                open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+            let connection = crate::models::db::read_conn()
+                .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
             let old_branch: Option<String> = connection
                 .query_row(
                     "SELECT branch FROM workspaces WHERE id = ?1",
@@ -786,10 +785,6 @@ fn spawn_background_refresh(
             cache_state.finish_refresh(&refresh_key);
         })
         .ok();
-}
-
-fn open_write_connection() -> Result<rusqlite::Connection> {
-    crate::models::db::open_connection(true)
 }
 
 // ---------------------------------------------------------------------------

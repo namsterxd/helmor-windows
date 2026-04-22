@@ -357,7 +357,7 @@ pub async fn dev_reset_all_data(app: tauri::AppHandle) -> CmdResult<DevResetResu
         tracing::warn!(dir = %data_dir.display(), "DEV RESET: wiping all data");
 
         // --- Database cleanup (single transaction) -----------------------
-        let mut conn = db::open_connection(true)?;
+        let mut conn = db::write_conn()?;
         let tx = conn
             .transaction()
             .context("Failed to start dev-reset transaction")?;

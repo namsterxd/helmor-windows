@@ -23,7 +23,7 @@ pub async fn get_add_repository_defaults() -> CmdResult<repos::AddRepositoryDefa
 pub async fn add_repository_from_local_path(
     folder_path: String,
 ) -> CmdResult<repos::AddRepositoryResponse> {
-    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
     run_blocking(move || repos::add_repository_from_local_path(&folder_path)).await
 }
 
@@ -96,6 +96,6 @@ pub async fn update_repo_preferences(
 
 #[tauri::command]
 pub async fn delete_repository(repo_id: String) -> CmdResult<()> {
-    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
     run_blocking(move || repos::delete_repository_cascade(&repo_id)).await
 }

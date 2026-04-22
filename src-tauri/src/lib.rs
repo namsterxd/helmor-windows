@@ -40,6 +40,7 @@ use tauri::Manager;
 
 /// Initialise the database schema (call once at startup).
 pub fn schema_init(conn: &rusqlite::Connection) {
+    db::init_connection(conn, true).expect("Failed to apply PRAGMA init");
     schema::ensure_schema(conn).expect("Failed to initialize database schema");
 }
 
@@ -74,10 +75,17 @@ pub fn run() {
             let logs_dir = data_dir::logs_dir()?;
             logging::init(&logs_dir)?;
 
-            // Initialize database schema
+            // Initialize database schema. We apply the same PRAGMA init as
+            // the pools to get WAL mode persisted to the file before any
+            // pool connection opens.
             let db_path = data_dir::db_path()?;
             let connection = rusqlite::Connection::open(&db_path)?;
+            db::init_connection(&connection, true)?;
             schema::ensure_schema(&connection)?;
+            drop(connection);
+
+            // Build read/write connection pools (must happen after schema).
+            db::init_pools()?;
 
             tracing::info!(
                 mode = data_dir::data_mode_label(),

@@ -813,7 +813,7 @@ pub fn restore_workspace_impl(
 
     let staged_archive_dir = helpers::staged_archive_context_dir(&archived_context_dir);
     if actual_branch != branch {
-        let conn = db::open_connection(true).map_err(|error| {
+        let conn = db::write_conn().map_err(|error| {
             cleanup_failed_restore(
                 &repo_root,
                 &workspace_dir,

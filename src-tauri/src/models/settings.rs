@@ -10,7 +10,7 @@ pub struct BranchPrefixSettings {
 }
 
 pub fn load_setting_value(key: &str) -> Result<Option<String>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare("SELECT value FROM settings WHERE key = ?1")
         .with_context(|| format!("Failed to prepare settings lookup for {key}"))?;
@@ -27,7 +27,7 @@ pub fn load_setting_value(key: &str) -> Result<Option<String>> {
 }
 
 pub fn upsert_setting_value(key: &str, value: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             r#"
@@ -45,7 +45,7 @@ pub fn upsert_setting_value(key: &str, value: &str) -> Result<()> {
 }
 
 pub fn delete_setting_value(key: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute("DELETE FROM settings WHERE key = ?1", [key])
         .with_context(|| format!("Failed to delete setting {key}"))?;
@@ -98,7 +98,7 @@ pub fn save_auto_close_opt_in_asked(kinds: &[crate::agents::ActionKind]) -> Resu
 }
 
 pub fn load_branch_prefix_settings() -> Result<BranchPrefixSettings> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             "SELECT key, value FROM settings WHERE key IN ('branch_prefix_type', 'branch_prefix_custom')",

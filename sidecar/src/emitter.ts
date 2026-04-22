@@ -48,6 +48,16 @@ export type SteeredEvent = {
 
 export type PongEvent = { readonly id: string; readonly type: "pong" };
 
+/**
+ * Liveness ping — emitted every ~15s while a stream is active. Used by the
+ * Rust side to detect a hung/frozen sidecar vs. one that's legitimately
+ * waiting on a long-running tool. Carries no payload; only presence matters.
+ */
+export type HeartbeatEvent = {
+	readonly id: string;
+	readonly type: "heartbeat";
+};
+
 export type TitleGeneratedEvent = {
 	readonly id: string;
 	readonly type: "titleGenerated";
@@ -140,6 +150,7 @@ export type SidecarControlEvent =
 	| StoppedEvent
 	| SteeredEvent
 	| PongEvent
+	| HeartbeatEvent
 	| TitleGeneratedEvent
 	| SlashCommandsListedEvent
 	| PermissionRequestEvent
@@ -170,6 +181,7 @@ export interface SidecarEmitter {
 		reason?: string,
 	): void;
 	pong(requestId: string): void;
+	heartbeat(requestId: string): void;
 	titleGenerated(
 		requestId: string,
 		title: string,
@@ -257,6 +269,7 @@ export function createSidecarEmitter(
 				...(reason ? { reason } : {}),
 			}),
 		pong: (requestId) => write({ id: requestId, type: "pong" }),
+		heartbeat: (requestId) => write({ id: requestId, type: "heartbeat" }),
 		titleGenerated: (requestId, title, branchName) =>
 			write({ id: requestId, type: "titleGenerated", title, branchName }),
 		slashCommandsListed: (requestId, commands) =>

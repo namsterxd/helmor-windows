@@ -7,7 +7,7 @@ use super::common::{run_blocking, CmdResult};
 #[tauri::command]
 pub async fn get_app_settings() -> CmdResult<std::collections::HashMap<String, String>> {
     run_blocking(|| {
-        let conn = db::open_connection(false)?;
+        let conn = db::read_conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT key, value FROM settings WHERE key LIKE 'app.%' OR key LIKE 'branch_prefix_%'",

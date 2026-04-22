@@ -29,9 +29,8 @@ pub use self::streaming::{
 };
 
 use self::persistence::{
-    finalize_session_metadata, open_write_connection, persist_error_message,
-    persist_exit_plan_message, persist_result_and_finalize, persist_turn_message,
-    persist_user_message,
+    finalize_session_metadata, persist_error_message, persist_exit_plan_message,
+    persist_result_and_finalize, persist_turn_message, persist_user_message,
 };
 use self::streaming::stream_via_sidecar;
 use self::support::{resolve_resume_working_directory, resolve_working_directory};
@@ -741,6 +740,8 @@ mod tests {
             "INSERT INTO workspaces (id, repository_id, directory_name, state) VALUES ('w1', 'r1', 'test', 'ready')",
             [],
         ).unwrap();
+        drop(conn);
+        crate::models::db::init_pools().expect("failed to init test DB pools");
         db_path
     }
 

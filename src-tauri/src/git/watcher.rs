@@ -549,7 +549,7 @@ fn do_triggered_fetch(workspace_id: &str) -> Result<()> {
 
 /// Returns (workspace_dir, remote, branch, repo_id).
 fn lookup_fetch_target(workspace_id: &str) -> Result<(PathBuf, String, String, String)> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let sql = format!(
         "SELECT r.name, w.directory_name, r.remote,
                 COALESCE(w.intended_target_branch, r.default_branch), r.id
@@ -651,7 +651,7 @@ fn update_branch_in_db(
     old_branch: Option<&str>,
     new_branch: &str,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let rows = match old_branch {
         Some(old) => connection.execute(
             &format!(
@@ -681,7 +681,7 @@ fn update_branch_in_db(
 // -- DB helper --
 
 fn load_watchable_workspaces() -> Result<Vec<WatchableWorkspace>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut stmt = connection.prepare(
         "SELECT w.id, r.name, w.directory_name, w.branch, w.state,
                 r.remote, COALESCE(w.intended_target_branch, r.default_branch), r.id

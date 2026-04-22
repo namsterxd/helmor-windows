@@ -513,7 +513,7 @@ fn setup_workspace_filesystem(
                 })?;
 
             // Update branch in DB (best-effort, DB is already committed)
-            match crate::models::db::open_connection(true) {
+            match crate::models::db::write_conn() {
                 Ok(conn) => {
                     if let Err(e) = conn.execute(
                         "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
@@ -578,7 +578,7 @@ fn setup_workspace_filesystem(
 
     // Rewrite attachment paths
     if let Some(root) = conductor_root {
-        let conn = crate::models::db::open_connection(true)?;
+        let conn = crate::models::db::write_conn()?;
         rewrite_attachment_paths(
             &conn,
             workspace_id,
@@ -602,7 +602,7 @@ fn setup_workspace_filesystem(
 }
 
 fn delete_imported_workspace_records(workspace_id: &str) -> Result<()> {
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     conn.execute_batch("BEGIN IMMEDIATE")
         .context("Failed to start cleanup transaction")?;
 
@@ -1474,7 +1474,7 @@ mod tests {
             "expected source branch resolution failure, got {:?}",
             result.errors
         );
-        let conn = crate::models::db::open_connection(true).unwrap();
+        let conn = crate::models::db::write_conn().unwrap();
         let workspace_count: i64 = conn
             .query_row("SELECT count(*) FROM workspaces WHERE id = 'w1'", [], |r| {
                 r.get(0)

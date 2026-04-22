@@ -184,7 +184,7 @@ pub fn send_message(
     if is_app_running() {
         // Persist user message so the app's conversation container
         // shows the optimistic user bubble right away.
-        let conn = crate::models::db::open_connection(true)?;
+        let conn = crate::models::db::write_conn()?;
         let timestamp = crate::models::db::current_timestamp()?;
         let user_msg_id = Uuid::new_v4().to_string();
         let turn_id = Uuid::new_v4().to_string();
@@ -281,7 +281,7 @@ pub fn send_message(
         .context("Failed to send request to sidecar")?;
 
     // 6. Persist user message + set session streaming
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     let timestamp = crate::models::db::current_timestamp()?;
     let turn_id = Uuid::new_v4().to_string();
     let user_msg_id = Uuid::new_v4().to_string();
@@ -552,7 +552,7 @@ pub fn insert_pending_cli_send(
     model_id: Option<&str>,
     permission_mode: Option<&str>,
 ) -> Result<String> {
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     let id = Uuid::new_v4().to_string();
     conn.execute(
         r#"INSERT INTO pending_cli_sends (id, workspace_id, session_id, prompt, model_id, permission_mode)
@@ -566,7 +566,7 @@ pub fn insert_pending_cli_send(
 /// Read and delete all pending sends in one atomic operation.
 /// Returns them oldest-first so the App processes them in order.
 pub fn drain_pending_cli_sends() -> Result<Vec<PendingCliSend>> {
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, session_id, prompt, model_id, permission_mode, created_at
          FROM pending_cli_sends ORDER BY datetime(created_at) ASC",

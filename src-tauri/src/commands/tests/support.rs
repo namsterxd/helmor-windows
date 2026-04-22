@@ -14,6 +14,7 @@ impl TestDataDir {
             std::env::temp_dir().join(format!("helmor-test-{name}-{}", uuid::Uuid::new_v4()));
         std::env::set_var("HELMOR_DATA_DIR", root.display().to_string());
         crate::data_dir::ensure_directory_structure().unwrap();
+        crate::models::db::init_pools().expect("failed to init test DB pools");
         Self { root }
     }
 

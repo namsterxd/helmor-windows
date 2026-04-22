@@ -1,7 +1,82 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Maximum time we wait between sidecar events before declaring the sidecar
+/// dead. The sidecar emits a `heartbeat` event every 15s for every active
+/// stream; 45s = 3× heartbeat interval tolerates a single missed tick from
+/// GC / busy system without false positives. A long-running tool call (e.g.
+/// `bash: pytest` for 20 minutes) is fine because heartbeats keep flowing
+/// regardless of what the AI is doing.
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Persist an error message and finalize the session after an abnormal
+/// stream exit (heartbeat timeout, channel disconnect). Returns `true` iff
+/// the session row was successfully transitioned to `idle`.
+///
+/// Kept as a free fn so both the timeout/disconnect match arms and the
+/// regression tests can drive the same code path.
+pub(crate) fn cleanup_abnormal_stream_exit(
+    rid: &str,
+    exchange_ctx: Option<&ExchangeContext>,
+    resolved_model: &str,
+    user_message: &str,
+    effort_level: Option<&str>,
+    permission_mode: Option<&str>,
+) -> bool {
+    let Some(ctx) = exchange_ctx else {
+        tracing::debug!(
+            rid = %rid,
+            "cleanup_abnormal_stream_exit: no exchange_ctx — nothing to finalize"
+        );
+        return false;
+    };
+    let conn = match crate::models::db::write_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                "cleanup_abnormal_stream_exit: write_conn borrow failed — session may be stuck: {e}"
+            );
+            return false;
+        }
+    };
+
+    let err_persist_ok = match persist_error_message(&conn, ctx, resolved_model, user_message) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                "cleanup_abnormal_stream_exit: persist_error_message failed: {error}"
+            );
+            false
+        }
+    };
+
+    match finalize_session_metadata(&conn, ctx, "idle", effort_level, permission_mode) {
+        Ok(_) => {
+            tracing::debug!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                err_persist_ok,
+                "cleanup_abnormal_stream_exit: session finalized to idle"
+            );
+            true
+        }
+        Err(error) => {
+            tracing::error!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                "cleanup_abnormal_stream_exit: finalize_session_metadata failed: {error}"
+            );
+            false
+        }
+    }
+}
 
 use rusqlite::params;
 use serde_json::{json, Value};
@@ -13,9 +88,9 @@ use crate::pipeline::types::{
 };
 
 use super::{
-    finalize_session_metadata, open_write_connection, persist_error_message,
-    persist_exit_plan_message, persist_result_and_finalize, persist_turn_message,
-    persist_user_message, AgentSendRequest, AgentStreamEvent, CmdResult, ExchangeContext,
+    finalize_session_metadata, persist_error_message, persist_exit_plan_message,
+    persist_result_and_finalize, persist_turn_message, persist_user_message, AgentSendRequest,
+    AgentStreamEvent, CmdResult, ExchangeContext,
 };
 
 #[derive(Debug, Clone)]
@@ -320,7 +395,7 @@ pub fn lookup_workspace_linked_directories(helmor_session_id: Option<&str>) -> V
     let Some(hsid) = helmor_session_id else {
         return Vec::new();
     };
-    let conn = match open_write_connection() {
+    let conn = match crate::models::db::read_conn() {
         Ok(c) => c,
         Err(err) => {
             tracing::warn!(
@@ -387,7 +462,7 @@ pub(super) fn stream_via_sidecar(
 
     let resume_session_id = request.session_id.clone().or_else(|| {
         request.helmor_session_id.as_deref().and_then(|hsid| {
-            let conn = open_write_connection().ok()?;
+            let conn = crate::models::db::read_conn().ok()?;
             let (stored_sid, stored_provider): (Option<String>, Option<String>) = conn
                 .query_row(
                     "SELECT provider_session_id, agent_type FROM sessions WHERE id = ?1",
@@ -481,9 +556,21 @@ pub(super) fn stream_via_sidecar(
     let user_message_id_copy = request.user_message_id.clone();
     let files_copy = request.files.clone().unwrap_or_default();
     let resume_only = request.resume_only;
+    let sidecar_session_id_copy = sidecar_session_id.clone();
     let rid = request_id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
+        let stream_started_at = Instant::now();
+        tracing::info!(
+            rid = %rid,
+            helmor_session_id = ?hsid_copy,
+            sidecar_session_id = %sidecar_session_id_copy,
+            provider = %provider,
+            model = %model_copy.cli_model,
+            resume_only,
+            "stream: event loop starting"
+        );
+
         let sidecar_state: tauri::State<'_, crate::sidecar::ManagedSidecar> = app.state();
         let active_streams_state: tauri::State<'_, ActiveStreams> = app.state();
         let mut resolved_session_id: Option<String> = resume_session_id.clone();
@@ -498,17 +585,16 @@ pub(super) fn stream_via_sidecar(
             )
         });
         let mut event_count: u64 = 0;
+        let mut heartbeat_count: u64 = 0;
 
         let mut exchange_ctx: Option<ExchangeContext> = None;
         let mut persisted_turn_count: usize = 0;
-        let db_conn = if hsid_copy.is_some() {
-            open_write_connection().ok()
-        } else {
-            None
-        };
         let mut persisted_exit_plan_review: Option<ThreadMessageLike> = None;
 
-        if let (Some(hsid), Some(conn)) = (&hsid_copy, &db_conn) {
+        // Short-borrow only. The single-writer pool (max_size=1) is shared
+        // with every other write in the app; a long-held handle here would
+        // block pin/unpin/mark-read/rename for the entire turn.
+        if let Some(hsid) = &hsid_copy {
             let ctx = ExchangeContext {
                 helmor_session_id: hsid.clone(),
                 turn_id: Uuid::new_v4().to_string(),
@@ -520,32 +606,116 @@ pub(super) fn stream_via_sidecar(
                     .unwrap_or_else(|| Uuid::new_v4().to_string()),
             };
 
-            // Persist fast_mode toggle to session
-            if let Err(e) = conn.execute(
-                "UPDATE sessions SET fast_mode = ?1 WHERE id = ?2",
-                rusqlite::params![fast_mode, &ctx.helmor_session_id],
-            ) {
-                tracing::error!(rid = %rid, "Failed to update fast_mode: {e}");
-            }
+            match crate::models::db::write_conn() {
+                Ok(conn) => {
+                    if let Err(e) = conn.execute(
+                        "UPDATE sessions SET fast_mode = ?1 WHERE id = ?2",
+                        rusqlite::params![fast_mode, &ctx.helmor_session_id],
+                    ) {
+                        tracing::error!(rid = %rid, "Failed to update fast_mode: {e}");
+                    }
 
-            if resume_only {
-                exchange_ctx = Some(ctx);
-            } else {
-                match persist_user_message(conn, &ctx, &prompt_copy, &files_copy) {
-                    Ok(()) => {
-                        tracing::debug!(rid = %rid, "User message persisted to DB");
+                    if resume_only {
                         exchange_ctx = Some(ctx);
+                    } else {
+                        match persist_user_message(&conn, &ctx, &prompt_copy, &files_copy) {
+                            Ok(()) => {
+                                tracing::debug!(rid = %rid, "User message persisted to DB");
+                                exchange_ctx = Some(ctx);
+                            }
+                            Err(error) => {
+                                tracing::error!(rid = %rid, "Failed to persist user message: {error}");
+                            }
+                        }
                     }
-                    Err(error) => {
-                        tracing::error!(rid = %rid, "Failed to persist user message: {error}");
-                    }
+                }
+                Err(e) => {
+                    tracing::error!(rid = %rid, "Failed to borrow write conn for initial persist: {e}");
                 }
             }
         }
 
         tracing::debug!(rid = %rid, "Waiting for sidecar events...");
 
-        for event in rx.iter() {
+        loop {
+            let event = match rx.recv_timeout(HEARTBEAT_TIMEOUT) {
+                Ok(ev) => ev,
+                Err(err @ (RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected)) => {
+                    let (reason_log, user_message, should_stop_sidecar) = match err {
+                        RecvTimeoutError::Timeout => (
+                            format!(
+                                "heartbeat lost for {:?} — treating stream as dead",
+                                HEARTBEAT_TIMEOUT
+                            ),
+                            format!(
+                                "Sidecar stopped responding (no heartbeat for {:?}). You can retry the request.",
+                                HEARTBEAT_TIMEOUT,
+                            ),
+                            true,
+                        ),
+                        RecvTimeoutError::Disconnected => (
+                            "sidecar channel disconnected".to_string(),
+                            "Sidecar connection was lost. You can retry the request.".to_string(),
+                            // Channel already closed — stopSession would most
+                            // likely fail, and if the sidecar already died
+                            // the request isn't running anyway.
+                            false,
+                        ),
+                    };
+                    tracing::error!(rid = %rid, "{reason_log}");
+
+                    if should_stop_sidecar {
+                        let stop_req = crate::sidecar::SidecarRequest {
+                            id: Uuid::new_v4().to_string(),
+                            method: "stopSession".to_string(),
+                            params: serde_json::json!({
+                                "sessionId": sidecar_session_id_copy,
+                                "provider": provider,
+                            }),
+                        };
+                        if let Err(e) = sidecar_state.send(&stop_req) {
+                            tracing::warn!(rid = %rid, "stopSession during abnormal exit failed: {e}");
+                        }
+                    }
+
+                    let resolved_model = pipeline
+                        .as_ref()
+                        .map(|p| p.accumulator.resolved_model().to_string())
+                        .unwrap_or_else(|| model_copy.cli_model.to_string());
+                    let persisted = cleanup_abnormal_stream_exit(
+                        &rid,
+                        exchange_ctx.as_ref(),
+                        &resolved_model,
+                        &user_message,
+                        effort_copy.as_deref(),
+                        permission_mode_copy.as_deref(),
+                    );
+
+                    tracing::info!(
+                        rid = %rid,
+                        event_count,
+                        heartbeat_count,
+                        elapsed_ms = stream_started_at.elapsed().as_millis(),
+                        persisted,
+                        has_exchange_ctx = exchange_ctx.is_some(),
+                        "stream: abnormal exit — finalized"
+                    );
+                    let _ = on_event.send(AgentStreamEvent::Error {
+                        message: user_message,
+                        persisted,
+                        internal: true,
+                    });
+                    break;
+                }
+            };
+
+            // Heartbeats are keepalives only — do not advance pipeline state.
+            if event.event_type() == "heartbeat" {
+                heartbeat_count += 1;
+                tracing::trace!(rid = %rid, heartbeat_count, "heartbeat");
+                continue;
+            }
+
             event_count += 1;
 
             // Claude's authoritative session_id comes only from `system.init`.
@@ -572,7 +742,9 @@ pub(super) fn stream_via_sidecar(
                                 provider_session_id = sid,
                                 "Skipping provider session persistence for resume-only stream"
                             );
-                        } else if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        } else if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             if let Err(error) = conn.execute(
                                 "UPDATE sessions SET provider_session_id = ?2, agent_type = ?3 WHERE id = ?1",
                                 params![ctx.helmor_session_id, sid, ctx.model_provider],
@@ -603,7 +775,11 @@ pub(super) fn stream_via_sidecar(
                     };
                     let status = if is_aborted { "aborted" } else { "idle" };
 
-                    let persisted = exchange_ctx.is_some();
+                    // Tracks whether the FINAL finalize (persist_result_and_finalize
+                    // for end, finalize_session_metadata for aborted) succeeded.
+                    // Turn-message failures don't flip this back to false — the
+                    // frontend uses `persisted` as "end state is durable in DB".
+                    let mut persisted = false;
                     let mut resolved_model = model_copy.cli_model.to_string();
 
                     if let Some(mut pipeline_state) = pipeline.take() {
@@ -621,7 +797,9 @@ pub(super) fn stream_via_sidecar(
 
                         // Persist remaining turns and sync their UUIDs back
                         // into collected[] so streaming IDs = DB IDs.
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -647,20 +825,25 @@ pub(super) fn stream_via_sidecar(
                         if !output.assistant_text.is_empty() {
                             resolved_model = output.resolved_model.clone();
                         }
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             if is_aborted {
-                                if let Err(error) = finalize_session_metadata(
+                                match finalize_session_metadata(
                                     conn,
                                     ctx,
                                     status,
                                     effort_copy.as_deref(),
                                     permission_mode_copy.as_deref(),
                                 ) {
-                                    tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    Ok(_) => persisted = true,
+                                    Err(error) => {
+                                        tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    }
                                 }
                             } else {
                                 let preassigned = pipeline_state.accumulator.take_result_id();
-                                if let Err(error) = persist_result_and_finalize(
+                                match persist_result_and_finalize(
                                     conn,
                                     ctx,
                                     &output.resolved_model,
@@ -672,9 +855,17 @@ pub(super) fn stream_via_sidecar(
                                     status,
                                     preassigned,
                                 ) {
-                                    tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    Ok(_) => persisted = true,
+                                    Err(error) => {
+                                        tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    }
                                 }
                             }
+                        } else if exchange_ctx.is_some() {
+                            tracing::error!(
+                                rid = %rid,
+                                "Failed to borrow writer for finalize — reporting persisted=false"
+                            );
                         }
 
                         // Final render with DB-synced IDs so the frontend
@@ -688,6 +879,16 @@ pub(super) fn stream_via_sidecar(
                         });
                     }
 
+                    tracing::info!(
+                        rid = %rid,
+                        outcome = if is_aborted { "aborted" } else { "done" },
+                        event_count,
+                        heartbeat_count,
+                        persisted_turn_count,
+                        elapsed_ms = stream_started_at.elapsed().as_millis(),
+                        persisted,
+                        "stream: terminal event received"
+                    );
                     let _ = if let Some(reason) = reason {
                         on_event.send(AgentStreamEvent::Aborted {
                             provider: provider.clone(),
@@ -762,7 +963,9 @@ pub(super) fn stream_via_sidecar(
                     if let Some(pipeline_state) = pipeline.as_mut() {
                         pipeline_state.accumulator.flush_pending();
 
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -785,20 +988,21 @@ pub(super) fn stream_via_sidecar(
 
                         let resolved_model =
                             pipeline_state.accumulator.resolved_model().to_string();
-                        let persisted_metadata =
-                            if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
-                                persist_exit_plan_message(
-                                    conn,
-                                    ctx,
-                                    &resolved_model,
-                                    &tool_use_id,
-                                    "ExitPlanMode",
-                                    &tool_input,
-                                )
-                                .ok()
-                            } else {
-                                None
-                            };
+                        let persisted_metadata = if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
+                            persist_exit_plan_message(
+                                conn,
+                                ctx,
+                                &resolved_model,
+                                &tool_use_id,
+                                "ExitPlanMode",
+                                &tool_input,
+                            )
+                            .ok()
+                        } else {
+                            None
+                        };
                         let (msg_id, created_at) = persisted_metadata.unwrap_or_default();
                         persisted_exit_plan_review = Some(build_exit_plan_review_message(
                             (!msg_id.is_empty()).then_some(msg_id),
@@ -841,7 +1045,9 @@ pub(super) fn stream_via_sidecar(
                     if let Some(mut pipeline_state) = pipeline.take() {
                         pipeline_state.accumulator.flush_pending();
 
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -873,7 +1079,9 @@ pub(super) fn stream_via_sidecar(
                             messages: final_messages,
                         });
 
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             if let Err(error) = finalize_session_metadata(
                                 conn,
                                 ctx,
@@ -971,7 +1179,9 @@ pub(super) fn stream_via_sidecar(
                     tracing::debug!(rid = %rid, internal, "Sidecar error: {message}");
                     let mut persisted = false;
 
-                    if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                    if let (Some(ctx), Some(conn)) =
+                        (&exchange_ctx, &crate::models::db::write_conn().ok())
+                    {
                         let resolved_model = pipeline
                             .as_ref()
                             .map(|pipeline_state| {
@@ -997,6 +1207,15 @@ pub(super) fn stream_via_sidecar(
                         }
                     }
 
+                    tracing::info!(
+                        rid = %rid,
+                        event_count,
+                        heartbeat_count,
+                        elapsed_ms = stream_started_at.elapsed().as_millis(),
+                        persisted,
+                        internal,
+                        "stream: error event — finalized"
+                    );
                     let _ = on_event.send(AgentStreamEvent::Error {
                         message,
                         persisted,
@@ -1010,7 +1229,9 @@ pub(super) fn stream_via_sidecar(
                         if let Some(pipeline_state) = pipeline.as_mut() {
                             let emit = pipeline_state.push_event(&event.raw, &line);
 
-                            if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                            if let (Some(ctx), Some(conn)) =
+                                (&exchange_ctx, &crate::models::db::write_conn().ok())
+                            {
                                 let model_str =
                                     pipeline_state.accumulator.resolved_model().to_string();
                                 while persisted_turn_count < pipeline_state.accumulator.turns_len()
@@ -1054,7 +1275,14 @@ pub(super) fn stream_via_sidecar(
             }
         }
 
-        tracing::debug!(rid = %rid, event_count, "Event loop exited");
+        tracing::info!(
+            rid = %rid,
+            event_count,
+            heartbeat_count,
+            persisted_turn_count,
+            elapsed_ms = stream_started_at.elapsed().as_millis(),
+            "stream: event loop exited, cleaning up subscription"
+        );
         sidecar_state.unsubscribe(&rid);
         active_streams_state.unregister(&rid);
     });
@@ -1447,6 +1675,127 @@ working_directory: /tmp/helmor
                     lookup_workspace_linked_directories(Some("s-4")),
                     vec!["/abs/a".to_string(), "/abs/b".to_string()],
                 );
+            });
+        }
+    }
+
+    // ---- cleanup_abnormal_stream_exit ------------------------------------
+
+    mod cleanup_abnormal_exit {
+        use super::*;
+        use crate::agents::ExchangeContext;
+
+        fn with_session<F: FnOnce()>(session_status: &str, f: F) {
+            let dir = tempfile::tempdir().unwrap();
+            let _guard = crate::data_dir::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::env::set_var("HELMOR_DATA_DIR", dir.path());
+            crate::data_dir::ensure_directory_structure().unwrap();
+
+            let db_path = crate::data_dir::db_path().unwrap();
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            crate::schema::ensure_schema(&conn).unwrap();
+            conn.execute(
+                "INSERT INTO repos (id, name, default_branch) VALUES ('r-1', 'r', 'main')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status)
+                 VALUES ('w-1', 'r-1', 'd', 'ready', 'in-progress')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions (id, workspace_id, status, title) VALUES (?1, 'w-1', ?2, 't')",
+                rusqlite::params!["s-1", session_status],
+            )
+            .unwrap();
+            drop(conn);
+
+            f();
+
+            std::env::remove_var("HELMOR_DATA_DIR");
+        }
+
+        fn ctx() -> ExchangeContext {
+            ExchangeContext {
+                helmor_session_id: "s-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                model_id: "opus".to_string(),
+                model_provider: "claude".to_string(),
+                assistant_sdk_message_id: "sdk-1".to_string(),
+                user_message_id: "user-1".to_string(),
+            }
+        }
+
+        fn session_status() -> String {
+            crate::models::db::read_conn()
+                .unwrap()
+                .query_row("SELECT status FROM sessions WHERE id = 's-1'", [], |r| {
+                    r.get::<_, String>(0)
+                })
+                .unwrap()
+        }
+
+        fn error_message_count() -> i64 {
+            crate::models::db::read_conn()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM session_messages
+                     WHERE session_id = 's-1' AND content LIKE '%sidecar%'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+        }
+
+        #[test]
+        fn finalizes_session_to_idle_and_persists_error_message() {
+            with_session("streaming", || {
+                let persisted = cleanup_abnormal_stream_exit(
+                    "rid-1",
+                    Some(&ctx()),
+                    "opus",
+                    "sidecar dead, retry",
+                    None,
+                    None,
+                );
+                assert!(persisted, "expected persisted=true on successful finalize");
+                assert_eq!(session_status(), "idle");
+                assert_eq!(error_message_count(), 1);
+            });
+        }
+
+        #[test]
+        fn returns_false_and_does_not_touch_db_when_exchange_ctx_is_none() {
+            with_session("streaming", || {
+                let persisted =
+                    cleanup_abnormal_stream_exit("rid-2", None, "opus", "sidecar dead", None, None);
+                assert!(!persisted);
+                // Session must remain in streaming state — nothing happened.
+                assert_eq!(session_status(), "streaming");
+                assert_eq!(error_message_count(), 0);
+            });
+        }
+
+        #[test]
+        fn returns_false_when_session_row_does_not_exist() {
+            with_session("streaming", || {
+                let mut bad_ctx = ctx();
+                bad_ctx.helmor_session_id = "nonexistent".to_string();
+                let persisted = cleanup_abnormal_stream_exit(
+                    "rid-3",
+                    Some(&bad_ctx),
+                    "opus",
+                    "sidecar dead",
+                    None,
+                    None,
+                );
+                // finalize_session_metadata fails when no row matches; helper
+                // must report the session as NOT persisted rather than lying.
+                assert!(!persisted);
             });
         }
     }
