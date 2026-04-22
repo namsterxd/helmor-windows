@@ -181,6 +181,59 @@ fn mark_workspace_unread_sets_workspace_flag_directly() {
 }
 
 #[test]
+fn mark_workspace_read_clears_workspace_flag_and_all_session_unread() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = ArchiveTestHarness::new(true);
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+
+    connection
+        .execute(
+            "UPDATE sessions SET unread_count = 2 WHERE id = ?1",
+            [&harness.session_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            r#"
+            INSERT INTO sessions (
+              id, workspace_id, title, agent_type, status, model, permission_mode,
+              provider_session_id, unread_count, context_token_count, context_used_percent,
+              thinking_enabled, fast_mode, agent_personality,
+              created_at, updated_at, last_user_message_at, resume_session_at,
+              is_hidden, is_compacting
+            ) VALUES ('session-read-all-2', ?1, 'Second session', 'claude', 'idle', 'opus', 'default', NULL, 1, 0, NULL, 0, 0, 'none', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, 0, 0)
+            "#,
+            [&harness.workspace_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET unread = 1 WHERE id = ?1",
+            [&harness.workspace_id],
+        )
+        .unwrap();
+
+    workspaces::mark_workspace_read(&harness.workspace_id).unwrap();
+
+    let (workspace_unread, unread_sessions): (i64, i64) = connection
+        .query_row(
+            r#"
+            SELECT
+              (SELECT unread FROM workspaces WHERE id = ?1),
+              (SELECT COUNT(*) FROM sessions WHERE workspace_id = ?1 AND COALESCE(unread_count, 0) > 0)
+            "#,
+            [&harness.workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(workspace_unread, 0);
+    assert_eq!(unread_sessions, 0);
+}
+
+#[test]
 fn mark_session_read_preserves_workspace_unread_while_other_sessions_stay_unread() {
     let _guard = TEST_LOCK
         .lock()
