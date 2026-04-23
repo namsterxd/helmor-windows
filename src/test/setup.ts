@@ -112,6 +112,16 @@ vi.mock("@tauri-apps/api/core", () => ({
 				return { lastCloneDirectory: null };
 			case "get_data_info":
 				return null;
+			case "get_app_update_status":
+				return {
+					stage: "idle",
+					configured: true,
+					autoUpdateEnabled: true,
+					update: null,
+					lastError: null,
+					lastAttemptAt: null,
+					downloadedAt: null,
+				};
 			case "load_auto_close_action_kinds":
 				return [];
 			case "load_auto_close_opt_in_asked":
