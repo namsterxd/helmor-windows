@@ -269,7 +269,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    // All user-initiated exit paths (red close button, Cmd+W on the
+    // All user-initiated app-exit paths (red close button on the
     // main window, Cmd+Q, macOS app-menu Quit) are intercepted here and
     // routed through a single `helmor://quit-requested` event. The
     // frontend's QuitConfirmDialog listens for it, checks for in-flight
@@ -312,10 +312,18 @@ fn emit_quit_requested(app_handle: &tauri::AppHandle) {
 }
 
 const HELMOR_QUIT_MENU_ID: &str = "helmor-quit";
+const HELMOR_CLOSE_CURRENT_SESSION_MENU_ID: &str = "helmor-close-current-session";
 
 #[cfg(target_os = "macos")]
 fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+
+    let close_current_session_item = MenuItemBuilder::with_id(
+        HELMOR_CLOSE_CURRENT_SESSION_MENU_ID,
+        "Close Current Session",
+    )
+    .accelerator("Cmd+W")
+    .build(app)?;
 
     let quit_item = MenuItemBuilder::with_id(HELMOR_QUIT_MENU_ID, "Quit Helmor")
         .accelerator("Cmd+Q")
@@ -352,7 +360,7 @@ fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .minimize()
         .maximize()
         .separator()
-        .close_window()
+        .item(&close_current_session_item)
         .build()?;
 
     let menu = MenuBuilder::new(app)
@@ -362,11 +370,17 @@ fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     app.set_menu(menu)?;
 
     let handle = app.clone();
-    app.on_menu_event(move |_, event| {
-        if event.id().0.as_str() == HELMOR_QUIT_MENU_ID {
-            emit_quit_requested(&handle);
-        }
+    app.on_menu_event(move |_, event| match event.id().0.as_str() {
+        HELMOR_QUIT_MENU_ID => emit_quit_requested(&handle),
+        HELMOR_CLOSE_CURRENT_SESSION_MENU_ID => emit_close_current_session_requested(&handle),
+        _ => {}
     });
 
     Ok(())
+}
+
+fn emit_close_current_session_requested(app_handle: &tauri::AppHandle) {
+    if let Err(e) = app_handle.emit("helmor://close-current-session", ()) {
+        tracing::warn!(error = %e, "Failed to emit close-current-session event");
+    }
 }

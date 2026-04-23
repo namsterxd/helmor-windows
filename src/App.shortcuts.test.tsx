@@ -18,6 +18,7 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	stopAgentStream: vi.fn(),
 }));
 
 const windowApiMocks = vi.hoisted(() => ({
@@ -25,6 +26,25 @@ const windowApiMocks = vi.hoisted(() => ({
 	closeRequestedHandler: null as
 		| ((event: { preventDefault: () => void }) => void | Promise<void>)
 		| null,
+}));
+
+const eventApiMocks = vi.hoisted(() => ({
+	handlers: new Map<string, Set<() => void>>(),
+	listen: vi.fn(async (eventName: string, handler: () => void) => {
+		let handlers = eventApiMocks.handlers.get(eventName);
+		if (!handlers) {
+			handlers = new Set();
+			eventApiMocks.handlers.set(eventName, handlers);
+		}
+		handlers.add(handler);
+		return () => {
+			const currentHandlers = eventApiMocks.handlers.get(eventName);
+			currentHandlers?.delete(handler);
+			if (currentHandlers?.size === 0) {
+				eventApiMocks.handlers.delete(eventName);
+			}
+		};
+	}),
 }));
 
 vi.mock("./App.css", () => ({}));
@@ -52,6 +72,9 @@ vi.mock("@tauri-apps/api/window", () => ({
 		setBadgeCount: vi.fn(async () => {}),
 	}),
 }));
+vi.mock("@tauri-apps/api/event", () => ({
+	listen: eventApiMocks.listen,
+}));
 
 vi.mock("./lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./lib/api")>();
@@ -69,6 +92,7 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
 		requestQuit: vi.fn(),
+		stopAgentStream: apiMocks.stopAgentStream,
 	};
 });
 
@@ -304,6 +328,17 @@ function pressCreateSessionShortcut(
 	});
 }
 
+function emitTauriEvent(eventName: string) {
+	const handlers = eventApiMocks.handlers.get(eventName);
+	if (!handlers) {
+		return;
+	}
+
+	for (const handler of handlers) {
+		handler();
+	}
+}
+
 async function renderAppReady() {
 	render(<App />);
 
@@ -325,6 +360,9 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.stopAgentStream.mockReset();
+		eventApiMocks.listen.mockClear();
+		eventApiMocks.handlers.clear();
 		windowApiMocks.onCloseRequested.mockClear();
 		windowApiMocks.closeRequestedHandler = null;
 		apiMocks.createSession.mockImplementation(async (workspaceId: string) => {
@@ -448,6 +486,7 @@ describe("App global navigation shortcuts", () => {
 				createWorkspaceSessions(workspaceId as WorkspaceFixtureId),
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+		apiMocks.stopAgentStream.mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -707,5 +746,60 @@ describe("App global navigation shortcuts", () => {
 		await windowApiMocks.closeRequestedHandler?.({ preventDefault });
 
 		expect(preventDefault).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes the current session when macOS emits the close-current-session event", async () => {
+		await renderAppReady();
+
+		emitTauriEvent("helmor://close-current-session");
+
+		await waitFor(() => {
+			expectSelectedSession("Done session 2");
+		});
+		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-1");
+		expect(apiMocks.deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("prompts before closing a running session on Command+W", async () => {
+		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
+			{
+				id: "session-done-1",
+				title: "Done session 1",
+				active: true,
+				status: "running",
+			},
+			{
+				id: "session-done-2",
+				title: "Done session 2",
+				active: false,
+			},
+		];
+
+		render(<App />);
+		await waitFor(() => {
+			expectSelectedWorkspace("Done workspace");
+		});
+		await userEvent.click(getSessionTab("Done session 1"));
+		await waitFor(() => {
+			expectSelectedSession("Done session 1");
+		});
+
+		fireEvent.keyDown(window, {
+			key: "w",
+			metaKey: true,
+		});
+
+		expect(await screen.findByText("Close running chat?")).toBeInTheDocument();
+		expect(apiMocks.hideSession).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Close anyway" }));
+
+		await waitFor(() => {
+			expect(apiMocks.stopAgentStream).toHaveBeenCalledWith(
+				"session-done-1",
+				"claude",
+			);
+			expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-1");
+		});
 	});
 });

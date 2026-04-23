@@ -1,6 +1,7 @@
 import "./App.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { listen } from "@tauri-apps/api/event";
 import {
 	Check,
 	ChevronDown,
@@ -35,6 +36,8 @@ import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
+import { shouldConfirmRunningSessionClose } from "@/features/panel/close-guard";
+import { RunningSessionCloseDialog } from "@/features/panel/running-session-close-dialog";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
 import { closeWorkspaceSession } from "@/features/panel/session-close";
 import { SettingsButton, SettingsDialog } from "@/features/settings";
@@ -73,6 +76,7 @@ import {
 	openWorkspaceInEditor,
 	prewarmSlashCommandsForWorkspace,
 	setWorkspaceManualStatus,
+	stopAgentStream,
 	triggerWorkspaceFetch,
 	type WorkspaceDetail,
 	type WorkspaceGroup,
@@ -434,6 +438,10 @@ function AppShell({
 	);
 	const [interactionRequiredSessions, setInteractionRequiredSessions] =
 		useState<Map<string, string>>(() => new Map());
+	const [confirmCloseSessionId, setConfirmCloseSessionId] = useState<
+		string | null
+	>(null);
+	const [confirmCloseLoading, setConfirmCloseLoading] = useState(false);
 	const interactionRequiredSessionIds = useMemo(
 		() => new Set(interactionRequiredSessions.keys()),
 		[interactionRequiredSessions],
@@ -1496,12 +1504,23 @@ function AppShell({
 			sessionId,
 			workspace,
 			sessions,
+			session: sessions.find((candidate) => candidate.id === sessionId) ?? null,
 		};
 	}, [queryClient]);
 
 	const handleCloseSelectedSession = useCallback(async () => {
 		const currentSession = getCloseableCurrentSession();
 		if (!currentSession) {
+			return false;
+		}
+		if (
+			currentSession.session &&
+			shouldConfirmRunningSessionClose(
+				currentSession.session,
+				sendingSessionIds,
+			)
+		) {
+			setConfirmCloseSessionId(currentSession.sessionId);
 			return false;
 		}
 
@@ -1542,7 +1561,81 @@ function AppShell({
 		handleSelectSession,
 		pushWorkspaceToast,
 		queryClient,
+		sendingSessionIds,
 	]);
+
+	const handleConfirmCloseSelectedSession = useCallback(async () => {
+		const currentSession = getCloseableCurrentSession();
+		if (
+			!currentSession?.session ||
+			currentSession.session.id !== confirmCloseSessionId
+		) {
+			setConfirmCloseSessionId(null);
+			return;
+		}
+
+		setConfirmCloseLoading(true);
+		try {
+			await stopAgentStream(
+				currentSession.session.id,
+				currentSession.session.agentType ?? undefined,
+			);
+		} catch (error) {
+			pushWorkspaceToast(
+				error instanceof Error ? error.message : String(error),
+				"Unable to stop chat",
+				"destructive",
+			);
+			setConfirmCloseLoading(false);
+			return;
+		}
+
+		setConfirmCloseSessionId(null);
+		setConfirmCloseLoading(false);
+		await closeWorkspaceSession({
+			queryClient,
+			workspace: currentSession.workspace,
+			sessions: currentSession.sessions,
+			sessionId: currentSession.sessionId,
+			onSelectSession: handleSelectSession,
+			onSessionsChanged: () => {
+				void Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceDetail(
+							currentSession.workspaceId,
+						),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceSessions(
+							currentSession.workspaceId,
+						),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceGroups,
+					}),
+					queryClient.invalidateQueries({
+						queryKey: [
+							...helmorQueryKeys.sessionMessages(currentSession.sessionId),
+							"thread",
+						],
+					}),
+				]);
+			},
+			pushToast: pushWorkspaceToast,
+		});
+	}, [
+		confirmCloseSessionId,
+		getCloseableCurrentSession,
+		handleSelectSession,
+		pushWorkspaceToast,
+		queryClient,
+	]);
+	const confirmCloseSession =
+		confirmCloseSessionId !== null
+			? getCloseableCurrentSession()?.session
+			: null;
+	const confirmCloseAgentLabel =
+		confirmCloseSession?.agentType === "codex" ? "Codex" : "Claude";
 
 	const handleCreateSession = useCallback(async () => {
 		const workspaceId = selectedWorkspaceIdRef.current;
@@ -1787,6 +1880,39 @@ function AppShell({
 	}, [
 		handleNavigateSessions,
 		handleNavigateWorkspaces,
+		isIdentityConnected,
+		workspaceViewMode,
+	]);
+
+	useEffect(() => {
+		if (!isIdentityConnected || workspaceViewMode === "editor") {
+			return;
+		}
+
+		let disposed = false;
+		let unlisten: (() => void) | undefined;
+
+		void listen("helmor://close-current-session", () => {
+			if (!getCloseableCurrentSession()) {
+				return;
+			}
+
+			void handleCloseSelectedSession();
+		}).then((fn) => {
+			if (disposed) {
+				fn();
+				return;
+			}
+			unlisten = fn;
+		});
+
+		return () => {
+			disposed = true;
+			unlisten?.();
+		};
+	}, [
+		getCloseableCurrentSession,
+		handleCloseSelectedSession,
 		isIdentityConnected,
 		workspaceViewMode,
 	]);
@@ -2315,6 +2441,18 @@ function AppShell({
 						theme={resolveTheme(appSettings.theme)}
 						position="bottom-right"
 						visibleToasts={6}
+					/>
+					<RunningSessionCloseDialog
+						open={confirmCloseSessionId !== null}
+						agentLabel={confirmCloseAgentLabel}
+						loading={confirmCloseLoading}
+						onOpenChange={(open) => {
+							if (confirmCloseLoading || open) {
+								return;
+							}
+							setConfirmCloseSessionId(null);
+						}}
+						onConfirm={() => void handleConfirmCloseSelectedSession()}
 					/>
 				</ComposerInsertProvider>
 			</WorkspaceToastProvider>

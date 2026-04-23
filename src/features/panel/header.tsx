@@ -55,6 +55,7 @@ import {
 	type WorkspaceBranchTone,
 } from "@/lib/workspace-helpers";
 import { useWorkspaceToast } from "@/lib/workspace-toast-context";
+import { shouldConfirmRunningSessionClose } from "./close-guard";
 import { RunningSessionCloseDialog } from "./running-session-close-dialog";
 import { seedNewSessionInCache } from "./session-cache";
 import { closeWorkspaceSession } from "./session-close";
@@ -226,8 +227,13 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 			if (!workspace) {
 				return;
 			}
+			const targetSession =
+				sessions.find((session) => session.id === sessionId) ?? null;
 
-			if (sendingSessionIds?.has(sessionId)) {
+			if (
+				targetSession &&
+				shouldConfirmRunningSessionClose(targetSession, sendingSessionIds)
+			) {
 				setConfirmCloseSessionId(sessionId);
 				return;
 			}

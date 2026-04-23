@@ -64,8 +64,8 @@ export function QuitConfirmDialog({
 				unlistenCloseRequested = fn;
 			});
 
-		// Rust intercepts every user-initiated exit path (close button,
-		// Cmd+W, Cmd+Q, app-menu Quit) and emits this event. We're the
+		// Rust intercepts every app-exit path (close button,
+		// Cmd+Q, app-menu Quit) and emits this event. We're the
 		// only gate that knows about in-flight tasks.
 		void listen("helmor://quit-requested", handleQuitRequested).then((fn) => {
 			if (disposed) {
