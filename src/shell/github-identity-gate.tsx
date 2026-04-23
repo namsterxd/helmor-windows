@@ -62,7 +62,7 @@ export function GithubIdentityGate({
 			/>
 			<div
 				aria-label="GitHub identity gate drag region"
-				className="absolute inset-x-0 top-0 z-10 flex h-11 items-center"
+				className="absolute inset-x-0 top-0 z-20 flex h-11 items-center"
 			>
 				<TrafficLightSpacer side="left" width={94} />
 				<div data-tauri-drag-region className="h-full flex-1" />
