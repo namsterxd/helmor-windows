@@ -493,7 +493,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			</div>
 
 			<div className="flex items-center justify-between px-3">
-				<h2 className="text-[13px] font-medium tracking-[-0.01em] text-muted-foreground">
+				<h2 className="text-[14px] font-medium tracking-[-0.01em] text-muted-foreground">
 					Workspaces
 				</h2>
 
@@ -516,9 +516,12 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 								)}
 							>
 								{addRepositoryBusy ? (
-									<LoaderCircle className="animate-spin" strokeWidth={2.1} />
+									<LoaderCircle
+										className="size-4 animate-spin"
+										strokeWidth={2.1}
+									/>
 								) : (
-									<FolderPlus strokeWidth={2} />
+									<FolderPlus className="size-4" strokeWidth={2} />
 								)}
 							</Button>
 						</DropdownMenuTrigger>
@@ -573,11 +576,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 										>
 											{createBusy ? (
 												<LoaderCircle
-													className="animate-spin"
+													className="size-4 animate-spin"
 													strokeWidth={2.1}
 												/>
 											) : (
-												<Plus strokeWidth={2.4} />
+												<Plus className="size-4" strokeWidth={2.4} />
 											)}
 										</Button>
 									</TooltipTrigger>
@@ -641,7 +644,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			<div
 				ref={scrollContainerRef}
 				data-slot="workspace-groups-scroll"
-				className="scrollbar-stable relative mt-4 min-h-0 flex-1 overflow-y-auto px-2 pr-1"
+				className="scrollbar-stable relative mt-2 min-h-0 flex-1 overflow-y-auto px-2 pr-1"
 			>
 				<div
 					style={{
