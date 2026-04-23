@@ -505,6 +505,12 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 										void updateIntendedTargetBranch(workspace.id, branch)
 											.then(({ reset }) => {
 												onWorkspaceChanged?.();
+												// Recompute sync status vs. new target now; don't wait for 10s poll.
+												void queryClient.invalidateQueries({
+													queryKey: helmorQueryKeys.workspaceGitActionStatus(
+														workspace.id,
+													),
+												});
 												if (workspace.rootPath) {
 													void queryClient.invalidateQueries({
 														queryKey: helmorQueryKeys.workspaceChanges(
