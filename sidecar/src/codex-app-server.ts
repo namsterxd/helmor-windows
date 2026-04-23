@@ -57,6 +57,20 @@ export interface CodexAppServerOptions {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const CODEX_APP_SERVER_ARGS = [
+	"app-server",
+	// Helmor already owns session lifecycle + UI notifications. Inheriting the
+	// user's global Codex `notify` config can launch SkyComputerUseClient from
+	// the bundled computer-use plugin, which crashes on some macOS versions with
+	// `CODESIGNING / Launch Constraint Violation`. Disable native notify hooks
+	// for Helmor's embedded app-server process only.
+	"-c",
+	"notify=[]",
+] as const;
+
+export function buildCodexAppServerArgs(): string[] {
+	return [...CODEX_APP_SERVER_ARGS];
+}
 
 export class CodexAppServer {
 	private child: ChildProcessWithoutNullStreams;
@@ -74,7 +88,7 @@ export class CodexAppServer {
 		this.onNotification = opts.onNotification;
 		this.onRequest = opts.onRequest;
 
-		this.child = spawn(opts.binaryPath, ["app-server"], {
+		this.child = spawn(opts.binaryPath, buildCodexAppServerArgs(), {
 			cwd: opts.cwd,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
