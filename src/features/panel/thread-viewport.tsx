@@ -452,6 +452,16 @@ function ProgressiveConversationViewport({
 	const deferredMeasuredHeightsRef = useRef<Record<string, number>>({});
 	const hasUserScrolledRef = useRef(false);
 
+	// DOM-driven sync for the streaming indicator pseudo row. See the effect
+	// below and the `onDomMount` prop threaded into `MeasuredConversationRow`.
+	const indicatorElRef = useRef<HTMLDivElement | null>(null);
+	const [streamingRowEl, setStreamingRowEl] = useState<HTMLElement | null>(
+		null,
+	);
+	const handleStreamingRowMount = useCallback((node: HTMLElement | null) => {
+		setStreamingRowEl(node);
+	}, []);
+
 	const [lastLayoutCacheKey, setLastLayoutCacheKey] = useState(layoutCacheKey);
 	if (lastLayoutCacheKey !== layoutCacheKey) {
 		setLastLayoutCacheKey(layoutCacheKey);
@@ -676,6 +686,54 @@ function ProgressiveConversationViewport({
 		rows.length > 0
 			? rows[rows.length - 1]!.top + rows[rows.length - 1]!.height
 			: 0;
+	// Fallback `top` for the streaming indicator while the streaming row's
+	// DOM node isn't mounted yet (e.g. request just sent, assistant hasn't
+	// emitted yet). Once the streaming row mounts, the DOM-driven effect
+	// below takes over and this value is ignored.
+	const lastRow = rows[rows.length - 1];
+	const indicatorFallbackTop =
+		lastRow?.kind === "indicator" ? lastRow.top : undefined;
+
+	// DOM-driven indicator position sync.
+	//
+	// The indicator pseudo row is the streaming logo + timer; it lives in
+	// the same absolute-positioned coordinate system as message rows.
+	// We own its `top` exclusively from here — the JSX for the indicator
+	// deliberately does *not* pass `top`, otherwise every React re-render
+	// would race with this effect and overwrite the synced value with the
+	// state-driven one (producing the "overlap flashes back in then fixes
+	// itself" effect).
+	//
+	// When the streaming row's DOM node is mounted we pin the indicator to
+	// `streaming-row.offsetTop + offsetHeight` via a ResizeObserver. The RO
+	// callback runs inside the same frame *before* paint, and we only ever
+	// write a single `style.top`, so this is O(1) regardless of thread
+	// length. When the streaming row isn't mounted yet (request sent but
+	// assistant hasn't started emitting), we fall back to the state-driven
+	// row.top so the indicator doesn't collapse to y=0.
+	useLayoutEffect(() => {
+		const indicator = indicatorElRef.current;
+		if (!indicator) {
+			return;
+		}
+		if (streamingRowEl) {
+			const sync = () => {
+				indicator.style.top = `${
+					streamingRowEl.offsetTop + streamingRowEl.offsetHeight
+				}px`;
+			};
+			sync();
+			if (typeof ResizeObserver === "undefined") {
+				return;
+			}
+			const observer = new ResizeObserver(sync);
+			observer.observe(streamingRowEl);
+			return () => observer.disconnect();
+		}
+		if (indicatorFallbackTop !== undefined) {
+			indicator.style.top = `${indicatorFallbackTop}px`;
+		}
+	}, [streamingRowEl, indicatorFallbackTop]);
 	const headerHeight = Header ? PROGRESSIVE_VIEWPORT_HEADER_HEIGHT : 0;
 	const effectiveViewportHeight =
 		viewportHeight > 0 ? viewportHeight : PROGRESSIVE_VIEWPORT_DEFAULT_HEIGHT;
@@ -805,14 +863,13 @@ function ProgressiveConversationViewport({
 					...current,
 					[rowKey]: roundedHeight,
 				}));
-			// Streaming rows must commit synchronously: React's
-			// `startTransition` is regularly starved by the high-priority
-			// stream-chunk updates coming from the sidecar, which leaves
-			// `totalRowsHeight` (and thus the outer div height that
-			// `useStickToBottom` observes) lagging the real DOM by up to
-			// seconds. Sync commit keeps the outer div height in step with
-			// reality so auto-scroll can follow reasoning/markdown growth
-			// without stalling or snapping.
+			// Streaming rows commit at default priority (no transition) so
+			// the outer div height that `useStickToBottom` observes stays in
+			// step with reality and auto-scroll can keep following. Indicator
+			// positioning is handled by a separate DOM-driven sync below, so
+			// we don't need `flushSync` here — which in long threads becomes
+			// O(n) and re-introduces stuttering near the end of a long
+			// streamed reply.
 			if (row.message.streaming === true) {
 				commit();
 			} else {
@@ -843,23 +900,31 @@ function ProgressiveConversationViewport({
 					if (row.kind === "indicator") {
 						return (
 							<div
+								ref={indicatorElRef}
 								key={row.key}
 								style={{
 									height: row.height,
 									left: 0,
 									position: "absolute",
 									right: 0,
-									top: row.top,
+									// `top` is intentionally omitted: it is owned by the
+									// DOM-sync useLayoutEffect above. Including it here
+									// would cause every React re-render to overwrite the
+									// synced value.
 								}}
 							>
 								<StreamingFooter startTime={row.startTime} />
 							</div>
 						);
 					}
+					const isStreamingMessage = row.message.streaming === true;
 					return (
 						<MeasuredConversationRow
 							key={row.key}
 							disableContentVisibility={isTauri}
+							onDomMount={
+								isStreamingMessage ? handleStreamingRowMount : undefined
+							}
 							onHeightChange={handleHeightChange}
 							rowKey={row.key}
 							top={row.top}
@@ -879,6 +944,7 @@ function MeasuredConversationRow({
 	children,
 	disableContentVisibility,
 	estimatedHeight,
+	onDomMount,
 	onHeightChange,
 	rowKey,
 	top,
@@ -886,11 +952,26 @@ function MeasuredConversationRow({
 	children: ReactNode;
 	disableContentVisibility: boolean;
 	estimatedHeight: number;
+	/**
+	 * Optional callback fired with the row's outer DOM node when it mounts
+	 * (and `null` when it unmounts). Used by the parent to wire a
+	 * ResizeObserver directly onto the streaming row's DOM for zero-latency
+	 * indicator position sync — see the indicator-sync effect in
+	 * `ProgressiveConversationViewport`.
+	 */
+	onDomMount?: (node: HTMLElement | null) => void;
 	onHeightChange: (rowKey: string, nextHeight: number) => void;
 	rowKey: string;
 	top: number;
 }) {
 	const rowRef = useRef<HTMLDivElement | null>(null);
+	const setRowRef = useCallback(
+		(node: HTMLDivElement | null) => {
+			rowRef.current = node;
+			onDomMount?.(node);
+		},
+		[onDomMount],
+	);
 
 	useLayoutEffect(() => {
 		const node = rowRef.current;
@@ -923,7 +1004,7 @@ function MeasuredConversationRow({
 	const intrinsicSize = `auto ${Math.max(24, Math.round(estimatedHeight))}px`;
 	return (
 		<div
-			ref={rowRef}
+			ref={setRowRef}
 			style={{
 				...(disableContentVisibility
 					? conversationRowIsolationStyle
