@@ -14,6 +14,7 @@ import {
 	ConversationColdPlaceholder,
 	type PresentedSessionPane,
 } from "./thread-viewport";
+import type { SessionCloseRequest } from "./use-confirm-session-close";
 
 export {
 	AssistantToolCall,
@@ -40,6 +41,7 @@ type WorkspacePanelProps = {
 	onSessionsChanged?: () => void;
 	onSessionRenamed?: (sessionId: string, title: string) => void;
 	onWorkspaceChanged?: () => void;
+	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	headerActions?: ReactNode;
 	headerLeading?: ReactNode;
 	missingScriptTypes?: WorkspaceScriptType[];
@@ -65,6 +67,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	onSessionsChanged,
 	onSessionRenamed,
 	onWorkspaceChanged,
+	onRequestCloseSession,
 	headerActions,
 	headerLeading,
 	missingScriptTypes = [],
@@ -123,6 +126,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					onSessionsChanged={onSessionsChanged}
 					onSessionRenamed={onSessionRenamed}
 					onWorkspaceChanged={onWorkspaceChanged}
+					onRequestCloseSession={onRequestCloseSession}
 				/>
 
 				<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

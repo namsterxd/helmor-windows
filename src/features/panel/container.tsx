@@ -23,6 +23,7 @@ import {
 	type WorkspaceScriptType,
 } from "@/lib/workspace-script-actions";
 import { WorkspacePanel } from "./index";
+import type { SessionCloseRequest } from "./use-confirm-session-close";
 
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
 
@@ -45,6 +46,7 @@ type WorkspacePanelContainerProps = {
 		modelId?: string | null;
 		permissionMode?: string | null;
 	}) => void;
+	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	headerActions?: React.ReactNode;
 	headerLeading?: React.ReactNode;
 };
@@ -63,6 +65,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	onSelectSession,
 	onResolveDisplayedSession,
 	onQueuePendingPromptForSession,
+	onRequestCloseSession,
 	headerActions,
 	headerLeading,
 }: WorkspacePanelContainerProps) {
@@ -529,6 +532,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			onSessionsChanged={handleSessionsChanged}
 			onSessionRenamed={handleSessionRenamed}
 			onWorkspaceChanged={handleWorkspaceChanged}
+			onRequestCloseSession={onRequestCloseSession}
 			headerActions={headerActions}
 			headerLeading={headerLeading}
 			missingScriptTypes={missingScriptTypes}

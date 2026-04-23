@@ -13,6 +13,7 @@ import type {
 } from "@/features/composer/deferred-tool";
 import { WorkspacePanelContainer } from "@/features/panel/container";
 import { FileLinkProvider } from "@/features/panel/message-components/file-link-context";
+import type { SessionCloseRequest } from "@/features/panel/use-confirm-session-close";
 import type { PullRequestInfo } from "@/lib/api";
 import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
 import { insertRequestMatchesComposer } from "@/lib/composer-insert";
@@ -72,6 +73,7 @@ type WorkspaceConversationContainerProps = {
 		modelId?: string | null;
 		permissionMode?: string | null;
 	}) => void;
+	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	workspaceRootPath?: string | null;
 	onOpenFileReference?: (path: string, line?: number, column?: number) => void;
 };
@@ -99,6 +101,7 @@ export const WorkspaceConversationContainer = memo(
 		pendingInsertRequests = [],
 		onPendingInsertRequestsConsumed,
 		onQueuePendingPromptForSession,
+		onRequestCloseSession,
 		workspaceRootPath,
 		onOpenFileReference,
 	}: WorkspaceConversationContainerProps) {
@@ -303,6 +306,7 @@ export const WorkspaceConversationContainer = memo(
 					onSelectSession={onSelectSession}
 					onResolveDisplayedSession={onResolveDisplayedSession}
 					onQueuePendingPromptForSession={onQueuePendingPromptForSession}
+					onRequestCloseSession={onRequestCloseSession}
 					headerActions={headerActions}
 					headerLeading={headerLeading}
 				/>

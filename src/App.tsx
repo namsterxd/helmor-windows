@@ -1,6 +1,7 @@
 import "./App.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { listen } from "@tauri-apps/api/event";
 import {
 	Check,
 	ChevronDown,
@@ -36,7 +37,7 @@ import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
-import { closeWorkspaceSession } from "@/features/panel/session-close";
+import { useConfirmSessionClose } from "@/features/panel/use-confirm-session-close";
 import { SettingsButton, SettingsDialog } from "@/features/settings";
 import { useAppUpdater } from "@/features/updater/use-app-updater";
 import {
@@ -1496,53 +1497,49 @@ function AppShell({
 			sessionId,
 			workspace,
 			sessions,
+			session: sessions.find((candidate) => candidate.id === sessionId) ?? null,
 		};
 	}, [queryClient]);
 
+	const { requestClose: requestCloseSession, dialogNode: closeConfirmDialog } =
+		useConfirmSessionClose({
+			sendingSessionIds,
+			onSelectSession: handleSelectSession,
+			pushToast: pushWorkspaceToast,
+			queryClient,
+		});
+
 	const handleCloseSelectedSession = useCallback(async () => {
 		const currentSession = getCloseableCurrentSession();
-		if (!currentSession) {
-			return false;
+		if (!currentSession?.session) {
+			return;
 		}
 
-		await closeWorkspaceSession({
-			queryClient,
-			workspace: currentSession.workspace,
-			sessions: currentSession.sessions,
-			sessionId: currentSession.sessionId,
-			onSelectSession: handleSelectSession,
+		const { workspaceId, sessionId, workspace, sessions, session } =
+			currentSession;
+
+		await requestCloseSession({
+			workspace,
+			sessions,
+			session,
 			onSessionsChanged: () => {
 				void Promise.all([
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceDetail(
-							currentSession.workspaceId,
-						),
+						queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
 					}),
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceSessions(
-							currentSession.workspaceId,
-						),
+						queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 					}),
 					queryClient.invalidateQueries({
 						queryKey: helmorQueryKeys.workspaceGroups,
 					}),
 					queryClient.invalidateQueries({
-						queryKey: [
-							...helmorQueryKeys.sessionMessages(currentSession.sessionId),
-							"thread",
-						],
+						queryKey: [...helmorQueryKeys.sessionMessages(sessionId), "thread"],
 					}),
 				]);
 			},
-			pushToast: pushWorkspaceToast,
 		});
-		return true;
-	}, [
-		getCloseableCurrentSession,
-		handleSelectSession,
-		pushWorkspaceToast,
-		queryClient,
-	]);
+	}, [getCloseableCurrentSession, queryClient, requestCloseSession]);
 
 	const handleCreateSession = useCallback(async () => {
 		const workspaceId = selectedWorkspaceIdRef.current;
@@ -1787,6 +1784,39 @@ function AppShell({
 	}, [
 		handleNavigateSessions,
 		handleNavigateWorkspaces,
+		isIdentityConnected,
+		workspaceViewMode,
+	]);
+
+	useEffect(() => {
+		if (!isIdentityConnected || workspaceViewMode === "editor") {
+			return;
+		}
+
+		let disposed = false;
+		let unlisten: (() => void) | undefined;
+
+		void listen("helmor://close-current-session", () => {
+			if (!getCloseableCurrentSession()) {
+				return;
+			}
+
+			void handleCloseSelectedSession();
+		}).then((fn) => {
+			if (disposed) {
+				fn();
+				return;
+			}
+			unlisten = fn;
+		});
+
+		return () => {
+			disposed = true;
+			unlisten?.();
+		};
+	}, [
+		getCloseableCurrentSession,
+		handleCloseSelectedSession,
 		isIdentityConnected,
 		workspaceViewMode,
 	]);
@@ -2129,6 +2159,7 @@ function AppShell({
 												onQueuePendingPromptForSession={
 													queuePendingPromptForSession
 												}
+												onRequestCloseSession={requestCloseSession}
 												workspaceRootPath={workspaceRootPath}
 												onOpenFileReference={handleOpenFileReference}
 												headerLeading={
@@ -2316,6 +2347,7 @@ function AppShell({
 						position="bottom-right"
 						visibleToasts={6}
 					/>
+					{closeConfirmDialog}
 				</ComposerInsertProvider>
 			</WorkspaceToastProvider>
 			<QuitConfirmDialog sendingSessionIds={sendingSessionIds} />
