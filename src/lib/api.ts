@@ -1477,7 +1477,7 @@ export async function prepareWorkspaceFromRepo(
 
 /**
  * Phase 2 of workspace creation. Slow (~200ms-2s): creates the git
- * worktree, scaffolds `.context`, probes `helmor.json`, and flips the
+ * worktree, probes `helmor.json`, and flips the
  * workspace row from `initializing` to `ready` / `setup_pending`. On
  * failure, the workspace row is cleaned up automatically.
  */

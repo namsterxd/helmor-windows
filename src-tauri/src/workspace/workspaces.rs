@@ -703,8 +703,8 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 /// Called once at startup so that externally-deleted directories don't cause
 /// repeated errors (e.g. git-status polling a missing path every 10 s).
 ///
-/// Archived workspaces are excluded — their worktree is intentionally gone, but
-/// their archived `.context` and session history must be preserved.
+/// Archived workspaces are excluded — their worktree is intentionally gone and
+/// the archived DB row must be preserved.
 pub fn purge_orphaned_workspaces() -> Result<usize> {
     let connection = db::read_conn()?;
     let mut stmt = connection.prepare(
@@ -756,8 +756,7 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
 }
 
 /// Permanently delete a workspace and all its data (sessions, messages)
-/// from the database, plus any filesystem artifacts (worktree directory,
-/// archived context).
+/// from the database, plus any filesystem artifacts (worktree directory).
 pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     let mut connection = db::write_conn()?;
 
@@ -804,23 +803,11 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     db::remove_workspace_lock(workspace_id);
 
     // Filesystem cleanup (best-effort)
-    if let Some((repo_name, directory_name, state)) = record {
+    if let Some((repo_name, directory_name, _state)) = record {
         // Remove worktree directory
         if let Ok(ws_dir) = crate::data_dir::workspace_dir(&repo_name, &directory_name) {
             if ws_dir.is_dir() {
                 std::fs::remove_dir_all(&ws_dir).ok();
-            }
-        }
-        // Remove archived context
-        if state == WorkspaceState::Archived {
-            if let Ok(data_dir) = crate::data_dir::data_dir() {
-                let archived = data_dir
-                    .join("archived-contexts")
-                    .join(&repo_name)
-                    .join(&directory_name);
-                if archived.is_dir() {
-                    std::fs::remove_dir_all(&archived).ok();
-                }
             }
         }
     }
@@ -859,20 +846,10 @@ mod tests {
             },
         );
 
-        // Simulate post-archive on-disk state: archived context exists, worktree
-        // does not.
-        let archived_ctx = env.root.join("archived-contexts/demo/alpha");
-        fs::create_dir_all(&archived_ctx).unwrap();
-        fs::write(archived_ctx.join("notes.md"), "preserved").unwrap();
-
         let purged = purge_orphaned_workspaces().unwrap();
 
         assert_eq!(purged, 0, "archived workspace must not be purged");
         assert_eq!(count_workspaces(&env), 1, "DB row must remain");
-        assert!(
-            archived_ctx.join("notes.md").exists(),
-            "archived context files must remain on disk"
-        );
     }
 
     #[test]
