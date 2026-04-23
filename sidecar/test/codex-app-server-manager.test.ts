@@ -16,6 +16,9 @@ const serverState = {
 		| null
 		| ((notification: { method: string; params?: unknown }) => void),
 };
+const gitAccessState = {
+	directories: [] as string[],
+};
 
 class MockCodexAppServer {
 	killed = false;
@@ -85,6 +88,10 @@ mock.module("../src/codex-app-server.js", () => ({
 	CodexAppServer: MockCodexAppServer,
 }));
 
+mock.module("../src/git-access.js", () => ({
+	resolveGitAccessDirectories: async () => [...gitAccessState.directories],
+}));
+
 const { CodexAppServerManager } = await import(
 	"../src/codex-app-server-manager.js"
 );
@@ -95,6 +102,7 @@ describe("CodexAppServerManager", () => {
 	beforeEach(() => {
 		serverState.requests = [];
 		serverState.onNotification = null;
+		gitAccessState.directories = [];
 		emitter = createSidecarEmitter(() => {});
 	});
 
@@ -150,6 +158,7 @@ describe("CodexAppServerManager", () => {
 
 	test("plan mode with additionalDirectories sets sandboxPolicy writableRoots including cwd", async () => {
 		const manager = new CodexAppServerManager();
+		gitAccessState.directories = ["/git/worktree-meta", "/git/common"];
 
 		await manager.sendMessage(
 			"REQ-plan-writable",
@@ -177,14 +186,20 @@ describe("CodexAppServerManager", () => {
 			expect.objectContaining({
 				sandboxPolicy: {
 					type: "workspaceWrite",
-					writableRoots: ["/tmp/workspace", "/tmp/a", "/tmp/b"],
+					writableRoots: [
+						"/tmp/workspace",
+						"/tmp/a",
+						"/tmp/b",
+						"/git/worktree-meta",
+						"/git/common",
+					],
 					networkAccess: false,
 				},
 			}),
 		);
 	});
 
-	test("plan mode without additionalDirectories does not set sandboxPolicy (thread-level default wins)", async () => {
+	test("plan mode without additionalDirectories sets sandboxPolicy for cwd", async () => {
 		const manager = new CodexAppServerManager();
 
 		await manager.sendMessage(
@@ -206,10 +221,18 @@ describe("CodexAppServerManager", () => {
 			(request) => request.method === "turn/start",
 		);
 
-		expect(turnStart?.params).not.toHaveProperty("sandboxPolicy");
+		expect(turnStart?.params).toEqual(
+			expect.objectContaining({
+				sandboxPolicy: {
+					type: "workspaceWrite",
+					writableRoots: ["/tmp/workspace"],
+					networkAccess: false,
+				},
+			}),
+		);
 	});
 
-	test("non-plan modes with additionalDirectories don't set sandboxPolicy", async () => {
+	test("non-plan modes restore dangerFullAccess sandboxPolicy", async () => {
 		const manager = new CodexAppServerManager();
 
 		await manager.sendMessage(
@@ -232,7 +255,13 @@ describe("CodexAppServerManager", () => {
 			(request) => request.method === "turn/start",
 		);
 
-		expect(turnStart?.params).not.toHaveProperty("sandboxPolicy");
+		expect(turnStart?.params).toEqual(
+			expect.objectContaining({
+				sandboxPolicy: {
+					type: "dangerFullAccess",
+				},
+			}),
+		);
 	});
 
 	test("prepends a linked-directories preamble to the turn input", async () => {
@@ -291,5 +320,36 @@ describe("CodexAppServerManager", () => {
 		const input = (turnStart?.params as { input?: Array<{ text?: string }> })
 			?.input;
 		expect(input?.[0]?.text).toBe("hello");
+	});
+
+	test("includes resolved git access directories in the linked-directories preamble", async () => {
+		const manager = new CodexAppServerManager();
+		gitAccessState.directories = ["/git/worktree-meta", "/git/common"];
+
+		await manager.sendMessage(
+			"REQ-git-preamble",
+			{
+				sessionId: "session-git-preamble",
+				prompt: "check repo state",
+				model: "gpt-5.4",
+				cwd: "/tmp/workspace",
+				resume: undefined,
+				permissionMode: "plan",
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			emitter,
+		);
+
+		const turnStart = serverState.requests.find(
+			(request) => request.method === "turn/start",
+		);
+		const input = (turnStart?.params as { input?: Array<{ text?: string }> })
+			?.input;
+		const firstText = input?.[0]?.text ?? "";
+
+		expect(firstText).toContain("/git/worktree-meta");
+		expect(firstText).toContain("/git/common");
+		expect(firstText).toContain("check repo state");
 	});
 });

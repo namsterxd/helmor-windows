@@ -193,6 +193,33 @@ describe("MemoConversationMessage plan review", () => {
 		expect(writeTextMock).toHaveBeenCalledWith("Real assistant reply");
 	});
 
+	it("copies a user message from the bubble action slot", () => {
+		const userMessage: ThreadMessageLike = {
+			id: "user-copy-source",
+			role: "user",
+			createdAt: "2026-04-12T12:01:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "user-copy-source:text-0",
+					text: "Ship the action slot.",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={userMessage}
+				sessionId="session-1"
+				itemIndex={2}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+		expect(writeTextMock).toHaveBeenCalledWith("Ship the action slot.");
+	});
+
 	it("keeps a completed reasoning block open and shows elapsed time", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-04-20T12:00:00.000Z"));
