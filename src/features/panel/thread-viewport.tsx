@@ -316,12 +316,9 @@ function ConversationViewport({
 	const Header: ThreadViewportSlot = ConversationHeaderSpacer;
 	const planReviewActive = useMemo(() => hasUnresolvedPlanReview(data), [data]);
 	const showStreamingFooter = sending && !planReviewActive;
-	const Footer: ThreadViewportSlot = showStreamingFooter
-		? () => <StreamingFooter startTime={sendingStartTime} />
-		: ConversationFooterSpacer;
-	const footerHeight = showStreamingFooter
-		? PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT
-		: 0;
+	const streamingIndicatorStartTime = showStreamingFooter
+		? sendingStartTime
+		: undefined;
 	const EmptyPlaceholder: ThreadViewportSlot = () => (
 		<div className="flex min-h-full flex-1 items-center justify-center px-8">
 			<EmptyState
@@ -352,7 +349,9 @@ function ConversationViewport({
 										{itemContent(index, message)}
 									</ConversationRowShell>
 								))}
-						{Footer ? createElement(Footer) : null}
+						{showStreamingFooter ? (
+							<StreamingFooter startTime={sendingStartTime} />
+						) : null}
 						<ConversationBottomSpacer />
 					</div>
 				) : (
@@ -360,8 +359,6 @@ function ConversationViewport({
 						contentRef={contentRef}
 						data={data}
 						emptyPlaceholder={EmptyPlaceholder}
-						footer={Footer}
-						footerHeight={footerHeight}
 						fontSize={fontSize}
 						header={Header}
 						itemContent={itemContent}
@@ -371,6 +368,7 @@ function ConversationViewport({
 						scrollParent={scrollParent}
 						sessionId={sessionId}
 						stopScroll={stopScroll}
+						streamingIndicatorStartTime={streamingIndicatorStartTime}
 					/>
 				)}
 			</div>
@@ -379,12 +377,41 @@ function ConversationViewport({
 	);
 }
 
+/**
+ * A single row in the virtualized progressive viewport. Two shapes:
+ *
+ *   - `message`: a real chat message, measured via `MeasuredConversationRow`.
+ *   - `indicator`: the streaming logo + timer, rendered as a fixed-height
+ *     pseudo row that lives in the same absolute-positioned coordinate
+ *     system as messages. Keeping the indicator *inside* the rows container
+ *     (instead of as its DOM sibling) means its `top` derives from the same
+ *     `totalRowsHeight` math, so it can never land on top of the streaming
+ *     row the way the old footer-sibling layout could.
+ */
+type ProgressiveViewportRow =
+	| {
+			kind: "message";
+			key: string;
+			index: number;
+			top: number;
+			height: number;
+			message: RenderedMessage;
+	  }
+	| {
+			kind: "indicator";
+			key: string;
+			index: number;
+			top: number;
+			height: number;
+			startTime: number;
+	  };
+
+const STREAMING_INDICATOR_ROW_KEY = "__streaming_indicator__";
+
 function ProgressiveConversationViewport({
 	contentRef,
 	data,
 	emptyPlaceholder: EmptyPlaceholder,
-	footer: Footer,
-	footerHeight,
 	fontSize,
 	header: Header,
 	itemContent,
@@ -394,12 +421,11 @@ function ProgressiveConversationViewport({
 	scrollParent,
 	sessionId,
 	stopScroll,
+	streamingIndicatorStartTime,
 }: {
 	contentRef?: React.RefCallback<HTMLElement>;
 	data: RenderedMessage[];
 	emptyPlaceholder?: ThreadViewportSlot;
-	footer?: ThreadViewportSlot;
-	footerHeight: number;
 	fontSize: number;
 	header?: ThreadViewportSlot;
 	itemContent: (index: number, message: RenderedMessage) => ReactNode;
@@ -409,6 +435,7 @@ function ProgressiveConversationViewport({
 	scrollParent: HTMLDivElement | null;
 	sessionId: string;
 	stopScroll: () => void;
+	streamingIndicatorStartTime?: number;
 }) {
 	const isTauri = true;
 	const [committedScrollState, setCommittedScrollState] = useState({
@@ -598,13 +625,14 @@ function ProgressiveConversationViewport({
 		() => estimateThreadRowHeights(data, { fontSize, paneWidth }),
 		[data, fontSize, paneWidth],
 	);
-	const rows = useMemo(
+	const rows = useMemo<ProgressiveViewportRow[]>(
 		() =>
 			measureSync(
 				"viewport:rows",
 				() => {
+					const result: ProgressiveViewportRow[] = [];
 					let top = 0;
-					return data.map((message, index) => {
+					data.forEach((message, index) => {
 						const key = message.id ?? `${message.role}:${index}`;
 						const estimatedHeight = estimatedHeights[index] ?? 72;
 						const measuredHeight = measuredHeights[key];
@@ -613,20 +641,36 @@ function ProgressiveConversationViewport({
 							measuredHeight,
 							streaming: message.streaming === true,
 						});
-						const row = {
+						result.push({
 							height,
 							index,
 							key,
+							kind: "message",
 							message,
 							top,
-						};
+						});
 						top += height;
-						return row;
 					});
+					if (streamingIndicatorStartTime !== undefined) {
+						const indicatorHeight =
+							PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT;
+						result.push({
+							height: indicatorHeight,
+							index: data.length,
+							key: STREAMING_INDICATOR_ROW_KEY,
+							kind: "indicator",
+							startTime: streamingIndicatorStartTime,
+							top,
+						});
+					}
+					return result;
 				},
-				{ count: data.length },
+				{
+					count:
+						data.length + (streamingIndicatorStartTime !== undefined ? 1 : 0),
+				},
 			),
-		[data, estimatedHeights, measuredHeights],
+		[data, estimatedHeights, measuredHeights, streamingIndicatorStartTime],
 	);
 	const totalRowsHeight =
 		rows.length > 0
@@ -696,11 +740,11 @@ function ProgressiveConversationViewport({
 			windowTop,
 		],
 	);
+	// Note: the streaming footer no longer lives as a sibling of the rows
+	// container. When present it is an in-list `indicator` row whose height
+	// is already included in `totalRowsHeight`, so we don't re-add it here.
 	const totalContentHeight =
-		headerHeight +
-		totalRowsHeight +
-		footerHeight +
-		CONVERSATION_BOTTOM_SPACER_HEIGHT;
+		headerHeight + totalRowsHeight + CONVERSATION_BOTTOM_SPACER_HEIGHT;
 	const rowsRef = useRef(rows);
 	useLayoutEffect(() => {
 		rowsRef.current = rows;
@@ -736,7 +780,9 @@ function ProgressiveConversationViewport({
 		(rowKey: string, nextHeight: number) => {
 			const roundedHeight = Math.max(24, Math.ceil(nextHeight));
 			const row = rowsRef.current.find((entry) => entry.key === rowKey);
-			if (!row) {
+			// Only message rows flow through here. The indicator pseudo row
+			// has a fixed height and does not use `MeasuredConversationRow`.
+			if (!row || row.kind !== "message") {
 				return;
 			}
 
@@ -753,12 +799,25 @@ function ProgressiveConversationViewport({
 			if (scrollParent && row.top + headerHeight < scrollParent.scrollTop) {
 				pendingScrollAdjustmentRef.current += roundedHeight - previousHeight;
 			}
-			startTransition(() => {
+
+			const commit = () =>
 				setMeasuredHeights((current) => ({
 					...current,
 					[rowKey]: roundedHeight,
 				}));
-			});
+			// Streaming rows must commit synchronously: React's
+			// `startTransition` is regularly starved by the high-priority
+			// stream-chunk updates coming from the sidecar, which leaves
+			// `totalRowsHeight` (and thus the outer div height that
+			// `useStickToBottom` observes) lagging the real DOM by up to
+			// seconds. Sync commit keeps the outer div height in step with
+			// reality so auto-scroll can follow reasoning/markdown growth
+			// without stalling or snapping.
+			if (row.message.streaming === true) {
+				commit();
+			} else {
+				startTransition(commit);
+			}
 		},
 		[headerHeight, isTauri, scrollParent],
 	);
@@ -768,7 +827,6 @@ function ProgressiveConversationViewport({
 			<div ref={contentRef} className="flex min-h-full flex-col">
 				{Header ? createElement(Header) : null}
 				{EmptyPlaceholder ? createElement(EmptyPlaceholder) : null}
-				{Footer ? createElement(Footer) : null}
 				<ConversationBottomSpacer />
 			</div>
 		);
@@ -781,20 +839,37 @@ function ProgressiveConversationViewport({
 				aria-label={`Conversation rows for session ${sessionId}`}
 				style={{ height: totalRowsHeight, position: "relative" }}
 			>
-				{visibleRows.map((row) => (
-					<MeasuredConversationRow
-						key={row.key}
-						disableContentVisibility={isTauri}
-						onHeightChange={handleHeightChange}
-						rowKey={row.key}
-						top={row.top}
-						estimatedHeight={row.height}
-					>
-						{itemContent(row.index, row.message)}
-					</MeasuredConversationRow>
-				))}
+				{visibleRows.map((row) => {
+					if (row.kind === "indicator") {
+						return (
+							<div
+								key={row.key}
+								style={{
+									height: row.height,
+									left: 0,
+									position: "absolute",
+									right: 0,
+									top: row.top,
+								}}
+							>
+								<StreamingFooter startTime={row.startTime} />
+							</div>
+						);
+					}
+					return (
+						<MeasuredConversationRow
+							key={row.key}
+							disableContentVisibility={isTauri}
+							onHeightChange={handleHeightChange}
+							rowKey={row.key}
+							top={row.top}
+							estimatedHeight={row.height}
+						>
+							{itemContent(row.index, row.message)}
+						</MeasuredConversationRow>
+					);
+				})}
 			</div>
-			{Footer ? createElement(Footer) : null}
 			<ConversationBottomSpacer />
 		</div>
 	);
@@ -898,10 +973,6 @@ export function ConversationColdPlaceholder() {
 
 function ConversationHeaderSpacer() {
 	return <div className="h-6 shrink-0" />;
-}
-
-function ConversationFooterSpacer() {
-	return null;
 }
 
 function ConversationBottomSpacer() {
