@@ -385,6 +385,13 @@ export function useWorkspacesSidebarController({
 			return;
 		}
 
+		// Only restore archived workspaces if they were the live selection
+		// (runtime state). Never auto-restore archived from persisted
+		// `lastWorkspaceId` — the directory may be gone, which would spam
+		// git/editor errors on every poll. Fall through to an active group.
+		const isInActiveGroups = (id: string) =>
+			groups.some((group) => group.rows.some((row) => row.id === id));
+
 		let nextWorkspaceId: string | null;
 		if (
 			selectedWorkspaceId &&
@@ -393,7 +400,7 @@ export function useWorkspacesSidebarController({
 			nextWorkspaceId = selectedWorkspaceId;
 		} else if (
 			settings.lastWorkspaceId &&
-			hasWorkspaceId(settings.lastWorkspaceId, groups, archivedSummaries)
+			isInActiveGroups(settings.lastWorkspaceId)
 		) {
 			nextWorkspaceId = settings.lastWorkspaceId;
 		} else {
@@ -1122,6 +1129,20 @@ export function useWorkspacesSidebarController({
 		[handleDeleteWorkspace, pushWorkspaceToast],
 	);
 
+	const notifyTargetBranchRestore = useCallback(
+		(targetBranch: string | null) => {
+			if (!targetBranch) {
+				return;
+			}
+			pushWorkspaceToast(
+				`No archive commit was available, so the workspace was restored from "${targetBranch}".`,
+				"Restored from target branch",
+				"default",
+			);
+		},
+		[pushWorkspaceToast],
+	);
+
 	// Keep the forward-ref used by `pushWorkspaceErrorToast` in sync.
 	useEffect(() => {
 		handleDeleteWorkspaceRef.current = handleDeleteWorkspace;
@@ -1307,6 +1328,7 @@ export function useWorkspacesSidebarController({
 					.then((response) => {
 						prefetchWorkspace(workspaceId);
 						onSelectWorkspace(workspaceId);
+						notifyTargetBranchRestore(response.restoredFromTargetBranch);
 						if (response.branchRename) {
 							notifyBranchRename(response.branchRename);
 						}
@@ -1373,6 +1395,7 @@ export function useWorkspacesSidebarController({
 					if (response.branchRename) {
 						notifyBranchRename(response.branchRename);
 					}
+					notifyTargetBranchRestore(response.restoredFromTargetBranch);
 				})
 				.catch((error) => {
 					queryClient.setQueryData(
@@ -1396,6 +1419,7 @@ export function useWorkspacesSidebarController({
 			beginSidebarMutation,
 			endSidebarMutation,
 			notifyBranchRename,
+			notifyTargetBranchRestore,
 			onSelectWorkspace,
 			pendingCreations,
 			prefetchWorkspace,

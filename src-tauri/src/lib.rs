@@ -93,11 +93,17 @@ pub fn run() {
                 "Helmor started"
             );
 
-            // Purge workspaces whose directory was deleted outside the app.
+            // Reconcile workspaces whose directory was deleted outside the
+            // app: degrade them to `archived` so chat history is preserved
+            // (users can find the messages in the archive list and choose
+            // to Permanently Delete there). Never auto-destroys data.
             match workspace::workspaces::purge_orphaned_workspaces() {
                 Ok(0) => {}
-                Ok(n) => tracing::info!(count = n, "Purged orphaned workspaces"),
-                Err(e) => tracing::warn!("Failed to purge orphaned workspaces: {e:#}"),
+                Ok(n) => tracing::info!(
+                    count = n,
+                    "Degraded orphaned workspaces to archived (chat history preserved)"
+                ),
+                Err(e) => tracing::warn!("Failed to reconcile orphaned workspaces: {e:#}"),
             }
 
             // Clear rows stuck in `initializing` state past the cutoff —

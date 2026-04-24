@@ -28,6 +28,7 @@ pub struct RestoreWorkspaceResponse {
     /// suffixed branch instead. The frontend uses this to surface an
     /// informational toast so the rename never happens silently.
     pub branch_rename: Option<BranchRename>,
+    pub restored_from_target_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -588,7 +589,9 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
 struct RestorePreflightData {
     repo_root: PathBuf,
     branch: String,
-    archive_commit: String,
+    archive_commit: Option<String>,
+    target_branch: String,
+    remote: String,
     workspace_dir: PathBuf,
 }
 
@@ -607,18 +610,25 @@ fn restore_workspace_preflight(workspace_id: &str) -> Result<RestorePreflightDat
     let branch = helpers::non_empty(&record.branch)
         .map(ToOwned::to_owned)
         .with_context(|| format!("Workspace {workspace_id} is missing branch"))?;
-    let archive_commit = helpers::non_empty(&record.archive_commit)
-        .map(ToOwned::to_owned)
-        .with_context(|| format!("Workspace {workspace_id} is missing archive_commit"))?;
+    let archive_commit = helpers::non_empty(&record.archive_commit).map(ToOwned::to_owned);
+    let target_branch = helpers::non_empty(&record.intended_target_branch)
+        .or_else(|| helpers::non_empty(&record.default_branch))
+        .unwrap_or("main")
+        .to_string();
+    let remote = record.remote.unwrap_or_else(|| "origin".to_string());
 
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
     git_ops::ensure_git_repository(&repo_root)?;
-    git_ops::verify_commit_exists(&repo_root, &archive_commit)?;
+    if let Some(archive_commit) = archive_commit.as_deref() {
+        git_ops::verify_commit_exists(&repo_root, archive_commit)?;
+    }
 
     Ok(RestorePreflightData {
         repo_root,
         branch,
         archive_commit,
+        target_branch,
+        remote,
         workspace_dir,
     })
 }
@@ -671,8 +681,13 @@ pub fn restore_workspace_impl(
         repo_root,
         branch,
         archive_commit,
+        target_branch: stored_target_branch,
+        remote,
         workspace_dir,
     } = restore_workspace_preflight(workspace_id)?;
+    let target_branch = target_branch_override
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(stored_target_branch.as_str());
 
     if workspace_dir.exists() {
         std::fs::remove_dir_all(&workspace_dir).with_context(|| {
@@ -709,13 +724,22 @@ pub fn restore_workspace_impl(
         branch.clone()
     };
 
-    git_ops::verify_commit_exists(&repo_root, &archive_commit).with_context(|| {
-        format!(
-            "Archive commit {archive_commit} no longer exists in {} \
-             (likely garbage-collected). Cannot restore.",
-            repo_root.display()
-        )
-    })?;
+    let (start_point, restored_from_target_branch) = match archive_commit.as_deref() {
+        Some(commit) => {
+            git_ops::verify_commit_exists(&repo_root, commit).with_context(|| {
+                format!(
+                    "Archive commit {commit} no longer exists in {} \
+                     (likely garbage-collected). Cannot restore.",
+                    repo_root.display()
+                )
+            })?;
+            (commit.to_string(), None)
+        }
+        None => (
+            resolve_restore_target_start_point(&repo_root, &remote, target_branch)?,
+            Some(target_branch.to_string()),
+        ),
+    };
 
     git_ops::run_git(
         [
@@ -723,11 +747,21 @@ pub fn restore_workspace_impl(
             &repo_root.display().to_string(),
             "branch",
             &actual_branch,
-            &archive_commit,
+            &start_point,
         ],
         None,
     )
-    .with_context(|| format!("Failed to create branch {actual_branch} from {archive_commit}"))?;
+    .with_context(|| format!("Failed to create branch {actual_branch} from {start_point}"))?;
+    let _ = git_ops::run_git(
+        [
+            "-C",
+            &repo_root.display().to_string(),
+            "branch",
+            "--unset-upstream",
+            &actual_branch,
+        ],
+        None,
+    );
 
     git_ops::create_worktree(&repo_root, &workspace_dir, &actual_branch)?;
 
@@ -767,7 +801,26 @@ pub fn restore_workspace_impl(
         restored_state: WorkspaceState::Ready,
         selected_workspace_id: workspace_id.to_string(),
         branch_rename,
+        restored_from_target_branch,
     })
+}
+
+fn resolve_restore_target_start_point(
+    repo_root: &Path,
+    remote: &str,
+    target_branch: &str,
+) -> Result<String> {
+    if git_ops::verify_branch_exists(repo_root, target_branch).is_ok() {
+        return Ok(target_branch.to_string());
+    }
+
+    if git_ops::verify_remote_ref_exists(repo_root, remote, target_branch)? {
+        return Ok(format!("{remote}/{target_branch}"));
+    }
+
+    bail!(
+        "Cannot restore workspace without an archive commit: target branch {target_branch} was not found"
+    );
 }
 
 fn cleanup_failed_created_workspace(

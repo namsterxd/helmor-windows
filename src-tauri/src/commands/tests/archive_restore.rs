@@ -36,6 +36,33 @@ fn restore_workspace_recreates_worktree() {
 }
 
 #[test]
+fn restore_workspace_without_archive_commit_uses_target_branch() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = RestoreTestHarness::new();
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET archive_commit = NULL WHERE id = ?1",
+            [&harness.workspace_id],
+        )
+        .unwrap();
+
+    let response = workspaces::restore_workspace_impl(&harness.workspace_id, None).unwrap();
+
+    assert_eq!(
+        response.restored_from_target_branch.as_deref(),
+        Some("main")
+    );
+    assert_eq!(
+        fs::read_to_string(harness.workspace_dir().join("tracked.txt")).unwrap(),
+        "main"
+    );
+    assert_eq!(response.restored_state, WorkspaceState::Ready);
+}
+
+#[test]
 fn archive_workspace_removes_worktree() {
     let _guard = TEST_LOCK
         .lock()

@@ -30,6 +30,7 @@ import {
 	stopAgentStream,
 } from "@/lib/api";
 import type { ComposerCustomTag } from "@/lib/composer-insert";
+import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
 	agentModelSectionsQueryOptions,
 	helmorQueryKeys,
@@ -47,6 +48,7 @@ import {
 } from "@/lib/session-thread-cache";
 import type { FollowUpBehavior } from "@/lib/settings";
 import type { SubmitQueueApi } from "@/lib/use-submit-queue";
+import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import {
 	createLiveThreadMessage,
 	findModelOption,
@@ -939,7 +941,17 @@ export function useConversationStreaming({
 				);
 			} catch (error) {
 				console.error("[conversation] deferred tool response:", error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
+				const { code, message: errorMsg } = extractError(
+					error,
+					"Failed to resume agent stream.",
+				);
+				if (isRecoverableByPurge(code) && displayedWorkspaceId) {
+					showWorkspaceBrokenToast({
+						workspaceId: displayedWorkspaceId,
+						pushToast,
+						queryClient,
+					});
+				}
 				setPendingDeferredByContext((current) => ({
 					...current,
 					[contextKey]: deferred,
@@ -1463,7 +1475,17 @@ export function useConversationStreaming({
 				);
 			} catch (error) {
 				console.error("[conversation] invoke error:", error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
+				const { code, message: errorMsg } = extractError(
+					error,
+					"Failed to send message.",
+				);
+				if (isRecoverableByPurge(code) && displayedWorkspaceId) {
+					showWorkspaceBrokenToast({
+						workspaceId: displayedWorkspaceId,
+						pushToast,
+						queryClient,
+					});
+				}
 				setSendErrorsByContext((current) => ({
 					...current,
 					[contextKey]: errorMsg,

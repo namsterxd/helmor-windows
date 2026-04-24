@@ -695,7 +695,10 @@ function AppShell({
 	// button's mode derivation — shared cache with inspector's actions.tsx.
 	const workspacePrActionStatusQuery = useQuery({
 		...workspacePrActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled: isIdentityConnected && selectedWorkspaceId !== null,
+		enabled:
+			isIdentityConnected &&
+			selectedWorkspaceId !== null &&
+			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspacePrActionStatus = workspacePrActionStatusQuery.data ?? null;
 

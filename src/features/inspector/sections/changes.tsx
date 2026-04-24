@@ -32,8 +32,11 @@ import {
 	unstageWorkspaceFile,
 } from "@/lib/api";
 import type { DiffOpenOptions, InspectorFileItem } from "@/lib/editor-session";
+import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
+import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
+import { useWorkspaceToast } from "@/lib/workspace-toast-context";
 import { GitSectionHeader } from "./git-section-header";
 
 const STATUS_COLORS: Record<InspectorFileItem["status"], string> = {
@@ -155,6 +158,28 @@ export function ChangesSection({
 		}
 	}, [queryClient, workspaceId, workspaceRootPath]);
 
+	const pushToast = useWorkspaceToast();
+	// Surface backend mutation failures (which used to be silently
+	// swallowed). If the workspace is broken, show a persistent toast
+	// with "Permanently Delete" — never auto-deletes. Dismiss preserves
+	// the chat history (the startup reconcile has archived the row so
+	// the user can still find it).
+	const surfaceChangeError = useCallback(
+		(action: string, error: unknown) => {
+			const { code, message } = extractError(error, `Failed to ${action}.`);
+			if (isRecoverableByPurge(code) && workspaceId) {
+				showWorkspaceBrokenToast({
+					workspaceId,
+					pushToast,
+					queryClient,
+				});
+				return;
+			}
+			pushToast(message, `Unable to ${action}`, "destructive");
+		},
+		[pushToast, queryClient, workspaceId],
+	);
+
 	const stageFile = useCallback(
 		async (relativePath: string) => {
 			if (!workspaceRootPath) {
@@ -162,11 +187,13 @@ export function ChangesSection({
 			}
 			try {
 				await stageWorkspaceFile(workspaceRootPath, relativePath);
+			} catch (error) {
+				surfaceChangeError("stage file", error);
 			} finally {
 				invalidateChanges();
 			}
 		},
-		[invalidateChanges, workspaceRootPath],
+		[invalidateChanges, surfaceChangeError, workspaceRootPath],
 	);
 	const unstageFile = useCallback(
 		async (relativePath: string) => {
@@ -175,11 +202,13 @@ export function ChangesSection({
 			}
 			try {
 				await unstageWorkspaceFile(workspaceRootPath, relativePath);
+			} catch (error) {
+				surfaceChangeError("unstage file", error);
 			} finally {
 				invalidateChanges();
 			}
 		},
-		[invalidateChanges, workspaceRootPath],
+		[invalidateChanges, surfaceChangeError, workspaceRootPath],
 	);
 	const stageAll = useCallback(async () => {
 		if (!workspaceRootPath) {
@@ -190,10 +219,17 @@ export function ChangesSection({
 			for (const path of paths) {
 				await stageWorkspaceFile(workspaceRootPath, path);
 			}
+		} catch (error) {
+			surfaceChangeError("stage files", error);
 		} finally {
 			invalidateChanges();
 		}
-	}, [invalidateChanges, unstagedChanges, workspaceRootPath]);
+	}, [
+		invalidateChanges,
+		surfaceChangeError,
+		unstagedChanges,
+		workspaceRootPath,
+	]);
 	const unstageAll = useCallback(async () => {
 		if (!workspaceRootPath) {
 			return;
@@ -203,10 +239,12 @@ export function ChangesSection({
 			for (const path of paths) {
 				await unstageWorkspaceFile(workspaceRootPath, path);
 			}
+		} catch (error) {
+			surfaceChangeError("unstage files", error);
 		} finally {
 			invalidateChanges();
 		}
-	}, [invalidateChanges, stagedChanges, workspaceRootPath]);
+	}, [invalidateChanges, stagedChanges, surfaceChangeError, workspaceRootPath]);
 
 	const discardFile = useCallback(
 		async (relativePath: string) => {
@@ -215,11 +253,13 @@ export function ChangesSection({
 			}
 			try {
 				await discardWorkspaceFile(workspaceRootPath, relativePath);
+			} catch (error) {
+				surfaceChangeError("discard changes", error);
 			} finally {
 				invalidateChanges();
 			}
 		},
-		[invalidateChanges, workspaceRootPath],
+		[invalidateChanges, surfaceChangeError, workspaceRootPath],
 	);
 
 	const handleCommitButtonClick = useCallback(async () => {

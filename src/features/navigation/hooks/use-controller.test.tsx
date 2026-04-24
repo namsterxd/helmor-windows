@@ -264,6 +264,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			restoredState: "ready",
 			selectedWorkspaceId: "ws-1",
 			branchRename: null,
+			restoredFromTargetBranch: null,
 		});
 	});
 

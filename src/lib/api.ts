@@ -306,6 +306,7 @@ export type RestoreWorkspaceResponse = {
 	 * instead. The frontend uses this to surface an informational toast so
 	 * the rename never happens silently. */
 	branchRename: { original: string; actual: string } | null;
+	restoredFromTargetBranch: string | null;
 };
 
 export type ArchiveWorkspaceResponse = {
