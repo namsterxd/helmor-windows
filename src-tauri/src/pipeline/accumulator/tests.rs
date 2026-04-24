@@ -128,6 +128,33 @@ fn claude_local_bash_task_events_are_dropped() {
 }
 
 #[test]
+fn claude_local_bash_notification_without_task_type_is_dropped() {
+    let mut acc = StreamAccumulator::new("claude", "opus");
+    let started = json!({
+        "type": "system",
+        "subtype": "task_started",
+        "task_id": "task_bash",
+        "task_type": "local_bash",
+        "tool_use_id": "toolu_bash_1",
+        "description": "bun x vitest run src/foo.test.ts",
+    });
+    acc.push_event(&started, &started.to_string());
+
+    let notification = json!({
+        "type": "system",
+        "subtype": "task_notification",
+        "task_id": "task_bash",
+        "tool_use_id": "toolu_bash_1",
+        "status": "completed",
+        "output_file": "",
+        "summary": "bun x vitest run src/foo.test.ts",
+    });
+    acc.push_event(&notification, &notification.to_string());
+
+    assert!(acc.collected().is_empty());
+}
+
+#[test]
 fn claude_local_agent_task_events_still_render() {
     // The real subagent lifecycle (`task_type: "local_agent"`) still
     // enters `collected[]` so the adapter can fold it under the parent

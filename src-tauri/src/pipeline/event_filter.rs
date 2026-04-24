@@ -4,7 +4,7 @@
 //! - `accumulator::push_event` reads `SUPPRESSED_EVENT_TYPES` and drops
 //!   matching top-level events before any handler runs (NoOp).
 //! - `accumulator::handle_claude_system` reads `SUPPRESSED_SYSTEM_SUBTYPES`
-//!   + `is_suppressed_local_bash_task` on live ingest.
+//!   + local-bash task helpers on live ingest.
 //! - `adapter::convert_system_msg` reads the same pair on historical
 //!   reload, so old persisted noise rows from earlier code versions
 //!   render with the same rules as new turns.
@@ -79,15 +79,40 @@ pub(crate) fn is_suppressed_system_subtype(subtype: &str) -> bool {
 /// `local_agent` task events are left untouched — those are the real
 /// subagent lifecycle, and whether/how to render them is handled
 /// further down the pipeline.
-pub(crate) fn is_suppressed_local_bash_task(value: &Value) -> bool {
+pub(crate) fn is_claude_task_lifecycle(value: &Value) -> bool {
     let Some(subtype) = value.get("subtype").and_then(Value::as_str) else {
         return false;
     };
-    if !matches!(
+    matches!(
         subtype,
         "task_started" | "task_progress" | "task_notification"
-    ) {
-        return false;
+    )
+}
+
+pub(crate) fn is_explicit_local_bash_task(value: &Value) -> bool {
+    is_claude_task_lifecycle(value)
+        && value.get("task_type").and_then(Value::as_str) == Some("local_bash")
+}
+
+pub(crate) fn is_suppressed_local_bash_task(value: &Value) -> bool {
+    is_explicit_local_bash_task(value)
+}
+
+pub(crate) fn task_refs(value: &Value) -> impl Iterator<Item = &str> {
+    ["task_id", "tool_use_id"]
+        .into_iter()
+        .filter_map(|key| value.get(key).and_then(Value::as_str))
+}
+
+pub(crate) fn is_local_bash_task_ref(
+    value: &Value,
+    known_refs: &std::collections::HashSet<String>,
+) -> bool {
+    is_claude_task_lifecycle(value) && task_refs(value).any(|id| known_refs.contains(id))
+}
+
+pub(crate) fn remember_task_refs(value: &Value, refs: &mut std::collections::HashSet<String>) {
+    for id in task_refs(value) {
+        refs.insert(id.to_string());
     }
-    value.get("task_type").and_then(Value::as_str) == Some("local_bash")
 }
