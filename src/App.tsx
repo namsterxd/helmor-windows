@@ -434,6 +434,12 @@ function AppShell({
 	const [settledSessionIds, setSettledSessionIds] = useState<Set<string>>(
 		() => new Set(),
 	);
+	// Sessions that terminated via abort (stop stream) rather than normal
+	// completion. Used by the commit lifecycle to return the button to idle
+	// when the user aborts an action session (e.g. Create PR).
+	const [abortedSessionIds, setAbortedSessionIds] = useState<Set<string>>(
+		() => new Set(),
+	);
 	const [interactionRequiredSessions, setInteractionRequiredSessions] =
 		useState<Map<string, string>>(() => new Map());
 	const interactionRequiredSessionIds = useMemo(
@@ -1383,6 +1389,7 @@ function AppShell({
 		workspacePrActionStatus,
 		workspaceGitActionStatus,
 		completedSessionIds: settledSessionIds,
+		abortedSessionIds,
 		interactionRequiredSessionIds,
 		sendingSessionIds,
 		onSelectSession: handleSelectSession,
@@ -1431,6 +1438,15 @@ function AppShell({
 		},
 		[notify, queryClient],
 	);
+
+	const handleSessionAborted = useCallback((sessionId: string) => {
+		setAbortedSessionIds((prev) => {
+			if (prev.has(sessionId)) return prev;
+			const next = new Set(prev);
+			next.add(sessionId);
+			return next;
+		});
+	}, []);
 
 	const lastInteractionCountsRef = useRef<Map<string, number>>(new Map());
 	const handleInteractionSessionsChange = useCallback(
@@ -2151,6 +2167,7 @@ function AppShell({
 													interactionRequiredSessionIds
 												}
 												onSessionCompleted={handleSessionCompleted}
+												onSessionAborted={handleSessionAborted}
 												workspacePrInfo={workspacePrInfo}
 												pendingPromptForSession={pendingPromptForSession}
 												onPendingPromptConsumed={handlePendingPromptConsumed}

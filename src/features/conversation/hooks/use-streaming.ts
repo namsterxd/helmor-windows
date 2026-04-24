@@ -134,6 +134,7 @@ type UseConversationStreamingArgs = {
 		interactionCounts: Map<string, number>,
 	) => void;
 	onSessionCompleted?: (sessionId: string, workspaceId: string) => void;
+	onSessionAborted?: (sessionId: string, workspaceId: string) => void;
 };
 
 export function useConversationStreaming({
@@ -149,6 +150,7 @@ export function useConversationStreaming({
 	onSendingSessionsChange,
 	onInteractionSessionsChange,
 	onSessionCompleted,
+	onSessionAborted,
 }: UseConversationStreamingArgs) {
 	const queryClient = useQueryClient();
 	const pushToast = useWorkspaceToast();
@@ -268,6 +270,8 @@ export function useConversationStreaming({
 	onInteractionSessionsChangeRef.current = onInteractionSessionsChange;
 	const onSessionCompletedRef = useRef(onSessionCompleted);
 	onSessionCompletedRef.current = onSessionCompleted;
+	const onSessionAbortedRef = useRef(onSessionAborted);
+	onSessionAbortedRef.current = onSessionAborted;
 	useLayoutEffect(() => {
 		const workspaceIds = new Set<string>();
 		for (const [, workspaceId] of sendingWorkspaceMapRef.current) {
@@ -884,6 +888,11 @@ export function useConversationStreaming({
 								if (sid && displayedWorkspaceId) {
 									onSessionCompletedRef.current?.(sid, displayedWorkspaceId);
 								}
+							} else if (event.kind === "aborted") {
+								const sid = event.sessionId ?? displayedSessionId;
+								if (sid && displayedWorkspaceId) {
+									onSessionAbortedRef.current?.(sid, displayedWorkspaceId);
+								}
 							}
 
 							void queryClient.invalidateQueries({
@@ -1403,6 +1412,11 @@ export function useConversationStreaming({
 								const sid = event.sessionId ?? targetSessionId;
 								if (sid && targetWorkspaceId) {
 									onSessionCompletedRef.current?.(sid, targetWorkspaceId);
+								}
+							} else if (event.kind === "aborted") {
+								const sid = event.sessionId ?? targetSessionId;
+								if (sid && targetWorkspaceId) {
+									onSessionAbortedRef.current?.(sid, targetWorkspaceId);
 								}
 							}
 
