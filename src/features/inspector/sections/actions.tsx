@@ -93,6 +93,7 @@ const EMPTY_PR_ACTION_STATUS: WorkspacePrActionStatus = {
 
 type ActionsSectionProps = {
 	workspaceId: string | null;
+	workspaceState?: string | null;
 	repoId?: string | null;
 	workspaceRemote?: string | null;
 	sectionRef?: React.RefObject<HTMLElement | null>;
@@ -139,6 +140,7 @@ function buildSyncResolutionPrompt(
 
 export function ActionsSection({
 	workspaceId,
+	workspaceState,
 	repoId,
 	workspaceRemote,
 	sectionRef,
@@ -153,13 +155,16 @@ export function ActionsSection({
 }: ActionsSectionProps) {
 	const queryClient = useQueryClient();
 	const [syncPending, setSyncPending] = useState(false);
+	// Archived workspaces have no live worktree — polling git/PR status every
+	// 10s would spam errors. App.tsx mirrors this guard.
+	const isArchived = workspaceState === "archived";
 	const gitStatusQuery = useQuery({
 		...workspaceGitActionStatusQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null,
+		enabled: workspaceId !== null && !isArchived,
 	});
 	const prStatusQuery = useQuery({
 		...workspacePrActionStatusQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null,
+		enabled: workspaceId !== null && !isArchived,
 	});
 	const gitStatus = gitStatusQuery.data ?? EMPTY_GIT_ACTION_STATUS;
 	const prStatus = prStatusQuery.data ?? EMPTY_PR_ACTION_STATUS;

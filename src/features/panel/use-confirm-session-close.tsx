@@ -17,6 +17,7 @@ export type SessionCloseRequest = {
 	workspace: WorkspaceDetail;
 	sessions: WorkspaceSessionSummary[];
 	session: WorkspaceSessionSummary;
+	activateAdjacent?: boolean;
 	// Display-provider override (from sessionDisplayProviders). Falls back
 	// to `session.agentType` for label and stop call.
 	provider?: string | null;
@@ -55,6 +56,7 @@ export function useConfirmSessionClose({
 				workspace: request.workspace,
 				sessions: request.sessions,
 				sessionId: request.session.id,
+				activateAdjacent: request.activateAdjacent,
 				onSelectSession,
 				onSessionsChanged: request.onSessionsChanged,
 				pushToast,

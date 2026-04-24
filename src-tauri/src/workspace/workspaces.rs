@@ -57,6 +57,7 @@ pub struct WorkspaceSidebarRow {
     pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,8 +90,10 @@ pub struct WorkspaceSummary {
     pub active_session_agent_type: Option<String>,
     pub active_session_status: Option<String>,
     pub pr_title: Option<String>,
+    pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -618,6 +621,7 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
+        created_at: record.created_at,
     }
 }
 
@@ -643,8 +647,10 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         active_session_agent_type: record.active_session_agent_type,
         active_session_status: record.active_session_status,
         pr_title: record.pr_title,
+        pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
+        created_at: record.created_at,
     }
 }
 
@@ -698,23 +704,31 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
     }
 }
 
-/// Remove DB records for workspaces whose directory no longer exists on disk.
+/// Degrade operational workspaces whose directory no longer exists on disk
+/// to the `archived` state — preserving all chat history (sessions +
+/// session_messages) so the user can still find their conversations.
 ///
-/// Called once at startup so that externally-deleted directories don't cause
-/// repeated errors (e.g. git-status polling a missing path every 10 s).
+/// Called once at startup so that externally-deleted directories don't
+/// cause repeated errors (e.g. git-status polling a missing path every
+/// 10 s). The legacy behavior here was `permanently_delete_workspace`,
+/// which silently destroyed `session_messages` rows — never acceptable:
+/// a user may have rm -rf'd the worktree but still wants the chat history.
 ///
-/// Archived workspaces are excluded — their worktree is intentionally gone, but
-/// their archived `.context` and session history must be preserved.
+/// Archived rows are never touched (the worktree being gone is by design
+/// for those; their state is already correct).
+///
+/// Returns the number of workspaces that were degraded.
 pub fn purge_orphaned_workspaces() -> Result<usize> {
     let connection = db::read_conn()?;
-    let mut stmt = connection.prepare(
+    let mut stmt = connection.prepare(&format!(
         "SELECT w.id, r.name, w.directory_name, w.state
          FROM workspaces w
          JOIN repos r ON r.id = w.repository_id
-         WHERE w.state != ?1",
-    )?;
+         WHERE w.state {}",
+        crate::workspace_state::OPERATIONAL_FILTER
+    ))?;
     let orphans: Vec<(String, String, String, WorkspaceState)> = stmt
-        .query_map([WorkspaceState::Archived], |row| {
+        .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -729,35 +743,69 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
                 .unwrap_or(false)
         })
         .collect();
+    // Release the read connection so `degrade_workspace_to_archived`
+    // (which takes a write conn) doesn't deadlock on SQLite.
+    drop(stmt);
+    drop(connection);
 
     let mut count = 0;
     for (id, repo_name, dir_name, state) in &orphans {
-        // Defense in depth: even if the SQL filter ever regresses, never purge
-        // an archived workspace (the worktree being gone is by design).
+        // Defense in depth: even if the SQL filter ever regresses, never
+        // re-archive something that's already archived.
         if *state == WorkspaceState::Archived {
             tracing::warn!(
                 workspace_id = %id,
-                "Skipping archived workspace in orphan purge"
+                "Skipping archived workspace in orphan reconcile"
             );
             continue;
         }
-        if let Err(e) = permanently_delete_workspace(id) {
-            tracing::warn!(workspace_id = %id, "Failed to purge orphaned workspace: {e:#}");
-        } else {
-            count += 1;
-            tracing::info!(
-                workspace_id = %id,
-                path = %format!("{}/{}", repo_name, dir_name),
-                "Purged orphaned workspace (directory missing)"
-            );
+        match degrade_workspace_to_archived(id) {
+            Ok(true) => {
+                count += 1;
+                tracing::info!(
+                    workspace_id = %id,
+                    path = %format!("{}/{}", repo_name, dir_name),
+                    "Degraded orphaned workspace to archived (directory missing; chat history preserved)"
+                );
+            }
+            Ok(false) => {
+                // Another thread got there first (already archived).
+            }
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %id,
+                    "Failed to degrade orphaned workspace: {e:#}"
+                );
+            }
         }
     }
     Ok(count)
 }
 
+/// Flip a single workspace row from its current operational state to
+/// `archived`, without touching sessions / session_messages. Used by
+/// [`purge_orphaned_workspaces`] to reconcile workspaces whose worktree
+/// vanished externally. Idempotent: returns `Ok(false)` if the row is
+/// not operational or doesn't exist.
+pub fn degrade_workspace_to_archived(workspace_id: &str) -> Result<bool> {
+    let connection = db::write_conn()?;
+    let rows = connection
+        .execute(
+            &format!(
+                "UPDATE workspaces
+             SET state = 'archived',
+                 updated_at = datetime('now')
+             WHERE id = ?1 AND state {}",
+                crate::workspace_state::OPERATIONAL_FILTER
+            ),
+            [workspace_id],
+        )
+        .context("Failed to degrade workspace to archived")?;
+    Ok(rows > 0)
+}
+
 /// Permanently delete a workspace and all its data (sessions, messages)
-/// from the database, plus any filesystem artifacts (worktree directory,
-/// archived context).
+/// from the database, plus any filesystem artifacts (worktree directory).
 pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     let mut connection = db::write_conn()?;
 
@@ -804,23 +852,11 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     db::remove_workspace_lock(workspace_id);
 
     // Filesystem cleanup (best-effort)
-    if let Some((repo_name, directory_name, state)) = record {
+    if let Some((repo_name, directory_name, _state)) = record {
         // Remove worktree directory
         if let Ok(ws_dir) = crate::data_dir::workspace_dir(&repo_name, &directory_name) {
             if ws_dir.is_dir() {
                 std::fs::remove_dir_all(&ws_dir).ok();
-            }
-        }
-        // Remove archived context
-        if state == WorkspaceState::Archived {
-            if let Ok(data_dir) = crate::data_dir::data_dir() {
-                let archived = data_dir
-                    .join("archived-contexts")
-                    .join(&repo_name)
-                    .join(&directory_name);
-                if archived.is_dir() {
-                    std::fs::remove_dir_all(&archived).ok();
-                }
             }
         }
     }
@@ -842,6 +878,26 @@ mod tests {
             .unwrap() as usize
     }
 
+    fn workspace_state(env: &TestEnv, id: &str) -> Option<String> {
+        env.db_connection()
+            .query_row("SELECT state FROM workspaces WHERE id = ?1", [id], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+    }
+
+    fn count_session_messages(env: &TestEnv, workspace_id: &str) -> i64 {
+        env.db_connection()
+            .query_row(
+                "SELECT COUNT(*) FROM session_messages sm
+                 JOIN sessions s ON s.id = sm.session_id
+                 WHERE s.workspace_id = ?1",
+                [workspace_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+    }
+
     #[test]
     fn purge_skips_archived_even_when_worktree_missing() {
         let env = TestEnv::new("purge-archived");
@@ -859,24 +915,18 @@ mod tests {
             },
         );
 
-        // Simulate post-archive on-disk state: archived context exists, worktree
-        // does not.
-        let archived_ctx = env.root.join("archived-contexts/demo/alpha");
-        fs::create_dir_all(&archived_ctx).unwrap();
-        fs::write(archived_ctx.join("notes.md"), "preserved").unwrap();
-
         let purged = purge_orphaned_workspaces().unwrap();
 
-        assert_eq!(purged, 0, "archived workspace must not be purged");
+        assert_eq!(purged, 0, "archived workspace must not be re-archived");
         assert_eq!(count_workspaces(&env), 1, "DB row must remain");
-        assert!(
-            archived_ctx.join("notes.md").exists(),
-            "archived context files must remain on disk"
+        assert_eq!(
+            workspace_state(&env, "w-archived").as_deref(),
+            Some("archived")
         );
     }
 
     #[test]
-    fn purge_removes_ready_workspace_with_missing_dir() {
+    fn purge_degrades_ready_workspace_with_missing_dir_to_archived() {
         let env = TestEnv::new("purge-ready");
         let conn = env.db_connection();
         insert_repo(&conn, "r1", "demo", None);
@@ -891,12 +941,67 @@ mod tests {
                 intended_target_branch: None,
             },
         );
+        // Simulate a session with chat history so we can verify it survives.
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s1', 'w-ready', 'idle', 'Test')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_messages (id, session_id, sent_at, content) VALUES ('m1', 's1', datetime('now'), '{}')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(count_session_messages(&env, "w-ready"), 1);
         // No worktree dir created — simulates external deletion.
 
-        let purged = purge_orphaned_workspaces().unwrap();
+        let degraded = purge_orphaned_workspaces().unwrap();
 
-        assert_eq!(purged, 1, "ready workspace with missing dir must be purged");
-        assert_eq!(count_workspaces(&env), 0);
+        assert_eq!(
+            degraded, 1,
+            "ready workspace with missing dir must be degraded"
+        );
+        assert_eq!(
+            count_workspaces(&env),
+            1,
+            "DB row must be preserved, not deleted"
+        );
+        assert_eq!(
+            workspace_state(&env, "w-ready").as_deref(),
+            Some("archived"),
+            "state must flip to archived"
+        );
+        assert_eq!(
+            count_session_messages(&env, "w-ready"),
+            1,
+            "chat history must survive the degrade",
+        );
+    }
+
+    #[test]
+    fn purge_does_not_degrade_initializing_workspace_with_missing_dir() {
+        let env = TestEnv::new("purge-initializing");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-initializing",
+                repo_id: "r1",
+                directory_name: "delta",
+                state: WorkspaceState::Initializing.as_str(),
+                branch: Some("feature/delta"),
+                intended_target_branch: None,
+            },
+        );
+
+        let degraded = purge_orphaned_workspaces().unwrap();
+
+        assert_eq!(degraded, 0);
+        assert_eq!(
+            workspace_state(&env, "w-initializing").as_deref(),
+            Some("initializing"),
+        );
     }
 
     #[test]
@@ -922,5 +1027,6 @@ mod tests {
 
         assert_eq!(purged, 0);
         assert_eq!(count_workspaces(&env), 1);
+        assert_eq!(workspace_state(&env, "w-live").as_deref(), Some("ready"));
     }
 }

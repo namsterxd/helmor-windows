@@ -164,6 +164,7 @@ export function WorkspaceInspectorSidebar({
 
 			<ActionsSection
 				workspaceId={workspaceId ?? null}
+				workspaceState={workspaceState ?? null}
 				repoId={repoId ?? null}
 				workspaceRemote={workspaceRemote ?? null}
 				sectionRef={actionsRef}
