@@ -34,11 +34,11 @@ import {
 } from "@/components/ui/tooltip";
 import {
 	type AgentProvider,
+	type ChangeRequestInfo,
 	createSession,
 	deleteSession,
 	listRemoteBranches,
 	loadHiddenSessions,
-	type PullRequestInfo,
 	prefetchRemoteRefs,
 	renameSession,
 	renameWorkspaceBranch,
@@ -60,7 +60,7 @@ import type { SessionCloseRequest } from "./use-confirm-session-close";
 
 type WorkspacePanelHeaderProps = {
 	workspace: WorkspaceDetail | null;
-	prInfo?: PullRequestInfo | null;
+	changeRequest?: ChangeRequestInfo | null;
 	sessions: WorkspaceSessionSummary[];
 	selectedSessionId: string | null;
 	sessionDisplayProviders?: Record<string, AgentProvider>;
@@ -80,7 +80,7 @@ type WorkspacePanelHeaderProps = {
 
 export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	workspace,
-	prInfo = null,
+	changeRequest = null,
 	sessions,
 	selectedSessionId,
 	sessionDisplayProviders,
@@ -101,7 +101,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 		workspaceState: workspace?.state,
 		manualStatus: workspace?.manualStatus,
 		derivedStatus: workspace?.derivedStatus,
-		prInfo,
+		changeRequest,
 	});
 	const [showHistory, setShowHistory] = useState(false);
 	const [hiddenSessions, setHiddenSessions] = useState<

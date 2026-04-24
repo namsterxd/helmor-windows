@@ -158,6 +158,21 @@ export function resolveRepoPreferencePrompt({
 	);
 }
 
+export function resolveRepoPreferencePromptWithDefault({
+	key,
+	defaultPrompt,
+	repoPreferences,
+}: {
+	key: RepoPreferenceKey;
+	defaultPrompt: string;
+	repoPreferences?: RepoPreferences | null;
+}): string {
+	return appendUserPreferences(
+		defaultPrompt,
+		repoPreferenceOverride(key, repoPreferences),
+	);
+}
+
 export function prependGeneralPreferencePrompt(
 	prompt: string,
 	repoPreferences?: RepoPreferences | null,

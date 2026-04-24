@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type {
 	AgentModelSection,
 	AgentProvider,
-	PullRequestInfo,
+	ChangeRequestInfo,
 	RepoScripts,
 	ThreadMessageLike,
 	WorkspaceDetail,
@@ -37,7 +37,7 @@ type WorkspacePanelContainerProps = {
 	sendingSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	modelSelections?: Record<string, string>;
-	workspacePrInfo?: PullRequestInfo | null;
+	workspaceChangeRequest?: ChangeRequestInfo | null;
 	onSelectSession: (sessionId: string | null) => void;
 	onResolveDisplayedSession: (sessionId: string | null) => void;
 	onQueuePendingPromptForSession?: (request: {
@@ -61,7 +61,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	sendingSessionIds,
 	interactionRequiredSessionIds,
 	modelSelections = {},
-	workspacePrInfo = null,
+	workspaceChangeRequest = null,
 	onSelectSession,
 	onResolveDisplayedSession,
 	onQueuePendingPromptForSession,
@@ -537,7 +537,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			headerLeading={headerLeading}
 			missingScriptTypes={missingScriptTypes}
 			onInitializeScript={handleInitializeScript}
-			prInfo={workspacePrInfo}
+			changeRequest={workspaceChangeRequest}
 		/>
 	);
 });

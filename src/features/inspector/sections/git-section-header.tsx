@@ -1,12 +1,16 @@
-import { MarkGithubIcon } from "@primer/octicons-react";
 import { ExternalLink } from "lucide-react";
+import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import {
 	type CommitButtonState,
 	WorkspaceCommitButton,
 	type WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
-import type { PullRequestInfo } from "@/lib/api";
+import type {
+	ChangeRequestInfo,
+	ForgeActionStatus,
+	ForgeDetection,
+} from "@/lib/api";
 import { useMinDisplayDuration } from "@/lib/use-min-display-duration";
 import { cn } from "@/lib/utils";
 import {
@@ -14,21 +18,30 @@ import {
 	INSPECTOR_SECTION_HEADER_CLASS,
 	INSPECTOR_SECTION_TITLE_CLASS,
 } from "../layout";
+import { ForgeCliTrigger } from "./forge-cli-onboarding";
 
 const SHIMMER_MIN_DISPLAY_MS = 1500;
 
 export type GitSectionHeaderProps = {
 	commitButtonMode: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
-	prInfo: PullRequestInfo | null;
+	changeRequest: ChangeRequestInfo | null;
 	hasChanges?: boolean;
 	/**
-	 * Whether PR data is currently being (re)fetched. Drives the bottom
+	 * Whether change request data is currently being (re)fetched. Drives the bottom
 	 * shimmer bar. Gated by a min display duration so fast responses don't
 	 * flicker.
 	 */
 	isRefreshing?: boolean;
-	onPrClick?: () => void;
+	changeRequestName?: string;
+	forgeRemoteState?: ForgeActionStatus["remoteState"] | null;
+	/**
+	 * Full forge classification for the current workspace. When CLI setup
+	 * needs attention, we swap the Create PR button for one forge connect CTA.
+	 */
+	forgeDetection?: ForgeDetection | null;
+	workspaceId?: string | null;
+	onChangeRequestClick?: () => void;
 	onCommit?: () => void | Promise<void>;
 	className?: string;
 };
@@ -36,10 +49,14 @@ export type GitSectionHeaderProps = {
 export function GitSectionHeader({
 	commitButtonMode,
 	commitButtonState,
-	prInfo,
+	changeRequest,
 	hasChanges = false,
 	isRefreshing = false,
-	onPrClick,
+	changeRequestName = "PR",
+	forgeRemoteState = null,
+	forgeDetection = null,
+	workspaceId = null,
+	onChangeRequestClick,
 	onCommit,
 	className,
 }: GitSectionHeaderProps) {
@@ -51,10 +68,19 @@ export function GitSectionHeader({
 		SHIMMER_MIN_DISPLAY_MS,
 	);
 
+	const cliStatus = forgeDetection?.cli ?? null;
+	const cliNeedsAttention =
+		cliStatus?.status === "missing" ||
+		cliStatus?.status === "unauthenticated" ||
+		forgeRemoteState === "unauthenticated";
+	const showForgeOnboarding = cliNeedsAttention && forgeDetection !== null;
 	const showButton =
 		hasChanges ||
 		commitButtonState === "busy" ||
-		commitButtonMode !== "create-pr";
+		commitButtonMode !== "create-pr" ||
+		showForgeOnboarding;
+	const isMergeRequest = forgeDetection?.provider === "gitlab";
+	const showChangeRequest = changeRequest !== null && !showForgeOnboarding;
 
 	return (
 		<div
@@ -62,7 +88,7 @@ export function GitSectionHeader({
 				INSPECTOR_SECTION_HEADER_CLASS,
 				"relative overflow-hidden rounded-tr-[16px]",
 				"transition-[background-color,border-color,color,box-shadow] duration-300 ease-out",
-				gitHeaderHighlightClass,
+				showForgeOnboarding ? null : gitHeaderHighlightClass,
 				className,
 			)}
 		>
@@ -78,7 +104,7 @@ export function GitSectionHeader({
 				/>
 			)}
 			<div className="flex min-w-0 items-center gap-1.5">
-				{!prInfo ? (
+				{!showChangeRequest ? (
 					<span className={cn(INSPECTOR_SECTION_TITLE_CLASS, "translate-y-px")}>
 						Git
 					</span>
@@ -98,12 +124,17 @@ export function GitSectionHeader({
 							commitButtonMode === "merged" &&
 								"border-[var(--workspace-pr-merged-accent)] text-[var(--workspace-pr-merged-accent)] hover:text-[var(--workspace-pr-merged-accent)]",
 						)}
-						onClick={onPrClick}
+						onClick={onChangeRequestClick}
 					>
 						<span className="inline-flex items-center gap-1.5 leading-none">
-							<MarkGithubIcon size={12} className="shrink-0 self-center" />
+							{isMergeRequest ? (
+								<GitlabBrandIcon size={12} className="self-center" />
+							) : (
+								<GithubBrandIcon size={12} className="self-center" />
+							)}
 							<span className="inline-flex items-center leading-none tabular-nums text-sm font-light">
-								#{prInfo.number}
+								{isMergeRequest ? "!" : "#"}
+								{changeRequest.number}
 							</span>
 							<ExternalLink
 								size={12}
@@ -114,14 +145,22 @@ export function GitSectionHeader({
 					</Button>
 				)}
 			</div>
-			{showButton && (
-				<WorkspaceCommitButton
-					mode={commitButtonMode}
-					state={commitButtonState}
-					className="ml-auto self-center translate-y-px"
-					onCommit={onCommit}
-				/>
-			)}
+			{showButton &&
+				(showForgeOnboarding ? (
+					<ForgeCliTrigger
+						detection={forgeDetection}
+						workspaceId={workspaceId}
+						authRequired={forgeRemoteState === "unauthenticated"}
+					/>
+				) : (
+					<WorkspaceCommitButton
+						mode={commitButtonMode}
+						state={commitButtonState}
+						changeRequestName={changeRequestName}
+						className="ml-auto self-center translate-y-px"
+						onCommit={onCommit}
+					/>
+				))}
 		</div>
 	);
 }

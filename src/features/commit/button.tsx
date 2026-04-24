@@ -39,22 +39,16 @@ interface WorkspaceCommitButtonProps {
 	doneDurationMs?: number;
 	errorDurationMs?: number;
 	menuItems?: WorkspaceCommitAction[];
+	changeRequestName?: string;
 	className?: string;
 	onCommit?: () => void | Promise<void>;
 	onStateChange?: (nextState: CommitButtonState) => void;
 }
 
-const STATE_LABELS: Record<
-	WorkspaceCommitButtonMode,
+const STATIC_STATE_LABELS: Record<
+	Exclude<WorkspaceCommitButtonMode, "create-pr" | "open-pr">,
 	Record<CommitButtonState, string>
 > = {
-	"create-pr": {
-		idle: "Create PR",
-		busy: "Creating PR...",
-		done: "PR Created",
-		error: "Retry",
-		disabled: "Create PR",
-	},
 	"commit-and-push": {
 		idle: "Commit and Push",
 		busy: "Committing...",
@@ -90,13 +84,6 @@ const STATE_LABELS: Record<
 		error: "Retry",
 		disabled: "Merge",
 	},
-	"open-pr": {
-		idle: "Open PR",
-		busy: "Opening PR...",
-		done: "Opened",
-		error: "Retry",
-		disabled: "Open PR",
-	},
 	merged: {
 		idle: "Merged",
 		busy: "Merged",
@@ -113,8 +100,43 @@ const STATE_LABELS: Record<
 	},
 };
 
+function getStateLabel(
+	mode: WorkspaceCommitButtonMode,
+	state: CommitButtonState,
+	changeRequestName: string,
+): string {
+	if (mode === "create-pr") {
+		switch (state) {
+			case "busy":
+				return `Creating ${changeRequestName}...`;
+			case "done":
+				return `${changeRequestName} Created`;
+			case "error":
+				return "Retry";
+			case "idle":
+			case "disabled":
+				return `Create ${changeRequestName}`;
+		}
+	}
+	if (mode === "open-pr") {
+		switch (state) {
+			case "busy":
+				return `Opening ${changeRequestName}...`;
+			case "done":
+				return "Opened";
+			case "error":
+				return "Retry";
+			case "idle":
+			case "disabled":
+				return `Open ${changeRequestName}`;
+		}
+	}
+	return STATIC_STATE_LABELS[mode][state];
+}
+
 function getDefaultMenuItems(
 	mode: WorkspaceCommitButtonMode,
+	changeRequestName: string,
 ): WorkspaceCommitAction[] {
 	if (mode === "commit-and-push") {
 		return [
@@ -146,11 +168,11 @@ function getDefaultMenuItems(
 	return [
 		{
 			id: "create-draft-pr",
-			label: "Create draft PR",
+			label: `Create draft ${changeRequestName}`,
 		},
 		{
 			id: "create-pr-manually",
-			label: "Create PR manually",
+			label: `Create ${changeRequestName} manually`,
 		},
 	];
 }
@@ -218,6 +240,7 @@ export function WorkspaceCommitButton({
 	doneDurationMs = 900,
 	errorDurationMs = 1200,
 	menuItems,
+	changeRequestName = "PR",
 	className,
 	onCommit,
 	onStateChange,
@@ -283,7 +306,8 @@ export function WorkspaceCommitButton({
 			});
 	};
 
-	const resolvedMenuItems = menuItems ?? getDefaultMenuItems(mode);
+	const resolvedMenuItems =
+		menuItems ?? getDefaultMenuItems(mode, changeRequestName);
 	const hasMenuItems =
 		mode !== "fix" &&
 		mode !== "resolve-conflicts" &&
@@ -292,7 +316,8 @@ export function WorkspaceCommitButton({
 		mode !== "merged" &&
 		mode !== "closed" &&
 		resolvedMenuItems.length > 0;
-	const mainText = mainLabel ?? STATE_LABELS[mode][currentState];
+	const mainText =
+		mainLabel ?? getStateLabel(mode, currentState, changeRequestName);
 	const mainIcon = getModeIcon(mode);
 	const optionsAriaLabel =
 		mode === "commit-and-push"
@@ -306,12 +331,12 @@ export function WorkspaceCommitButton({
 						: mode === "merge"
 							? "Merge options"
 							: mode === "open-pr"
-								? "Open PR options"
+								? `Open ${changeRequestName} options`
 								: mode === "merged"
 									? "Merged options"
 									: mode === "closed"
 										? "Closed options"
-										: "Create PR options";
+										: `Create ${changeRequestName} options`;
 
 	const mainButton = (
 		<Button

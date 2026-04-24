@@ -1,9 +1,9 @@
-import { MarkGithubIcon } from "@primer/octicons-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
 import helmorLogoSrc from "@/assets/helmor-logo.png";
 import bannerHtml from "@/assets/render-banner.html?raw";
+import { GithubBrandIcon } from "@/components/brand-icon";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
 import { TypingAnimation } from "@/components/ui/typing-animation";
@@ -123,7 +123,7 @@ export function GithubIdentityGate({
 								</p>
 							</div>
 							<Button disabled size="lg">
-								<MarkGithubIcon size={16} data-icon="inline-start" />
+								<GithubBrandIcon size={16} data-icon="inline-start" />
 								Continue with GitHub
 							</Button>
 						</div>
@@ -139,7 +139,7 @@ export function GithubIdentityGate({
 								size="lg"
 								className="hover:bg-primary/90"
 							>
-								<MarkGithubIcon size={16} data-icon="inline-start" />
+								<GithubBrandIcon size={16} data-icon="inline-start" />
 								{identityState.status === "error"
 									? "Retry with GitHub"
 									: "Continue with GitHub"}

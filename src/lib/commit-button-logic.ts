@@ -3,31 +3,42 @@ import type {
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
 import type {
-	PullRequestInfo,
+	ChangeRequestInfo,
+	ForgeActionStatus,
 	WorkspaceGitActionStatus,
-	WorkspacePrActionStatus,
 } from "./api";
 
 /**
  * The shape of the commit button lifecycle tracked by App.tsx.
  */
-export type CommitLifecycle = {
+type CommitLifecycleBase = {
 	workspaceId: string;
 	trackedSessionId: string | null;
 	mode: WorkspaceCommitButtonMode;
 	phase: "creating" | "streaming" | "verifying" | "done" | "error";
-	prInfo: PullRequestInfo | null;
-} | null;
+};
+
+type CommitLifecycleRecord = CommitLifecycleBase & {
+	changeRequest: ChangeRequestInfo | null;
+};
+
+export type CommitLifecycle = CommitLifecycleRecord | null;
+
+function lifecycleChangeRequest(
+	lifecycle: CommitLifecycleRecord,
+): ChangeRequestInfo | null {
+	return lifecycle.changeRequest;
+}
 
 /**
- * Derive the commit button's visible mode from the lifecycle + PR query +
+ * Derive the commit button's visible mode from the lifecycle + change request +
  * action statuses.
  *
  * During an active lifecycle the mode follows the lifecycle. At rest the
  * mode is derived from the persistent queries so the button reflects the
  * real GitHub / local-git state across page reloads.
  *
- * Priority order when PR is OPEN (highest wins):
+ * Priority order when the change request is OPEN (highest wins):
  *   1. resolve-conflicts  — conflicts block everything
  *   2. commit-and-push    — local dirty changes need committing first
  *   3. push               — committed local work is ahead of origin
@@ -36,26 +47,27 @@ export type CommitLifecycle = {
  */
 export function deriveCommitButtonMode(
 	lifecycle: CommitLifecycle,
-	prInfo: PullRequestInfo | null,
-	prActionStatus?: WorkspacePrActionStatus | null,
+	changeRequest: ChangeRequestInfo | null,
+	forgeActionStatus?: ForgeActionStatus | null,
 	gitActionStatus?: WorkspaceGitActionStatus | null,
 ): WorkspaceCommitButtonMode {
 	// ── Active lifecycle takes priority ──────────────────────────────
 	if (lifecycle) {
-		if (lifecycle.phase === "done" && lifecycle.prInfo) {
-			return lifecycle.prInfo.isMerged ? "merged" : "merge";
+		const lifecycleRequest = lifecycleChangeRequest(lifecycle);
+		if (lifecycle.phase === "done" && lifecycleRequest) {
+			return lifecycleRequest.isMerged ? "merged" : "merge";
 		}
 		return lifecycle.mode;
 	}
 
 	// ── Resting state — derive from persistent queries ──────────────
-	if (prInfo) {
-		if (prInfo.isMerged) return "merged";
+	if (changeRequest) {
+		if (changeRequest.isMerged) return "merged";
 
-		if (prInfo.state === "OPEN") {
+		if (changeRequest.state === "OPEN") {
 			// 1. Conflicts block everything
 			const hasConflict =
-				prActionStatus?.mergeable === "CONFLICTING" ||
+				forgeActionStatus?.mergeable === "CONFLICTING" ||
 				(gitActionStatus?.conflictCount ?? 0) > 0;
 			if (hasConflict) return "resolve-conflicts";
 
@@ -73,7 +85,7 @@ export function deriveCommitButtonMode(
 			}
 
 			// 4. Any failing CI check → show Fix CI
-			const hasFailingCheck = prActionStatus?.checks?.some(
+			const hasFailingCheck = forgeActionStatus?.checks?.some(
 				(c) => c.status === "failure",
 			);
 			if (hasFailingCheck) return "fix";
@@ -82,8 +94,8 @@ export function deriveCommitButtonMode(
 			return "merge";
 		}
 
-		// PR closed (not merged) → offer to reopen
-		if (prInfo.state === "CLOSED") return "open-pr";
+		// Closed change request (not merged) → offer to reopen
+		if (changeRequest.state === "CLOSED") return "open-pr";
 	}
 
 	return "create-pr";
@@ -91,16 +103,16 @@ export function deriveCommitButtonMode(
 
 /**
  * Derive the commit button's visible state from the lifecycle + action
- * status. Returns `"disabled"` while GitHub is still computing the
+ * status. Returns `"disabled"` while the provider is still computing the
  * mergeable status so the user can't click Merge prematurely.
  */
 export function deriveCommitButtonState(
 	lifecycle: CommitLifecycle,
-	prActionStatus?: WorkspacePrActionStatus | null,
+	forgeActionStatus?: ForgeActionStatus | null,
 ): CommitButtonState {
 	if (!lifecycle) {
-		// GitHub is still computing mergeable — disable the button
-		if (prActionStatus?.mergeable === "UNKNOWN") return "disabled";
+		// Provider is still computing mergeable — disable the button
+		if (forgeActionStatus?.mergeable === "UNKNOWN") return "disabled";
 		return "idle";
 	}
 	switch (lifecycle.phase) {
@@ -119,12 +131,12 @@ export function deriveCommitButtonState(
  * Derive what workspace manual_status should be based on PR state.
  * Returns null if no status change is needed.
  */
-export function deriveWorkspaceStatusFromPr(
-	prInfo: PullRequestInfo | null,
+export function deriveWorkspaceStatusFromChangeRequest(
+	changeRequest: ChangeRequestInfo | null,
 ): string | null {
-	if (!prInfo) return null;
-	if (prInfo.isMerged) return "done";
-	if (prInfo.state === "OPEN") return "review";
-	if (prInfo.state === "CLOSED") return "canceled";
+	if (!changeRequest) return null;
+	if (changeRequest.isMerged) return "done";
+	if (changeRequest.state === "OPEN") return "review";
+	if (changeRequest.state === "CLOSED") return "canceled";
 	return null;
 }

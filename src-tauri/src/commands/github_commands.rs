@@ -1,6 +1,6 @@
 use tauri::{AppHandle, State};
 
-use crate::{auth, github_cli, github_graphql};
+use crate::{auth, github_cli};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -50,43 +50,4 @@ pub async fn get_github_cli_user() -> CmdResult<Option<github_cli::GithubCliUser
 pub async fn list_github_accessible_repositories(
 ) -> CmdResult<Vec<github_cli::GithubRepositorySummary>> {
     run_blocking(github_cli::list_github_accessible_repositories).await
-}
-
-#[tauri::command]
-pub async fn lookup_workspace_pr(
-    workspace_id: String,
-) -> CmdResult<Option<github_graphql::PullRequestInfo>> {
-    run_blocking(move || github_graphql::lookup_workspace_pr(&workspace_id)).await
-}
-
-#[tauri::command]
-pub async fn get_workspace_pr_action_status(
-    workspace_id: String,
-) -> CmdResult<github_graphql::WorkspacePrActionStatus> {
-    run_blocking(move || github_graphql::lookup_workspace_pr_action_status(&workspace_id)).await
-}
-
-#[tauri::command]
-pub async fn get_workspace_pr_check_insert_text(
-    workspace_id: String,
-    item_id: String,
-) -> CmdResult<String> {
-    run_blocking(move || {
-        github_graphql::lookup_workspace_pr_check_insert_text(&workspace_id, &item_id)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn merge_workspace_pr(
-    workspace_id: String,
-) -> CmdResult<Option<github_graphql::PullRequestInfo>> {
-    run_blocking(move || github_graphql::merge_workspace_pr(&workspace_id)).await
-}
-
-#[tauri::command]
-pub async fn close_workspace_pr(
-    workspace_id: String,
-) -> CmdResult<Option<github_graphql::PullRequestInfo>> {
-    run_blocking(move || github_graphql::close_workspace_pr(&workspace_id)).await
 }

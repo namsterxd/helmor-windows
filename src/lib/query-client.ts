@@ -3,12 +3,16 @@ import { focusManager, QueryClient, queryOptions } from "@tanstack/react-query";
 import {
 	type ActionKind,
 	type AgentProvider,
+	type ChangeRequestInfo,
 	DEFAULT_WORKSPACE_GROUPS,
 	type DetectedEditor,
 	detectInstalledEditors,
+	type ForgeActionStatus,
+	type ForgeDetection,
 	getCodexRateLimits,
 	getLiveContextUsage,
 	getSessionContextUsage,
+	getWorkspaceForge,
 	listRepositories,
 	listSlashCommands,
 	listWorkspaceCandidateDirectories,
@@ -21,13 +25,11 @@ import {
 	loadAutoCloseOptInAsked,
 	loadSessionThreadMessages,
 	loadWorkspaceDetail,
+	loadWorkspaceForgeActionStatus,
 	loadWorkspaceGitActionStatus,
 	loadWorkspaceGroups,
-	loadWorkspacePrActionStatus,
 	loadWorkspaceSessions,
-	lookupWorkspacePr,
-	type PullRequestInfo,
-	type WorkspacePrActionStatus,
+	lookupWorkspaceChangeRequest,
 } from "./api";
 import {
 	hasUsableAgentModelSections,
@@ -38,6 +40,7 @@ import {
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
 const CHANGES_REFETCH_INTERVAL = 10_000;
+const WORKSPACE_FORGE_REFETCH_INTERVAL = 60_000;
 const DEFAULT_GC_TIME = 30 * 60_000;
 const SESSION_GC_TIME = 60 * 60_000;
 const PERSIST_GC_TIME = 24 * 60 * 60_000; // 24h — persisted entries live this long
@@ -71,11 +74,14 @@ export const helmorQueryKeys = {
 		["workspaceChanges", workspaceRootPath] as const,
 	workspaceFiles: (workspaceRootPath: string) =>
 		["workspaceFiles", workspaceRootPath] as const,
-	workspacePr: (workspaceId: string) => ["workspacePr", workspaceId] as const,
+	workspaceChangeRequest: (workspaceId: string) =>
+		["workspaceChangeRequest", workspaceId] as const,
+	workspaceForge: (workspaceId: string) =>
+		["workspaceForge", workspaceId] as const,
 	workspaceGitActionStatus: (workspaceId: string) =>
 		["workspaceGitActionStatus", workspaceId] as const,
-	workspacePrActionStatus: (workspaceId: string) =>
-		["workspacePrActionStatus", workspaceId] as const,
+	workspaceForgeActionStatus: (workspaceId: string) =>
+		["workspaceForgeActionStatus", workspaceId] as const,
 	repoScripts: (repoId: string, workspaceId: string | null) =>
 		["repoScripts", repoId, workspaceId ?? ""] as const,
 	repoPreferences: (repoId: string) => ["repoPreferences", repoId] as const,
@@ -199,6 +205,16 @@ export function workspaceDetailQueryOptions(workspaceId: string) {
 		queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
 		queryFn: () => loadWorkspaceDetail(workspaceId),
 		staleTime: 0,
+	});
+}
+
+export function workspaceForgeQueryOptions(workspaceId: string) {
+	return queryOptions({
+		queryKey: helmorQueryKeys.workspaceForge(workspaceId),
+		queryFn: () => getWorkspaceForge(workspaceId),
+		staleTime: 30_000,
+		refetchOnWindowFocus: "always",
+		refetchInterval: (query) => workspaceForgeRefetchInterval(query.state.data),
 	});
 }
 
@@ -359,42 +375,25 @@ export function detectedEditorsQueryOptions() {
 	});
 }
 
-// Adaptive refetch interval for workspacePr. Cheap query (~5-10 GraphQL
-// points/call) — only carries state/title/isMerged, so tiers are coarse.
-// Slow down on terminal PRs to save budget; refetchOnWindowFocus + staleTime
-// still guarantee a refresh when the user returns or switches workspace.
-export function prRefetchInterval(
-	data: PullRequestInfo | null | undefined,
+export function changeRequestRefetchInterval(
+	data: ChangeRequestInfo | null | undefined,
 ): number {
 	if (!data) return 60_000;
 	if (data.isMerged || data.state === "MERGED" || data.state === "CLOSED") {
-		// Not `false` because this query drives the header badge — a reopen
-		// should eventually reflect even if the user never loses focus.
 		return 300_000;
 	}
 	return 60_000;
 }
 
-// Adaptive refetch interval for workspacePrActionStatus. Expensive query
-// (~20-40 GraphQL points/call) with the richest signal, so tiers are fine:
-//   - PR MERGED/CLOSED → stop polling entirely (false). checks/deployments
-//     are frozen; focus + invalidate paths remain available for reopens.
-//   - remoteState !== "ok" → keep 60s. Don't accelerate on error (avoids
-//     hammering GitHub during outages) and don't stop (need to detect the
-//     PR coming back).
-//   - mergeable === "UNKNOWN" → 5s. GitHub's async mergeability typically
-//     resolves within 5-20s; we want to reflect it ASAP.
-//   - any check/deployment pending or running → 15s. User is watching CI.
-//   - stable OPEN → 60s (unchanged from previous fixed interval).
-export function prActionStatusRefetchInterval(
-	data: WorkspacePrActionStatus | undefined,
+export function forgeActionStatusRefetchInterval(
+	data: ForgeActionStatus | undefined,
 ): number | false {
 	if (!data) return 60_000;
 	if (data.remoteState !== "ok") return 60_000;
 	if (
-		data.pr?.isMerged ||
-		data.pr?.state === "MERGED" ||
-		data.pr?.state === "CLOSED"
+		data.changeRequest?.isMerged ||
+		data.changeRequest?.state === "MERGED" ||
+		data.changeRequest?.state === "CLOSED"
 	) {
 		return false;
 	}
@@ -408,21 +407,14 @@ export function prActionStatusRefetchInterval(
 	return 60_000;
 }
 
-/**
- * Current PR for a workspace's branch. Drives the commit button's resting
- * mode (create-pr → merge → merged) and the "Git · PR #xxx" header badge.
- * Adaptive polling: 60s while the PR is OPEN, 5min once terminal
- * (MERGED/CLOSED) to save GraphQL budget. Returns `null` when no PR is
- * found or lookup is unavailable.
- */
-export function workspacePrQueryOptions(workspaceId: string) {
+export function workspaceChangeRequestQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspacePr(workspaceId),
-		queryFn: () => lookupWorkspacePr(workspaceId),
+		queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
+		queryFn: () => lookupWorkspaceChangeRequest(workspaceId),
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
 		refetchOnWindowFocus: true,
-		refetchInterval: (query) => prRefetchInterval(query.state.data),
+		refetchInterval: (query) => changeRequestRefetchInterval(query.state.data),
 		retry: 0,
 	});
 }
@@ -439,22 +431,25 @@ export function workspaceGitActionStatusQueryOptions(workspaceId: string) {
 	});
 }
 
-/**
- * PR mergeable state, review decision, checks and deployments. Drives the
- * inspector's git/review/checks rows and the commit button's merge
- * pre-validation. Adaptive polling by PR hotness (see
- * {@link prActionStatusRefetchInterval}) — 5s while GitHub computes
- * mergeability, 15s while CI is in flight, 60s stable, stopped on terminal.
- */
-export function workspacePrActionStatusQueryOptions(workspaceId: string) {
+export function workspaceForgeActionStatusQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspacePrActionStatus(workspaceId),
-		queryFn: () => loadWorkspacePrActionStatus(workspaceId),
+		queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
+		queryFn: () => loadWorkspaceForgeActionStatus(workspaceId),
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
-		refetchInterval: (query) => prActionStatusRefetchInterval(query.state.data),
+		refetchInterval: (query) =>
+			forgeActionStatusRefetchInterval(query.state.data),
 		retry: 0,
 	});
+}
+
+export function workspaceForgeRefetchInterval(
+	data: ForgeDetection | undefined,
+): number | false {
+	if (!data) return WORKSPACE_FORGE_REFETCH_INTERVAL;
+	return data.provider === "github" || data.provider === "gitlab"
+		? WORKSPACE_FORGE_REFETCH_INTERVAL
+		: false;
 }
 
 export function workspaceChangesQueryOptions(workspaceRootPath: string) {

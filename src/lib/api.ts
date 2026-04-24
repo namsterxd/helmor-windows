@@ -157,7 +157,9 @@ export type RepositoryCreateOption = {
 	id: string;
 	name: string;
 	remote?: string | null;
+	remoteUrl?: string | null;
 	defaultBranch?: string | null;
+	forgeProvider?: ForgeProvider | null;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
 };
@@ -232,6 +234,76 @@ export type GithubRepositorySummary = {
 	htmlUrl: string;
 	updatedAt?: string | null;
 	pushedAt?: string | null;
+};
+
+export type ForgeProvider = "github" | "gitlab" | "unknown";
+
+export type ForgeLabels = {
+	providerName: string;
+	cliName: string;
+	changeRequestName: string;
+	changeRequestFullName: string;
+	installAction: string;
+	connectAction: string;
+};
+
+export type ForgeCliStatus =
+	| {
+			status: "ready";
+			provider: ForgeProvider;
+			host: string;
+			cliName: string;
+			login: string;
+			version: string;
+			message: string;
+	  }
+	| {
+			status: "missing";
+			provider: ForgeProvider;
+			host: string;
+			cliName: string;
+			message: string;
+			installCommand?: string | null;
+	  }
+	| {
+			status: "unauthenticated";
+			provider: ForgeProvider;
+			host: string;
+			cliName: string;
+			version?: string | null;
+			message: string;
+			loginCommand: string;
+	  }
+	| {
+			status: "error";
+			provider: ForgeProvider;
+			host: string;
+			cliName: string;
+			version?: string | null;
+			message: string;
+	  };
+
+export type ForgeDetectionSignal = {
+	/** Layer that produced this signal (wellKnownHost, hostPattern, urlPath, repoFile, httpProbe, cliProbe). */
+	layer: string;
+	/** Short human-readable explanation shown in the UI tooltip. */
+	detail: string;
+};
+
+export type ForgeDetection = {
+	provider: ForgeProvider;
+	host?: string | null;
+	namespace?: string | null;
+	repo?: string | null;
+	remoteUrl?: string | null;
+	labels: ForgeLabels;
+	cli?: ForgeCliStatus | null;
+	/**
+	 * Signals that caused the current provider classification. Empty when
+	 * the provider is `unknown` or when the result came from the cached
+	 * `forge_provider` column (stored at repo-creation time).
+	 */
+	detectionSignals: ForgeDetectionSignal[];
 };
 
 export type AddRepositoryResponse = {
@@ -496,6 +568,60 @@ export async function listGithubAccessibleRepositories(): Promise<
 		);
 	} catch {
 		return [];
+	}
+}
+
+export async function getWorkspaceForge(
+	workspaceId: string,
+): Promise<ForgeDetection> {
+	try {
+		return await invoke<ForgeDetection>("get_workspace_forge", { workspaceId });
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load workspace forge."),
+		);
+	}
+}
+
+export async function getForgeCliStatus(
+	provider: ForgeProvider,
+	host?: string | null,
+): Promise<ForgeCliStatus> {
+	try {
+		return await invoke<ForgeCliStatus>("get_forge_cli_status", {
+			provider,
+			host,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load forge CLI state."),
+		);
+	}
+}
+
+export async function installForgeCli(
+	provider: ForgeProvider,
+): Promise<ForgeCliStatus> {
+	try {
+		return await invoke<ForgeCliStatus>("install_forge_cli", { provider });
+	} catch (error) {
+		throw new Error(describeInvokeError(error, "Unable to install forge CLI."));
+	}
+}
+
+export async function openForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host?: string | null,
+): Promise<void> {
+	try {
+		return await invoke<void>("open_forge_cli_auth_terminal", {
+			provider,
+			host,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to open forge CLI auth terminal."),
+		);
 	}
 }
 
@@ -827,7 +953,8 @@ export type UiMutationEvent =
 	| { type: "codexRateLimitsChanged" }
 	| { type: "workspaceFilesChanged"; workspaceId: string }
 	| { type: "workspaceGitStateChanged"; workspaceId: string }
-	| { type: "workspacePrChanged"; workspaceId: string }
+	| { type: "workspaceForgeChanged"; workspaceId: string }
+	| { type: "workspaceChangeRequestChanged"; workspaceId: string }
 	| { type: "repositoryListChanged" }
 	| { type: "repositoryChanged"; repoId: string }
 	| { type: "settingsChanged"; key: string | null }
@@ -1169,7 +1296,7 @@ export async function unstageWorkspaceFile(
 	}
 }
 
-export type PullRequestInfo = {
+export type ChangeRequestInfo = {
 	url: string;
 	number: number;
 	state: "OPEN" | "CLOSED" | "MERGED" | string;
@@ -1178,7 +1305,7 @@ export type PullRequestInfo = {
 };
 
 export type ActionStatusKind = "success" | "pending" | "running" | "failure";
-export type ActionProvider = "github" | "vercel" | "unknown";
+export type ActionProvider = "github" | "gitlab" | "vercel" | "unknown";
 export type WorkspaceGitSyncStatus = "upToDate" | "behind" | "unknown";
 export type WorkspacePushStatus = "published" | "unpublished" | "unknown";
 
@@ -1210,7 +1337,7 @@ export type PushWorkspaceToRemoteResponse = {
 	headCommit: string;
 };
 
-export type WorkspacePrActionItem = {
+export type ForgeActionItem = {
 	id: string;
 	name: string;
 	provider: ActionProvider;
@@ -1219,34 +1346,28 @@ export type WorkspacePrActionItem = {
 	url?: string | null;
 };
 
-export type WorkspacePrActionStatus = {
-	pr: PullRequestInfo | null;
+export type ForgeActionStatus = {
+	changeRequest: ChangeRequestInfo | null;
 	reviewDecision?: string | null;
 	mergeable?: string | null;
-	deployments: WorkspacePrActionItem[];
-	checks: WorkspacePrActionItem[];
-	remoteState: "ok" | "noPr" | "unavailable" | "error";
+	deployments: ForgeActionItem[];
+	checks: ForgeActionItem[];
+	remoteState: "ok" | "noPr" | "unauthenticated" | "unavailable" | "error";
 	message?: string | null;
 };
 
-/**
- * Look up the most recent pull request on GitHub whose head ref matches the
- * workspace's current branch. Returns `null` when there's no matching PR, the
- * workspace has no github.com remote, the user isn't connected to GitHub, or
- * the stored access token has been revoked. Only throws for unexpected
- * transport / parse failures.
- */
-export async function lookupWorkspacePr(
+export async function lookupWorkspaceChangeRequest(
 	workspaceId: string,
-): Promise<PullRequestInfo | null> {
+): Promise<ChangeRequestInfo | null> {
 	try {
-		const result = await invoke<PullRequestInfo | null>("lookup_workspace_pr", {
-			workspaceId,
-		});
+		const result = await invoke<ChangeRequestInfo | null>(
+			"lookup_workspace_change_request",
+			{ workspaceId },
+		);
 		return result ?? null;
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to look up workspace PR."),
+			describeInvokeError(error, "Unable to look up change request."),
 		);
 	}
 }
@@ -1294,27 +1415,27 @@ export async function pushWorkspaceToRemote(
 	}
 }
 
-export async function loadWorkspacePrActionStatus(
+export async function loadWorkspaceForgeActionStatus(
 	workspaceId: string,
-): Promise<WorkspacePrActionStatus> {
+): Promise<ForgeActionStatus> {
 	try {
-		return await invoke<WorkspacePrActionStatus>(
-			"get_workspace_pr_action_status",
+		return await invoke<ForgeActionStatus>(
+			"get_workspace_forge_action_status",
 			{ workspaceId },
 		);
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to load workspace PR status."),
+			describeInvokeError(error, "Unable to load workspace forge status."),
 		);
 	}
 }
 
-export async function getWorkspacePrCheckInsertText(
+export async function getWorkspaceForgeCheckInsertText(
 	workspaceId: string,
 	itemId: string,
 ): Promise<string> {
 	try {
-		return await invoke<string>("get_workspace_pr_check_insert_text", {
+		return await invoke<string>("get_workspace_forge_check_insert_text", {
 			workspaceId,
 			itemId,
 		});
@@ -1325,42 +1446,36 @@ export async function getWorkspacePrCheckInsertText(
 	}
 }
 
-/**
- * Merge the workspace's open PR via GitHub GraphQL `mergePullRequest`.
- * Returns the refreshed PR info on success, `null` if no PR / not connected.
- */
-export async function mergeWorkspacePr(
+export async function mergeWorkspaceChangeRequest(
 	workspaceId: string,
-): Promise<PullRequestInfo | null> {
+): Promise<ChangeRequestInfo | null> {
 	try {
 		return (
-			(await invoke<PullRequestInfo | null>("merge_workspace_pr", {
-				workspaceId,
-			})) ?? null
+			(await invoke<ChangeRequestInfo | null>(
+				"merge_workspace_change_request",
+				{ workspaceId },
+			)) ?? null
 		);
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to merge workspace PR."),
+			describeInvokeError(error, "Unable to merge change request."),
 		);
 	}
 }
 
-/**
- * Close the workspace's open PR via GitHub GraphQL `closePullRequest`.
- * Returns the refreshed PR info on success, `null` if no PR / not connected.
- */
-export async function closeWorkspacePr(
+export async function closeWorkspaceChangeRequest(
 	workspaceId: string,
-): Promise<PullRequestInfo | null> {
+): Promise<ChangeRequestInfo | null> {
 	try {
 		return (
-			(await invoke<PullRequestInfo | null>("close_workspace_pr", {
-				workspaceId,
-			})) ?? null
+			(await invoke<ChangeRequestInfo | null>(
+				"close_workspace_change_request",
+				{ workspaceId },
+			)) ?? null
 		);
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to close workspace PR."),
+			describeInvokeError(error, "Unable to close change request."),
 		);
 	}
 }

@@ -2,8 +2,8 @@ import type {
 	AgentModelOption,
 	AgentModelSection,
 	AgentProvider,
+	ChangeRequestInfo,
 	MessagePart,
-	PullRequestInfo,
 	ThreadMessageLike,
 	WorkspaceDetail,
 	WorkspaceGroup,
@@ -195,27 +195,27 @@ export function getWorkspaceBranchTone({
 	workspaceState,
 	manualStatus,
 	derivedStatus,
-	prInfo,
+	changeRequest,
 }: {
 	workspaceState?: string | null;
 	manualStatus?: string | null;
 	derivedStatus?: string | null;
-	prInfo?: Pick<PullRequestInfo, "state" | "isMerged"> | null;
+	changeRequest?: Pick<ChangeRequestInfo, "state" | "isMerged"> | null;
 }): WorkspaceBranchTone {
 	if ((workspaceState ?? "").trim().toLowerCase() === "archived") {
 		return "inactive";
 	}
 
-	if (prInfo) {
-		if (prInfo.isMerged || prInfo.state === "MERGED") {
+	if (changeRequest) {
+		if (changeRequest.isMerged || changeRequest.state === "MERGED") {
 			return "merged";
 		}
 
-		if (prInfo.state === "OPEN") {
+		if (changeRequest.state === "OPEN") {
 			return "open";
 		}
 
-		if (prInfo.state === "CLOSED") {
+		if (changeRequest.state === "CLOSED") {
 			return "closed";
 		}
 	}

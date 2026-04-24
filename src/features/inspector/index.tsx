@@ -3,7 +3,7 @@ import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
-import type { PullRequestInfo } from "@/lib/api";
+import type { ChangeRequestInfo } from "@/lib/api";
 import type { DiffOpenOptions } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
@@ -39,7 +39,7 @@ type WorkspaceInspectorSidebarProps = {
 	}) => void;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
-	prInfo?: PullRequestInfo | null;
+	changeRequest?: ChangeRequestInfo | null;
 	onOpenSettings?: () => void;
 };
 
@@ -58,7 +58,7 @@ export function WorkspaceInspectorSidebar({
 	onQueuePendingPromptForSession,
 	commitButtonMode,
 	commitButtonState,
-	prInfo,
+	changeRequest,
 	onOpenSettings,
 }: WorkspaceInspectorSidebarProps) {
 	const {
@@ -154,7 +154,7 @@ export function WorkspaceInspectorSidebar({
 				onCommitAction={onCommitAction}
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
-				prInfo={prInfo ?? null}
+				changeRequest={changeRequest ?? null}
 			/>
 
 			<HorizontalResizeHandle
@@ -175,7 +175,7 @@ export function WorkspaceInspectorSidebar({
 				onQueuePendingPromptForSession={onQueuePendingPromptForSession}
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
-				prInfo={prInfo ?? null}
+				changeRequest={changeRequest ?? null}
 			/>
 
 			{tabsOpen && (

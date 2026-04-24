@@ -22,6 +22,8 @@ pub enum ErrorCode {
     WorkspaceBroken,
     /// Workspace row not in DB.
     WorkspaceNotFound,
+    /// Expected forge CLI onboarding state: CLI missing or auth required.
+    ForgeOnboarding,
 }
 
 /// Exposes an [`ErrorCode`] as a distinct layer in an anyhow error chain,
@@ -113,12 +115,22 @@ impl Serialize for CommandError {
 impl From<anyhow::Error> for CommandError {
     fn from(error: anyhow::Error) -> Self {
         // Full chain goes to logs; user-facing message is just the outer context.
-        tracing::error!(
-            code = ?extract_code(&error),
-            error = %format!("{error:#}"),
-            error_debug = ?error,
-            "Tauri command failed"
-        );
+        let code = extract_code(&error);
+        if code == ErrorCode::ForgeOnboarding {
+            tracing::warn!(
+                code = ?code,
+                error = %format!("{error:#}"),
+                error_debug = ?error,
+                "Tauri command failed"
+            );
+        } else {
+            tracing::error!(
+                code = ?code,
+                error = %format!("{error:#}"),
+                error_debug = ?error,
+                "Tauri command failed"
+            );
+        }
         CommandError(error)
     }
 }

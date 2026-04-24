@@ -232,7 +232,7 @@ describe("getWorkspaceBranchTone", () => {
 	it("merged PR → merged", () => {
 		expect(
 			getWorkspaceBranchTone({
-				prInfo: { state: "MERGED", isMerged: true },
+				changeRequest: { state: "MERGED", isMerged: true },
 			}),
 		).toBe("merged");
 	});
@@ -240,7 +240,7 @@ describe("getWorkspaceBranchTone", () => {
 	it("open PR → open", () => {
 		expect(
 			getWorkspaceBranchTone({
-				prInfo: { state: "OPEN", isMerged: false },
+				changeRequest: { state: "OPEN", isMerged: false },
 			}),
 		).toBe("open");
 	});
@@ -248,7 +248,7 @@ describe("getWorkspaceBranchTone", () => {
 	it("closed PR → closed", () => {
 		expect(
 			getWorkspaceBranchTone({
-				prInfo: { state: "CLOSED", isMerged: false },
+				changeRequest: { state: "CLOSED", isMerged: false },
 			}),
 		).toBe("closed");
 	});

@@ -362,6 +362,16 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add auto_run_setup column")?;
     }
 
+    // Migration: forge_provider — cached classification of the repo's
+    // remote ("github" / "gitlab" / "unknown"). Set once at repo-creation
+    // time by the layered detector in `crate::forge`. Legacy rows stay
+    // NULL and the loader re-runs detection on demand.
+    if has_table(connection, "repos") && !has_column(connection, "repos", "forge_provider") {
+        connection
+            .execute_batch("ALTER TABLE repos ADD COLUMN forge_provider TEXT")
+            .context("Failed to add forge_provider column")?;
+    }
+
     drop_dead_schema(connection)?;
 
     // Migration: remap legacy "opus-1m" model ID — the CLI no longer accepts it.
@@ -392,6 +402,7 @@ CREATE TABLE IF NOT EXISTS repos (
     custom_prompt_fix_errors TEXT,
     custom_prompt_resolve_merge_conflicts TEXT,
     auto_run_setup INTEGER DEFAULT 1,
+    forge_provider TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1011,6 +1022,26 @@ mod tests {
         let (connection, _dir) = open_test_db();
         ensure_schema(&connection).unwrap();
         assert!(column_exists(&connection, "sessions", "context_usage_meta"));
+    }
+
+    #[test]
+    fn forge_provider_added_to_legacy_and_idempotent() {
+        let (connection, _dir) = open_test_db();
+        create_legacy_schema(&connection);
+        assert!(!column_exists(&connection, "repos", "forge_provider"));
+
+        run_migrations(&connection).unwrap();
+        assert!(column_exists(&connection, "repos", "forge_provider"));
+
+        run_migrations(&connection).unwrap();
+        assert!(column_exists(&connection, "repos", "forge_provider"));
+    }
+
+    #[test]
+    fn forge_provider_present_on_fresh_install() {
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+        assert!(column_exists(&connection, "repos", "forge_provider"));
     }
 
     #[test]

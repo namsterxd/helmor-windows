@@ -2,9 +2,10 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
+
+use crate::forge::command::run_command;
 
 const GITHUB_HOST: &str = "github.com";
 const GITHUB_REPOS_ENDPOINT: &str =
@@ -94,6 +95,10 @@ struct CachedGithubCliStatus {
 
 pub fn get_github_cli_status() -> Result<GithubCliStatus> {
     load_cached_system_github_cli_status()
+}
+
+pub fn refresh_github_cli_status() -> Result<GithubCliStatus> {
+    refresh_cached_system_github_cli_status()
 }
 
 pub fn get_github_cli_user() -> Result<Option<GithubCliUser>> {
@@ -344,7 +349,10 @@ fn command_error_detail(stdout: &str, stderr: &str, code: Option<i32>) -> String
 
 fn looks_like_unauthenticated(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    normalized.contains("not logged into")
+    normalized.contains("401")
+        || normalized.contains("unauthorized")
+        || normalized.contains("unauthenticated")
+        || normalized.contains("not logged into")
         || normalized.contains("authentication failed")
         || normalized.contains("gh auth login")
 }
@@ -355,6 +363,12 @@ fn github_cli_is_ready(status: &GithubCliStatus) -> bool {
 
 fn load_cached_system_github_cli_status() -> Result<GithubCliStatus> {
     load_cached_status(&SYSTEM_GH_STATUS_CACHE, GITHUB_CLI_STATUS_CACHE_TTL, || {
+        get_github_cli_status_with(&SystemGhRunner)
+    })
+}
+
+fn refresh_cached_system_github_cli_status() -> Result<GithubCliStatus> {
+    refresh_cached_status(&SYSTEM_GH_STATUS_CACHE, || {
         get_github_cli_status_with(&SystemGhRunner)
     })
 }
@@ -381,6 +395,21 @@ fn load_cached_status(
     Ok(status)
 }
 
+fn refresh_cached_status(
+    cache: &Mutex<Option<CachedGithubCliStatus>>,
+    loader: impl FnOnce() -> Result<GithubCliStatus>,
+) -> Result<GithubCliStatus> {
+    let status = loader()?;
+    let mut cache_guard = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache_guard = Some(CachedGithubCliStatus {
+        cached_at: Instant::now(),
+        status: status.clone(),
+    });
+    Ok(status)
+}
+
 struct SystemGhRunner;
 
 impl GhCommandRunner for SystemGhRunner {
@@ -389,12 +418,7 @@ impl GhCommandRunner for SystemGhRunner {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut command = Command::new("gh");
-        for arg in args {
-            command.arg(arg.as_ref());
-        }
-
-        let output = command.output().map_err(|error| {
+        let output = run_command("gh", args).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 GhCommandError::NotFound
             } else {
@@ -402,17 +426,16 @@ impl GhCommandRunner for SystemGhRunner {
             }
         })?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        if output.status.success() {
-            return Ok(GhCommandOutput { stdout });
+        if output.success {
+            return Ok(GhCommandOutput {
+                stdout: output.stdout,
+            });
         }
 
         Err(GhCommandError::Failed {
-            stdout,
-            stderr,
-            code: output.status.code(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+            code: output.status,
         })
     }
 }
@@ -724,5 +747,44 @@ mod tests {
 
         assert_eq!(calls.get(), 1);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn refresh_cached_status_bypasses_fresh_cached_value() {
+        let cache = Mutex::new(Some(CachedGithubCliStatus {
+            cached_at: Instant::now(),
+            status: GithubCliStatus::Unavailable {
+                host: "github.com".to_string(),
+                message: "missing".to_string(),
+            },
+        }));
+        let calls = Cell::new(0);
+
+        let refreshed = refresh_cached_status(&cache, || {
+            calls.set(calls.get() + 1);
+            Ok(GithubCliStatus::Unauthenticated {
+                host: "github.com".to_string(),
+                version: Some("gh version 2.0.0".to_string()),
+                message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            })
+        })
+        .unwrap();
+
+        assert_eq!(calls.get(), 1);
+        assert_eq!(
+            refreshed,
+            GithubCliStatus::Unauthenticated {
+                host: "github.com".to_string(),
+                version: Some("gh version 2.0.0".to_string()),
+                message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            }
+        );
+        assert_eq!(
+            load_cached_status(&cache, Duration::from_secs(60), || {
+                panic!("fresh cache should be reused after refresh")
+            })
+            .unwrap(),
+            refreshed
+        );
     }
 }

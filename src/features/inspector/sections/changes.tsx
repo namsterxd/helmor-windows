@@ -1,4 +1,4 @@
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
 	getMaterialFileIcon,
@@ -26,14 +26,19 @@ import type {
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
 import {
+	type ChangeRequestInfo,
 	discardWorkspaceFile,
-	type PullRequestInfo,
+	type ForgeDetection,
 	stageWorkspaceFile,
 	unstageWorkspaceFile,
 } from "@/lib/api";
 import type { DiffOpenOptions, InspectorFileItem } from "@/lib/editor-session";
 import { extractError, isRecoverableByPurge } from "@/lib/errors";
-import { helmorQueryKeys } from "@/lib/query-client";
+import {
+	helmorQueryKeys,
+	workspaceForgeActionStatusQueryOptions,
+	workspaceForgeQueryOptions,
+} from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import { useWorkspaceToast } from "@/lib/workspace-toast-context";
@@ -58,7 +63,7 @@ type ChangesSectionProps = {
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
-	prInfo: PullRequestInfo | null;
+	changeRequest: ChangeRequestInfo | null;
 };
 
 export function ChangesSection({
@@ -74,7 +79,7 @@ export function ChangesSection({
 	onCommitAction,
 	commitButtonMode = "create-pr",
 	commitButtonState,
-	prInfo,
+	changeRequest,
 }: ChangesSectionProps) {
 	const queryClient = useQueryClient();
 	const [changesTreeView, setChangesTreeView] = useState(true);
@@ -82,6 +87,21 @@ export function ChangesSection({
 	const [changesOpen, setChangesOpen] = useState(true);
 	const [stagedOpen, setStagedOpen] = useState(true);
 	const [branchDiffOpen, setBranchDiffOpen] = useState(true);
+	const forgeQuery = useQuery({
+		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
+		enabled: workspaceId !== null,
+	});
+	const forgeStatusQuery = useQuery({
+		...workspaceForgeActionStatusQueryOptions(workspaceId ?? "__none__"),
+		enabled: workspaceId !== null,
+	});
+	const cachedForgeDetection = workspaceId
+		? queryClient.getQueryData<ForgeDetection>(
+				helmorQueryKeys.workspaceForge(workspaceId),
+			)
+		: null;
+	const forgeDetection = forgeQuery.data ?? cachedForgeDetection ?? null;
+	const changeRequestName = forgeDetection?.labels.changeRequestName ?? "PR";
 
 	// Only show loading when the user switches target branch within the
 	// same workspace — not on workspace/repo navigation or routine polling.
@@ -269,21 +289,22 @@ export function ChangesSection({
 		await onCommitAction(commitButtonMode);
 	}, [commitButtonMode, onCommitAction]);
 
-	// Drive the header's shimmer bar off the shared PR query cache. Both
+	// Drive the header's shimmer bar off the shared forge query cache. Both
 	// queries dedupe by key, so this reads the same fetching state the
 	// App-level useQuery instances own.
-	const prFetchingCount = useIsFetching({
-		queryKey: helmorQueryKeys.workspacePr(workspaceId ?? "__none__"),
+	const changeRequestFetchingCount = useIsFetching({
+		queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId ?? "__none__"),
 		exact: true,
 	});
-	const prActionStatusFetchingCount = useIsFetching({
-		queryKey: helmorQueryKeys.workspacePrActionStatus(
+	const forgeActionStatusFetchingCount = useIsFetching({
+		queryKey: helmorQueryKeys.workspaceForgeActionStatus(
 			workspaceId ?? "__none__",
 		),
 		exact: true,
 	});
-	const isPrRefreshing =
-		workspaceId !== null && prFetchingCount + prActionStatusFetchingCount > 0;
+	const isForgeRefreshing =
+		workspaceId !== null &&
+		changeRequestFetchingCount + forgeActionStatusFetchingCount > 0;
 
 	return (
 		<section
@@ -294,10 +315,16 @@ export function ChangesSection({
 			<GitSectionHeader
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
-				prInfo={prInfo}
+				changeRequest={changeRequest}
+				changeRequestName={changeRequestName}
+				forgeRemoteState={forgeStatusQuery.data?.remoteState ?? null}
+				forgeDetection={forgeDetection}
+				workspaceId={workspaceId}
 				hasChanges={hasChanges}
-				isRefreshing={isPrRefreshing}
-				onPrClick={prInfo ? () => void openUrl(prInfo.url) : undefined}
+				isRefreshing={isForgeRefreshing}
+				onChangeRequestClick={
+					changeRequest ? () => void openUrl(changeRequest.url) : undefined
+				}
 				onCommit={handleCommitButtonClick}
 			/>
 

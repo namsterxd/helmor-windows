@@ -109,7 +109,7 @@ fn pr_status(workspace_ref: &str, cli: &Cli) -> Result<()> {
 fn pr_merge(workspace_ref: &str, cli: &Cli) -> Result<()> {
     let id = service::resolve_workspace_ref(workspace_ref)?;
     let pr = github_graphql::merge_workspace_pr(&id)?;
-    notify_ui_event(UiMutationEvent::WorkspacePrChanged {
+    notify_ui_event(UiMutationEvent::WorkspaceChangeRequestChanged {
         workspace_id: id.clone(),
     });
     output::print(cli, &pr, |value| match value {
@@ -121,7 +121,7 @@ fn pr_merge(workspace_ref: &str, cli: &Cli) -> Result<()> {
 fn pr_close(workspace_ref: &str, cli: &Cli) -> Result<()> {
     let id = service::resolve_workspace_ref(workspace_ref)?;
     let pr = github_graphql::close_workspace_pr(&id)?;
-    notify_ui_event(UiMutationEvent::WorkspacePrChanged {
+    notify_ui_event(UiMutationEvent::WorkspaceChangeRequestChanged {
         workspace_id: id.clone(),
     });
     output::print(cli, &pr, |value| match value {

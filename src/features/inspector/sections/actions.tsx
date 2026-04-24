@@ -1,4 +1,3 @@
-import { MarkGithubIcon } from "@primer/octicons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -7,12 +6,13 @@ import {
 	LoaderCircleIcon,
 	TriangleIcon,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
 	AppendContextButton,
 	type AppendContextPayloadResult,
 } from "@/components/append-context-button";
+import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type {
@@ -22,22 +22,26 @@ import type {
 import {
 	type ActionProvider,
 	type ActionStatusKind,
-	getWorkspacePrCheckInsertText,
+	type ChangeRequestInfo,
+	type ForgeActionItem,
+	type ForgeActionStatus,
+	getWorkspaceForgeCheckInsertText,
 	loadRepoPreferences,
-	type PullRequestInfo,
 	type RepoPreferences,
 	type SyncWorkspaceTargetResponse,
 	syncWorkspaceWithTargetBranch,
 	type WorkspaceGitActionStatus,
-	type WorkspacePrActionItem,
-	type WorkspacePrActionStatus,
 } from "@/lib/api";
 import { buildComposerPreviewPayload } from "@/lib/composer-insert";
 import {
 	helmorQueryKeys,
+	workspaceForgeActionStatusQueryOptions,
+	workspaceForgeQueryOptions,
 	workspaceGitActionStatusQueryOptions,
-	workspacePrActionStatusQueryOptions,
 } from "@/lib/query-client";
+// `workspaceForgeQueryOptions` is still used here to drive `changeRequestName`
+// for the review/PR rows (MR vs PR wording). Forge onboarding lives in
+// `GitSectionHeader` — see the top-right of the Changes section.
 import { resolveRepoPreferencePrompt } from "@/lib/repo-preferences-prompts";
 import { cn } from "@/lib/utils";
 import {
@@ -81,8 +85,8 @@ const EMPTY_GIT_ACTION_STATUS: WorkspaceGitActionStatus = {
 	pushStatus: "unknown",
 };
 
-const EMPTY_PR_ACTION_STATUS: WorkspacePrActionStatus = {
-	pr: null,
+const EMPTY_FORGE_ACTION_STATUS: ForgeActionStatus = {
+	changeRequest: null,
 	reviewDecision: null,
 	mergeable: null,
 	deployments: [],
@@ -110,7 +114,7 @@ type ActionsSectionProps = {
 	}) => void;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
-	prInfo: PullRequestInfo | null;
+	changeRequest: ChangeRequestInfo | null;
 };
 
 function buildSyncResolutionPrompt(
@@ -151,10 +155,14 @@ export function ActionsSection({
 	onQueuePendingPromptForSession,
 	commitButtonMode,
 	commitButtonState,
-	prInfo,
+	changeRequest,
 }: ActionsSectionProps) {
 	const queryClient = useQueryClient();
 	const [syncPending, setSyncPending] = useState(false);
+	const forgeQuery = useQuery({
+		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
+		enabled: workspaceId !== null,
+	});
 	// Archived workspaces have no live worktree — polling git/PR status every
 	// 10s would spam errors. App.tsx mirrors this guard.
 	const isArchived = workspaceState === "archived";
@@ -162,16 +170,39 @@ export function ActionsSection({
 		...workspaceGitActionStatusQueryOptions(workspaceId ?? "__none__"),
 		enabled: workspaceId !== null && !isArchived,
 	});
-	const prStatusQuery = useQuery({
-		...workspacePrActionStatusQueryOptions(workspaceId ?? "__none__"),
+	const forgeStatusQuery = useQuery({
+		...workspaceForgeActionStatusQueryOptions(workspaceId ?? "__none__"),
 		enabled: workspaceId !== null && !isArchived,
 	});
 	const gitStatus = gitStatusQuery.data ?? EMPTY_GIT_ACTION_STATUS;
-	const prStatus = prStatusQuery.data ?? EMPTY_PR_ACTION_STATUS;
+	const forgeStatus = forgeStatusQuery.data ?? EMPTY_FORGE_ACTION_STATUS;
+	const changeRequestName = forgeQuery.data?.labels.changeRequestName ?? "PR";
+	const providerName = forgeQuery.data?.labels.providerName ?? "Forge";
+	const previousForgeRemoteStateRef = useRef(forgeStatus.remoteState);
+	useEffect(() => {
+		const previous = previousForgeRemoteStateRef.current;
+		previousForgeRemoteStateRef.current = forgeStatus.remoteState;
+		if (
+			workspaceId &&
+			forgeStatus.remoteState === "unauthenticated" &&
+			previous !== "unauthenticated"
+		) {
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceForge(workspaceId),
+			});
+		}
+	}, [forgeStatus.remoteState, queryClient, workspaceId]);
 	const gitRows = sortStatusRows(buildGitRows(gitStatus, workspaceRemote));
-	const reviewRows = sortStatusRows(buildReviewRows(prStatus, prInfo));
-	const sortedDeployments = sortActionItems(prStatus.deployments);
-	const sortedChecks = sortActionItems(prStatus.checks);
+	const reviewRows = sortStatusRows(
+		buildReviewRows(
+			forgeStatus,
+			changeRequest,
+			changeRequestName,
+			providerName,
+		),
+	);
+	const sortedDeployments = sortActionItems(forgeStatus.deployments);
+	const sortedChecks = sortActionItems(forgeStatus.checks);
 	const bottomSpacerHeight = expanded
 		? 0
 		: Math.max(0, Math.round(bodyHeight * 0.3));
@@ -229,10 +260,10 @@ export function ActionsSection({
 					queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
 				}),
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspacePr(workspaceId),
+					queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
 				}),
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspacePrActionStatus(workspaceId),
+					queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
 				}),
 				queryClient.invalidateQueries({
 					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
@@ -246,11 +277,11 @@ export function ActionsSection({
 		}
 	}, [queryClient, queueSyncResolutionPrompt, syncPending, workspaceId]);
 	const handleInsertCheck = useCallback(
-		async (item: WorkspacePrActionItem) => {
+		async (item: ForgeActionItem) => {
 			if (!workspaceId) {
 				return;
 			}
-			const submitText = await getWorkspacePrCheckInsertText(
+			const submitText = await getWorkspaceForgeCheckInsertText(
 				workspaceId,
 				item.id,
 			);
@@ -268,7 +299,6 @@ export function ActionsSection({
 		},
 		[workspaceId],
 	);
-
 	return (
 		<section
 			ref={sectionRef}
@@ -424,9 +454,10 @@ function ProviderIcon({ provider }: { provider: ActionProvider }) {
 	if (provider === "unknown") {
 		return null;
 	}
-	return (
-		<MarkGithubIcon size={12} className="shrink-0 text-muted-foreground" />
-	);
+	if (provider === "gitlab") {
+		return <GitlabBrandIcon size={12} className="text-muted-foreground" />;
+	}
+	return <GithubBrandIcon size={12} className="text-muted-foreground" />;
 }
 
 function StatusIcon({ status }: { status: ActionStatusKind }) {
@@ -576,23 +607,33 @@ function formatSyncTargetRef(
 }
 
 function buildReviewRows(
-	prStatus: WorkspacePrActionStatus,
-	prInfo: PullRequestInfo | null,
+	forgeStatus: ForgeActionStatus,
+	changeRequest: ChangeRequestInfo | null,
+	changeRequestName = "PR",
+	providerName = "Forge",
 ): GitStatusItem[] {
-	const pr = prStatus.pr ?? prInfo;
-	const isMerged = pr?.isMerged ?? false;
-	const hasMergeConflict = prStatus.mergeable === "CONFLICTING";
+	const currentChangeRequest = forgeStatus.changeRequest ?? changeRequest;
+	const isMerged = currentChangeRequest?.isMerged ?? false;
+	const hasMergeConflict = forgeStatus.mergeable === "CONFLICTING";
 
 	const rows: GitStatusItem[] = [];
 
-	if (isMerged || prStatus.reviewDecision === "APPROVED") {
+	if (forgeStatus.remoteState === "unauthenticated") {
+		rows.push({
+			label: `${providerName} CLI authentication required`,
+			status: "pending",
+		});
+	} else if (isMerged || forgeStatus.reviewDecision === "APPROVED") {
 		rows.push({ label: "Review approved", status: "success" });
-	} else if (pr?.state === "CLOSED") {
-		rows.push({ label: "PR closed", status: "failure" });
-	} else if (prStatus.reviewDecision === "CHANGES_REQUESTED") {
+	} else if (currentChangeRequest?.state === "CLOSED") {
+		rows.push({ label: `${changeRequestName} closed`, status: "failure" });
+	} else if (forgeStatus.reviewDecision === "CHANGES_REQUESTED") {
 		rows.push({ label: "Changes requested", status: "failure" });
-	} else if (prStatus.remoteState !== "noPr") {
-		rows.push({ label: "Waiting for PR review", status: "pending" });
+	} else if (forgeStatus.remoteState !== "noPr") {
+		rows.push({
+			label: `Waiting for ${changeRequestName} review`,
+			status: "pending",
+		});
 	}
 
 	if (hasMergeConflict) {
@@ -609,9 +650,9 @@ function ActionStatusRow({
 	item,
 	onInsertToComposer,
 }: {
-	item: WorkspacePrActionItem;
+	item: ForgeActionItem;
 	onInsertToComposer?: (
-		item: WorkspacePrActionItem,
+		item: ForgeActionItem,
 	) => AppendContextPayloadResult | Promise<AppendContextPayloadResult>;
 }) {
 	const actionButtonClassName =
@@ -625,7 +666,7 @@ function ActionStatusRow({
 				<StatusIcon status={item.status} />
 				<ProviderIcon provider={item.provider} />
 				<span
-					className="min-w-0 whitespace-normal break-words text-primary"
+					className="min-w-0 truncate whitespace-nowrap text-primary"
 					title={item.name}
 				>
 					{item.name}
@@ -667,9 +708,7 @@ function ActionStatusRow({
 	);
 }
 
-function sortActionItems(
-	items: WorkspacePrActionItem[],
-): WorkspacePrActionItem[] {
+function sortActionItems(items: ForgeActionItem[]): ForgeActionItem[] {
 	return [...items].sort((left, right) => {
 		const statusDelta =
 			actionPriority(left.status) - actionPriority(right.status);

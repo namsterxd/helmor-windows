@@ -564,7 +564,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 
 							{activeSection === "experimental" && (
 								<div className="flex flex-col gap-3">
-									<CliInstallPanel />
+									<CliInstallPanel repositories={repositories} />
 								</div>
 							)}
 

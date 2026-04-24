@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use rusqlite::{Connection, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -310,11 +310,42 @@ pub struct CreateSessionResponse {
     pub session_id: String,
 }
 
-fn default_session_title_for_action_kind(action_kind: Option<ActionKind>) -> &'static str {
-    match action_kind {
-        Some(kind) => kind.default_title(),
-        None => "Untitled",
+/// Forge-aware variant. Looks up the workspace's stored `forge_provider`
+/// so a GitLab workspace gets "Create MR" / "Open MR" instead of the
+/// GitHub-flavored defaults. Falls back to the plain `default_title` when
+/// we have no provider info (e.g. pre-migration rows).
+fn default_session_title_for_action_kind_with_workspace(
+    transaction: &Transaction<'_>,
+    workspace_id: &str,
+    action_kind: Option<ActionKind>,
+) -> Result<String> {
+    let Some(kind) = action_kind else {
+        return Ok("Untitled".to_string());
+    };
+
+    // Only CreatePr/OpenPr care about the forge nouns — skip the query
+    // otherwise.
+    if !matches!(kind, ActionKind::CreatePr | ActionKind::OpenPr) {
+        return Ok(kind.default_title().to_string());
     }
+
+    let provider: Option<String> = transaction
+        .query_row(
+            "SELECT r.forge_provider \
+             FROM workspaces w JOIN repos r ON r.id = w.repository_id \
+             WHERE w.id = ?1",
+            [workspace_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .with_context(|| format!("Failed to read forge_provider for {workspace_id}"))?
+        .flatten();
+
+    let change_request_name = match provider.as_deref() {
+        Some("gitlab") => "MR",
+        _ => "PR",
+    };
+    Ok(kind.default_title_for_change_request(change_request_name))
 }
 
 pub fn create_session(
@@ -354,7 +385,11 @@ pub fn create_session(
     }
 
     let session_id = uuid::Uuid::new_v4().to_string();
-    let title = default_session_title_for_action_kind(action_kind);
+    let title = default_session_title_for_action_kind_with_workspace(
+        &transaction,
+        workspace_id,
+        action_kind,
+    )?;
 
     transaction
         .execute(
@@ -365,7 +400,7 @@ pub fn create_session(
             (
                 &session_id,
                 workspace_id,
-                title,
+                &title,
                 permission_mode.unwrap_or("default"),
                 action_kind,
                 &default_effort,
@@ -928,16 +963,75 @@ mod tests {
     }
 
     #[test]
-    fn action_session_uses_local_default_title() {
-        assert_eq!(
-            default_session_title_for_action_kind(Some(ActionKind::CreatePr)),
-            "Create PR"
-        );
-        assert_eq!(
-            default_session_title_for_action_kind(Some(ActionKind::CommitAndPush)),
-            "Commit and Push"
-        );
-        assert_eq!(default_session_title_for_action_kind(None), "Untitled");
+    fn action_session_title_uses_mr_wording_on_gitlab() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        conn.execute(
+            "UPDATE repos SET forge_provider = 'gitlab' WHERE id = 'r1'",
+            [],
+        )
+        .unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+
+        let gitlab_title = default_session_title_for_action_kind_with_workspace(
+            &tx,
+            "w1",
+            Some(ActionKind::CreatePr),
+        )
+        .unwrap();
+        assert_eq!(gitlab_title, "Create MR");
+
+        let open_title = default_session_title_for_action_kind_with_workspace(
+            &tx,
+            "w1",
+            Some(ActionKind::OpenPr),
+        )
+        .unwrap();
+        assert_eq!(open_title, "Open MR");
+
+        // Non-PR kinds still use their normal title.
+        let merge_title = default_session_title_for_action_kind_with_workspace(
+            &tx,
+            "w1",
+            Some(ActionKind::Merge),
+        )
+        .unwrap();
+        assert_eq!(merge_title, "Merge");
+
+        // No action kind → "Untitled".
+        let untitled =
+            default_session_title_for_action_kind_with_workspace(&tx, "w1", None).unwrap();
+        assert_eq!(untitled, "Untitled");
+    }
+
+    #[test]
+    fn action_session_title_keeps_pr_wording_on_github_or_missing_provider() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        let tx = conn.unchecked_transaction().unwrap();
+
+        // forge_provider is NULL (legacy row) → default to PR wording.
+        let null_title = default_session_title_for_action_kind_with_workspace(
+            &tx,
+            "w1",
+            Some(ActionKind::CreatePr),
+        )
+        .unwrap();
+        assert_eq!(null_title, "Create PR");
+
+        // forge_provider = 'github' → also PR.
+        tx.execute(
+            "UPDATE repos SET forge_provider = 'github' WHERE id = 'r1'",
+            [],
+        )
+        .unwrap();
+        let gh_title = default_session_title_for_action_kind_with_workspace(
+            &tx,
+            "w1",
+            Some(ActionKind::CreatePr),
+        )
+        .unwrap();
+        assert_eq!(gh_title, "Create PR");
     }
 
     #[test]

@@ -10,76 +10,15 @@ use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::BTreeMap;
 
-use crate::{auth, git_ops, models::workspaces as workspace_models};
-
-/// A single pull request surfaced to the frontend.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PullRequestInfo {
-    /// Full `https://github.com/owner/repo/pull/N` URL.
-    pub url: String,
-    /// Numeric PR id (`N` in the URL).
-    pub number: i64,
-    /// GitHub PR state — one of `OPEN`, `CLOSED`, `MERGED`.
-    pub state: String,
-    /// PR title as shown on GitHub.
-    pub title: String,
-    /// `true` when the PR has been merged into its base branch.
-    pub is_merged: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ActionStatusKind {
-    Success,
-    Pending,
-    Running,
-    Failure,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ActionProvider {
-    Github,
-    Vercel,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RemoteState {
-    Ok,
-    NoPr,
-    Unavailable,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspacePrActionItem {
-    pub id: String,
-    pub name: String,
-    pub provider: ActionProvider,
-    pub status: ActionStatusKind,
-    pub duration: Option<String>,
-    pub url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspacePrActionStatus {
-    pub pr: Option<PullRequestInfo>,
-    pub review_decision: Option<String>,
-    pub mergeable: Option<String>,
-    pub deployments: Vec<WorkspacePrActionItem>,
-    pub checks: Vec<WorkspacePrActionItem>,
-    pub remote_state: RemoteState,
-    pub message: Option<String>,
-}
+use crate::forge::{
+    ActionProvider, ActionStatusKind, ChangeRequestInfo, ForgeActionItem, ForgeActionStatus,
+    RemoteState,
+};
+use crate::{auth, error::ErrorCode, git_ops, models::workspaces as workspace_models};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,44 +34,6 @@ struct GithubCheckRunOutput {
     title: Option<String>,
     summary: Option<String>,
     text: Option<String>,
-}
-
-impl WorkspacePrActionStatus {
-    fn unavailable(message: impl Into<String>) -> Self {
-        Self {
-            pr: None,
-            review_decision: None,
-            mergeable: None,
-            deployments: Vec::new(),
-            checks: Vec::new(),
-            remote_state: RemoteState::Unavailable,
-            message: Some(message.into()),
-        }
-    }
-
-    fn no_pr() -> Self {
-        Self {
-            pr: None,
-            review_decision: None,
-            mergeable: None,
-            deployments: Vec::new(),
-            checks: Vec::new(),
-            remote_state: RemoteState::NoPr,
-            message: None,
-        }
-    }
-
-    fn error(message: impl Into<String>) -> Self {
-        Self {
-            pr: None,
-            review_decision: None,
-            mergeable: None,
-            deployments: Vec::new(),
-            checks: Vec::new(),
-            remote_state: RemoteState::Error,
-            message: Some(message.into()),
-        }
-    }
 }
 
 /// Send a blocking HTTP request with up to 2 retries on transient network
@@ -168,7 +69,6 @@ fn is_transient_network_error(err: &reqwest::Error) -> bool {
         || msg.contains("connection reset")
         || msg.contains("connection closed")
 }
-
 /// Look up the (most recent) pull request matching this workspace's current
 /// branch on GitHub.
 ///
@@ -179,7 +79,7 @@ fn is_transient_network_error(err: &reqwest::Error) -> bool {
 ///     the access token has been revoked.
 ///   - `Err(_)` only for unexpected transport / parse failures (so the caller
 ///     can surface a distinct "something went wrong" state).
-pub fn lookup_workspace_pr(workspace_id: &str) -> Result<Option<PullRequestInfo>> {
+pub fn lookup_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo>> {
     let Some(record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
         bail!("Workspace not found: {workspace_id}");
     };
@@ -306,7 +206,7 @@ query($owner: String!, $name: String!, $head: String!) {
         return Ok(None);
     };
 
-    Ok(Some(PullRequestInfo {
+    Ok(Some(ChangeRequestInfo {
         url: node.url,
         number: node.number,
         state: node.state,
@@ -321,7 +221,7 @@ query($owner: String!, $name: String!, $head: String!) {
 /// "no PR for this branch" are represented in the returned status instead of
 /// bubbling as command errors. That keeps the local Git rows usable even when
 /// remote status cannot be queried.
-pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<WorkspacePrActionStatus> {
+pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<ForgeActionStatus> {
     let Some(record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
         bail!("Workspace not found: {workspace_id}");
     };
@@ -330,21 +230,19 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<Workspace
     // directly so the inspector paints the final empty review list from
     // the first frame, without a GitHub round-trip.
     if record.state == crate::workspace_state::WorkspaceState::Initializing {
-        return Ok(WorkspacePrActionStatus::no_pr());
+        return Ok(ForgeActionStatus::no_change_request());
     }
 
     let Some(remote_url) = record.remote_url.as_deref() else {
-        return Ok(WorkspacePrActionStatus::unavailable(
-            "Workspace has no remote",
-        ));
+        return Ok(ForgeActionStatus::unavailable("Workspace has no remote"));
     };
     let Some((owner, name)) = parse_github_remote(remote_url) else {
-        return Ok(WorkspacePrActionStatus::unavailable(
+        return Ok(ForgeActionStatus::unavailable(
             "Workspace remote is not a GitHub repository",
         ));
     };
     let Some(branch) = record.branch.as_deref().filter(|b| !b.is_empty()) else {
-        return Ok(WorkspacePrActionStatus::unavailable(
+        return Ok(ForgeActionStatus::unavailable(
             "Workspace has no current branch",
         ));
     };
@@ -353,10 +251,10 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<Workspace
     // owner of the same head ref. Surface as `no_pr` so the inspector hides
     // checks/deployments instead of showing a ghost PR's history.
     if !workspace_branch_has_remote_tracking(&record) {
-        return Ok(WorkspacePrActionStatus::no_pr());
+        return Ok(ForgeActionStatus::no_change_request());
     }
     let Some(access_token) = auth::load_valid_github_access_token()? else {
-        return Ok(WorkspacePrActionStatus::unavailable(
+        return Ok(ForgeActionStatus::unavailable(
             "GitHub account is not connected",
         ));
     };
@@ -366,7 +264,7 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<Workspace
         .context("Failed to build GitHub HTTP client")?;
 
     let status = query_workspace_pr_action_status(&client, &access_token, owner, name, branch)
-        .unwrap_or_else(|error| WorkspacePrActionStatus::error(format!("{error:#}")));
+        .unwrap_or_else(|error| ForgeActionStatus::error(format!("{error:#}")));
 
     Ok(status)
 }
@@ -386,7 +284,10 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
         bail!("Workspace has no current branch");
     };
     let Some(access_token) = auth::load_valid_github_access_token()? else {
-        bail!("GitHub account is not connected");
+        crate::bail_coded!(
+            ErrorCode::ForgeOnboarding,
+            "GitHub account is not connected"
+        );
     };
 
     let client = Client::builder()
@@ -427,7 +328,7 @@ fn query_workspace_pr_action_status(
     owner: String,
     name: String,
     branch: &str,
-) -> Result<WorkspacePrActionStatus> {
+) -> Result<ForgeActionStatus> {
     let query = r#"
 query($owner: String!, $name: String!, $head: String!) {
   repository(owner: $owner, name: $name) {
@@ -509,12 +410,10 @@ query($owner: String!, $name: String!, $head: String!) {
 
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return Ok(WorkspacePrActionStatus::unavailable(
-            "GitHub token was rejected",
-        ));
+        return Ok(ForgeActionStatus::unavailable("GitHub token was rejected"));
     }
     if !status.is_success() {
-        return Ok(WorkspacePrActionStatus::error(format!(
+        return Ok(ForgeActionStatus::error(format!(
             "GitHub GraphQL API returned HTTP {status}: {}",
             response.text().unwrap_or_default()
         )));
@@ -536,22 +435,22 @@ query($owner: String!, $name: String!, $head: String!) {
                     || e.message.contains("NOT_FOUND")
             });
             if is_repo_not_found {
-                return Ok(WorkspacePrActionStatus::unavailable(message));
+                return Ok(ForgeActionStatus::unavailable(message));
             }
-            return Ok(WorkspacePrActionStatus::error(message));
+            return Ok(ForgeActionStatus::error(message));
         }
     }
 
     let Some(data) = parsed.data else {
-        return Ok(WorkspacePrActionStatus::no_pr());
+        return Ok(ForgeActionStatus::no_change_request());
     };
     let Some(repository) = data.repository else {
-        return Ok(WorkspacePrActionStatus::unavailable(
+        return Ok(ForgeActionStatus::unavailable(
             "GitHub repository was not returned",
         ));
     };
     let Some(pr) = repository.pull_requests.nodes.into_iter().next() else {
-        return Ok(WorkspacePrActionStatus::no_pr());
+        return Ok(ForgeActionStatus::no_change_request());
     };
 
     Ok(build_action_status(pr))
@@ -589,9 +488,9 @@ fn query_check_run_detail(
 }
 
 /// Merge a workspace's open PR via the GitHub GraphQL `mergePullRequest`
-/// mutation. Returns the updated `PullRequestInfo` on success, or `None`
+/// mutation. Returns the updated `ChangeRequestInfo` on success, or `None`
 /// when the PR can't be found / user isn't connected.
-pub fn merge_workspace_pr(workspace_id: &str) -> Result<Option<PullRequestInfo>> {
+pub fn merge_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo>> {
     let pr = lookup_workspace_pr(workspace_id)?;
     let Some(pr) = pr else {
         return Ok(None);
@@ -703,8 +602,8 @@ mutation($prId: ID!) {
 }
 
 /// Close a workspace's open PR via the GitHub GraphQL `closePullRequest`
-/// mutation. Returns the updated `PullRequestInfo` on success.
-pub fn close_workspace_pr(workspace_id: &str) -> Result<Option<PullRequestInfo>> {
+/// mutation. Returns the updated `ChangeRequestInfo` on success.
+pub fn close_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo>> {
     let pr = lookup_workspace_pr(workspace_id)?;
     let Some(pr) = pr else {
         return Ok(None);
@@ -1026,8 +925,8 @@ struct ActionDeploymentStatusNode {
     environment_url: Option<String>,
 }
 
-fn build_action_status(node: ActionPullRequestNode) -> WorkspacePrActionStatus {
-    let pr = PullRequestInfo {
+fn build_action_status(node: ActionPullRequestNode) -> ForgeActionStatus {
+    let pr = ChangeRequestInfo {
         url: node.url,
         number: node.number,
         state: node.state,
@@ -1069,8 +968,8 @@ fn build_action_status(node: ActionPullRequestNode) -> WorkspacePrActionStatus {
         })
         .unwrap_or_default();
 
-    WorkspacePrActionStatus {
-        pr: Some(pr),
+    ForgeActionStatus {
+        change_request: Some(pr),
         review_decision,
         mergeable,
         deployments,
@@ -1080,7 +979,7 @@ fn build_action_status(node: ActionPullRequestNode) -> WorkspacePrActionStatus {
     }
 }
 
-fn normalize_check_context(node: &ActionCheckContextNode) -> Option<WorkspacePrActionItem> {
+fn normalize_check_context(node: &ActionCheckContextNode) -> Option<ForgeActionItem> {
     match node {
         ActionCheckContextNode::CheckRun(check) => {
             let app_name = check
@@ -1098,7 +997,7 @@ fn normalize_check_context(node: &ActionCheckContextNode) -> Option<WorkspacePrA
             } else {
                 provider
             };
-            Some(WorkspacePrActionItem {
+            Some(ForgeActionItem {
                 id: check
                     .database_id
                     .map(|id| format!("check-run-{id}"))
@@ -1119,7 +1018,7 @@ fn normalize_check_context(node: &ActionCheckContextNode) -> Option<WorkspacePrA
                 ActionProvider::Github,
                 [Some(status.context.as_str()), url.as_deref(), None],
             );
-            Some(WorkspacePrActionItem {
+            Some(ForgeActionItem {
                 id: format!("status-context-{}", status.context),
                 name: status.context.clone(),
                 provider,
@@ -1132,7 +1031,7 @@ fn normalize_check_context(node: &ActionCheckContextNode) -> Option<WorkspacePrA
     }
 }
 
-fn normalize_deployment(node: &ActionDeploymentNode) -> WorkspacePrActionItem {
+fn normalize_deployment(node: &ActionDeploymentNode) -> ForgeActionItem {
     let latest = node.latest_status.as_ref();
     let log_url = latest.and_then(|status| status.log_url.clone());
     let environment_url = latest.and_then(|status| status.environment_url.clone());
@@ -1151,7 +1050,7 @@ fn normalize_deployment(node: &ActionDeploymentNode) -> WorkspacePrActionItem {
         ],
     );
 
-    WorkspacePrActionItem {
+    ForgeActionItem {
         id: node.id.clone(),
         name: environment.to_string(),
         provider,
@@ -1163,8 +1062,8 @@ fn normalize_deployment(node: &ActionDeploymentNode) -> WorkspacePrActionItem {
     }
 }
 
-fn dedupe_action_items(items: Vec<WorkspacePrActionItem>) -> Vec<WorkspacePrActionItem> {
-    let mut deduped = BTreeMap::<String, WorkspacePrActionItem>::new();
+fn dedupe_action_items(items: Vec<ForgeActionItem>) -> Vec<ForgeActionItem> {
+    let mut deduped = BTreeMap::<String, ForgeActionItem>::new();
 
     for item in items {
         let key = format!("{:?}::{}", item.provider, item.name);
@@ -1259,7 +1158,7 @@ fn format_duration(started_at: Option<&str>, completed_at: Option<&str>) -> Opti
 }
 
 fn build_check_insert_text(
-    item: &WorkspacePrActionItem,
+    item: &ForgeActionItem,
     detail: Option<&GithubCheckRunDetail>,
 ) -> String {
     let url = detail
@@ -1317,6 +1216,7 @@ fn build_check_insert_text(
 fn action_provider_label(provider: ActionProvider) -> &'static str {
     match provider {
         ActionProvider::Github => "GitHub",
+        ActionProvider::Gitlab => "GitLab",
         ActionProvider::Vercel => "Vercel",
         ActionProvider::Unknown => "Unknown",
     }
@@ -1605,7 +1505,7 @@ mod tests {
     #[test]
     fn builds_check_insert_text_with_detail_sections() {
         let text = build_check_insert_text(
-            &WorkspacePrActionItem {
+            &ForgeActionItem {
                 id: "check-run-42".to_string(),
                 name: "changes".to_string(),
                 provider: ActionProvider::Github,
@@ -1638,7 +1538,7 @@ mod tests {
     #[test]
     fn builds_check_insert_text_with_unavailable_log_fallback() {
         let text = build_check_insert_text(
-            &WorkspacePrActionItem {
+            &ForgeActionItem {
                 id: "status-context-ci".to_string(),
                 name: "CI".to_string(),
                 provider: ActionProvider::Github,

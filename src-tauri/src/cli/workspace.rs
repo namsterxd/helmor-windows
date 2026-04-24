@@ -426,7 +426,7 @@ fn push(workspace_ref: &str, cli: &Cli) -> Result<()> {
     notify_ui_event(UiMutationEvent::WorkspaceGitStateChanged {
         workspace_id: id.clone(),
     });
-    notify_ui_event(UiMutationEvent::WorkspacePrChanged {
+    notify_ui_event(UiMutationEvent::WorkspaceChangeRequestChanged {
         workspace_id: id.clone(),
     });
     output::print(cli, &response, |_| format!("Pushed {id}"))

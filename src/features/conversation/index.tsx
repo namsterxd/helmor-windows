@@ -14,7 +14,7 @@ import type {
 import { WorkspacePanelContainer } from "@/features/panel/container";
 import { FileLinkProvider } from "@/features/panel/message-components/file-link-context";
 import type { SessionCloseRequest } from "@/features/panel/use-confirm-session-close";
-import type { PullRequestInfo } from "@/lib/api";
+import type { ChangeRequestInfo } from "@/lib/api";
 import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
 import { insertRequestMatchesComposer } from "@/lib/composer-insert";
 import { hasUnresolvedPlanReview } from "@/lib/plan-review";
@@ -48,8 +48,8 @@ type WorkspaceConversationContainerProps = {
 	) => void;
 	interactionRequiredSessionIds?: Set<string>;
 	onSessionCompleted?: (sessionId: string, workspaceId: string) => void;
+	workspaceChangeRequest?: ChangeRequestInfo | null;
 	onSessionAborted?: (sessionId: string, workspaceId: string) => void;
-	workspacePrInfo?: PullRequestInfo | null;
 	headerActions?: React.ReactNode;
 	headerLeading?: React.ReactNode;
 	/** Prompt queued by an external caller (e.g. the inspector Git commit
@@ -94,8 +94,8 @@ export const WorkspaceConversationContainer = memo(
 		onInteractionSessionsChange,
 		interactionRequiredSessionIds,
 		onSessionCompleted,
+		workspaceChangeRequest = null,
 		onSessionAborted,
-		workspacePrInfo = null,
 		headerActions,
 		headerLeading,
 		pendingPromptForSession = null,
@@ -305,7 +305,7 @@ export const WorkspaceConversationContainer = memo(
 					sendingSessionIds={sendingSessionIds}
 					interactionRequiredSessionIds={interactionRequiredSessionIds}
 					modelSelections={composerModelSelections}
-					workspacePrInfo={workspacePrInfo}
+					workspaceChangeRequest={workspaceChangeRequest}
 					onSelectSession={onSelectSession}
 					onResolveDisplayedSession={onResolveDisplayedSession}
 					onQueuePendingPromptForSession={onQueuePendingPromptForSession}

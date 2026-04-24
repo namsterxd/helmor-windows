@@ -69,7 +69,7 @@ describe("useUiSyncBridge", () => {
 				queryKey: helmorQueryKeys.workspaceGitActionStatus("workspace-1"),
 			});
 			expect(invalidateQueries).toHaveBeenCalledWith({
-				queryKey: helmorQueryKeys.workspacePrActionStatus("workspace-1"),
+				queryKey: helmorQueryKeys.workspaceForgeActionStatus("workspace-1"),
 			});
 			expect(invalidateQueries).toHaveBeenCalledWith({
 				predicate: expect.any(Function),
@@ -103,6 +103,33 @@ describe("useUiSyncBridge", () => {
 
 		await waitFor(() => {
 			expect(processPendingCliSends).toHaveBeenCalledOnce();
+		});
+	});
+
+	it("invalidates forge detection when forge state changes", async () => {
+		const queryClient = makeClient();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+		renderHook(() =>
+			useUiSyncBridge({
+				queryClient,
+				processPendingCliSends: vi.fn(),
+				reloadSettings: vi.fn(),
+				refreshGithubIdentity: vi.fn(),
+			}),
+		);
+
+		act(() => {
+			capturedSubscription?.({
+				type: "workspaceForgeChanged",
+				workspaceId: "workspace-1",
+			});
+		});
+
+		await waitFor(() => {
+			expect(invalidateQueries).toHaveBeenCalledWith({
+				queryKey: helmorQueryKeys.workspaceForge("workspace-1"),
+			});
 		});
 	});
 

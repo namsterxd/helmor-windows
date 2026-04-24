@@ -8,19 +8,16 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-	WorkspaceGitActionStatus,
-	WorkspacePrActionStatus,
-} from "@/lib/api";
+import type { ForgeActionStatus, WorkspaceGitActionStatus } from "@/lib/api";
 import { ComposerInsertProvider } from "@/lib/composer-insert-context";
 import { renderWithProviders } from "@/test/render-with-providers";
 import { WorkspaceInspectorSidebar } from "./index";
 
 const apiMocks = vi.hoisted(() => ({
 	listWorkspaceChangesWithContent: vi.fn(),
-	getWorkspacePrCheckInsertText: vi.fn(),
+	getWorkspaceForgeCheckInsertText: vi.fn(),
 	loadWorkspaceGitActionStatus: vi.fn(),
-	loadWorkspacePrActionStatus: vi.fn(),
+	loadWorkspaceForgeActionStatus: vi.fn(),
 	syncWorkspaceWithTargetBranch: vi.fn(),
 }));
 
@@ -37,10 +34,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 	return {
 		...actual,
-		getWorkspacePrCheckInsertText: apiMocks.getWorkspacePrCheckInsertText,
+		getWorkspaceForgeCheckInsertText: apiMocks.getWorkspaceForgeCheckInsertText,
 		listWorkspaceChangesWithContent: apiMocks.listWorkspaceChangesWithContent,
 		loadWorkspaceGitActionStatus: apiMocks.loadWorkspaceGitActionStatus,
-		loadWorkspacePrActionStatus: apiMocks.loadWorkspacePrActionStatus,
+		loadWorkspaceForgeActionStatus: apiMocks.loadWorkspaceForgeActionStatus,
 		syncWorkspaceWithTargetBranch: apiMocks.syncWorkspaceWithTargetBranch,
 	};
 });
@@ -59,10 +56,10 @@ function cleanGitStatus(): WorkspaceGitActionStatus {
 }
 
 function emptyPrStatus(
-	patch: Partial<WorkspacePrActionStatus> = {},
-): WorkspacePrActionStatus {
+	patch: Partial<ForgeActionStatus> = {},
+): ForgeActionStatus {
 	return {
-		pr: null,
+		changeRequest: null,
 		reviewDecision: null,
 		mergeable: null,
 		deployments: [],
@@ -107,9 +104,9 @@ function expectTextBefore(
 describe("WorkspaceInspectorSidebar Actions section", () => {
 	beforeEach(() => {
 		apiMocks.listWorkspaceChangesWithContent.mockReset();
-		apiMocks.getWorkspacePrCheckInsertText.mockReset();
+		apiMocks.getWorkspaceForgeCheckInsertText.mockReset();
 		apiMocks.loadWorkspaceGitActionStatus.mockReset();
-		apiMocks.loadWorkspacePrActionStatus.mockReset();
+		apiMocks.loadWorkspaceForgeActionStatus.mockReset();
 		apiMocks.syncWorkspaceWithTargetBranch.mockReset();
 		openerMocks.openUrl.mockReset();
 
@@ -117,11 +114,11 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			items: [],
 			prefetched: [],
 		});
-		apiMocks.getWorkspacePrCheckInsertText.mockResolvedValue(
+		apiMocks.getWorkspaceForgeCheckInsertText.mockResolvedValue(
 			"Content Log:\ncheck output",
 		);
 		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue(cleanGitStatus());
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(emptyPrStatus());
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(emptyPrStatus());
 		apiMocks.syncWorkspaceWithTargetBranch.mockResolvedValue({
 			outcome: "updated",
 			targetBranch: "main",
@@ -429,7 +426,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			remoteTrackingRef: "origin/testuser/leo",
 			aheadOfRemoteCount: 6,
 		});
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				reviewDecision: "APPROVED",
@@ -455,7 +452,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	});
 
 	it("keeps failing review rows ahead of passed review rows", async () => {
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				reviewDecision: "APPROVED",
@@ -605,7 +602,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	});
 
 	it("renders running and failed remote status colors with accessible labels", async () => {
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				deployments: [
@@ -645,7 +642,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	});
 
 	it("sorts checks by urgency and keeps the full GitHub check names visible", async () => {
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				checks: [
@@ -696,7 +693,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	});
 
 	it("vertically centers check row content and actions", async () => {
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				checks: [
@@ -736,7 +733,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 
 	it("renders link buttons only for remote items with urls", async () => {
 		const user = userEvent.setup();
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				checks: [
@@ -776,7 +773,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	});
 
 	it("uses compact icon button chrome for append and open actions", async () => {
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				checks: [
@@ -817,7 +814,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 	it("inserts check details into the composer and keeps deployments without insert buttons", async () => {
 		const user = userEvent.setup();
 		const insertIntoComposer = vi.fn();
-		apiMocks.loadWorkspacePrActionStatus.mockResolvedValue(
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			emptyPrStatus({
 				remoteState: "ok",
 				deployments: [
@@ -843,7 +840,9 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		);
 		// 22 chars per line × 25 = 550 chars, above the composer preview threshold (500).
 		const longCheckOutput = "const failure = true;\n".repeat(25);
-		apiMocks.getWorkspacePrCheckInsertText.mockResolvedValue(longCheckOutput);
+		apiMocks.getWorkspaceForgeCheckInsertText.mockResolvedValue(
+			longCheckOutput,
+		);
 
 		renderWithProviders(
 			<ComposerInsertProvider value={insertIntoComposer}>
@@ -869,7 +868,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		);
 
 		await waitFor(() => {
-			expect(apiMocks.getWorkspacePrCheckInsertText).toHaveBeenCalledWith(
+			expect(apiMocks.getWorkspaceForgeCheckInsertText).toHaveBeenCalledWith(
 				"workspace-1",
 				"check-1",
 			);

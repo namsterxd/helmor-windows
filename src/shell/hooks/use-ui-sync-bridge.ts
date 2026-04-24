@@ -91,11 +91,16 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.workspaceGitActionStatus(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspacePrActionStatus(event.workspaceId),
+				queryKey: helmorQueryKeys.workspaceForgeActionStatus(event.workspaceId),
 			});
 			invalidateAllWorkspaceChanges(queryClient);
 			return;
-		case "workspacePrChanged":
+		case "workspaceForgeChanged":
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceForge(event.workspaceId),
+			});
+			return;
+		case "workspaceChangeRequestChanged":
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceGroups,
 			});
@@ -103,10 +108,10 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspacePr(event.workspaceId),
+				queryKey: helmorQueryKeys.workspaceChangeRequest(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspacePrActionStatus(event.workspaceId),
+				queryKey: helmorQueryKeys.workspaceForgeActionStatus(event.workspaceId),
 			});
 			return;
 		case "repositoryListChanged":

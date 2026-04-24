@@ -764,7 +764,7 @@ export function useWorkspacesSidebarController({
 			// placeholders until the short-circuited backend responds a few
 			// ms later. Values mirror the Rust short-circuits in
 			// `get_workspace_git_action_status` and
-			// `lookup_workspace_pr_action_status` — keep them in sync.
+			// `get_workspace_forge_action_status` — keep them in sync.
 			queryClient.setQueryData(
 				helmorQueryKeys.workspaceGitActionStatus(prepareResponse.workspaceId),
 				{
@@ -779,13 +779,13 @@ export function useWorkspacesSidebarController({
 				},
 			);
 			queryClient.setQueryData(
-				helmorQueryKeys.workspacePr(prepareResponse.workspaceId),
+				helmorQueryKeys.workspaceChangeRequest(prepareResponse.workspaceId),
 				null,
 			);
 			queryClient.setQueryData(
-				helmorQueryKeys.workspacePrActionStatus(prepareResponse.workspaceId),
+				helmorQueryKeys.workspaceForgeActionStatus(prepareResponse.workspaceId),
 				{
-					pr: null,
+					changeRequest: null,
 					reviewDecision: null,
 					mergeable: null,
 					deployments: [],
@@ -900,11 +900,19 @@ export function useWorkspacesSidebarController({
 						exact: true,
 					});
 					queryClient.removeQueries({
-						queryKey: helmorQueryKeys.workspacePr(prepareResponse.workspaceId),
+						queryKey: helmorQueryKeys.workspaceChangeRequest(
+							prepareResponse.workspaceId,
+						),
 						exact: true,
 					});
 					queryClient.removeQueries({
-						queryKey: helmorQueryKeys.workspacePrActionStatus(
+						queryKey: helmorQueryKeys.workspaceForge(
+							prepareResponse.workspaceId,
+						),
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.workspaceForgeActionStatus(
 							prepareResponse.workspaceId,
 						),
 						exact: true,

@@ -1,7 +1,7 @@
 import { memo, type ReactNode, useEffect } from "react";
 import type {
 	AgentProvider,
-	PullRequestInfo,
+	ChangeRequestInfo,
 	WorkspaceDetail,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
@@ -24,7 +24,7 @@ export {
 
 type WorkspacePanelProps = {
 	workspace: WorkspaceDetail | null;
-	prInfo?: PullRequestInfo | null;
+	changeRequest?: ChangeRequestInfo | null;
 	sessions: WorkspaceSessionSummary[];
 	selectedSessionId: string | null;
 	sessionDisplayProviders?: Record<string, AgentProvider>;
@@ -50,7 +50,7 @@ type WorkspacePanelProps = {
 
 export const WorkspacePanel = memo(function WorkspacePanel({
 	workspace,
-	prInfo = null,
+	changeRequest = null,
 	sessions,
 	selectedSessionId,
 	sessionDisplayProviders,
@@ -111,7 +111,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 			<div className="flex min-h-0 flex-1 flex-col bg-transparent">
 				<WorkspacePanelHeader
 					workspace={workspace}
-					prInfo={prInfo}
+					changeRequest={changeRequest}
 					sessions={sessions}
 					selectedSessionId={selectedSessionId}
 					sessionDisplayProviders={sessionDisplayProviders}

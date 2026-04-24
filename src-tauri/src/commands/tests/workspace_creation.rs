@@ -478,7 +478,7 @@ fn pr_lookups_short_circuit_for_initializing_workspace_without_network() {
 
     let status = crate::github_graphql::lookup_workspace_pr_action_status(&prepared.workspace_id)
         .expect("lookup_workspace_pr_action_status should succeed for initializing workspace");
-    assert!(status.pr.is_none());
+    assert!(status.change_request.is_none());
     assert!(status.deployments.is_empty());
     assert!(status.checks.is_empty());
 }

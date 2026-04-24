@@ -3,21 +3,21 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-	PullRequestInfo,
+	ChangeRequestInfo,
+	ForgeActionStatus,
 	WorkspaceGitActionStatus,
-	WorkspacePrActionStatus,
 } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { useWorkspaceCommitLifecycle } from "./use-commit-lifecycle";
 
 const apiMocks = vi.hoisted(() => ({
-	closeWorkspacePr: vi.fn(),
+	closeWorkspaceChangeRequest: vi.fn(),
 	createSession: vi.fn(),
 	hideSession: vi.fn(),
 	loadRepoPreferences: vi.fn(),
 	loadAutoCloseActionKinds: vi.fn(),
-	lookupWorkspacePr: vi.fn(),
-	mergeWorkspacePr: vi.fn(),
+	lookupWorkspaceChangeRequest: vi.fn(),
+	mergeWorkspaceChangeRequest: vi.fn(),
 	pushWorkspaceToRemote: vi.fn(),
 	setWorkspaceManualStatus: vi.fn(),
 }));
@@ -27,13 +27,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 	return {
 		...actual,
-		closeWorkspacePr: apiMocks.closeWorkspacePr,
+		closeWorkspaceChangeRequest: apiMocks.closeWorkspaceChangeRequest,
 		createSession: apiMocks.createSession,
 		hideSession: apiMocks.hideSession,
 		loadRepoPreferences: apiMocks.loadRepoPreferences,
 		loadAutoCloseActionKinds: apiMocks.loadAutoCloseActionKinds,
-		lookupWorkspacePr: apiMocks.lookupWorkspacePr,
-		mergeWorkspacePr: apiMocks.mergeWorkspacePr,
+		lookupWorkspaceChangeRequest: apiMocks.lookupWorkspaceChangeRequest,
+		mergeWorkspaceChangeRequest: apiMocks.mergeWorkspaceChangeRequest,
 		pushWorkspaceToRemote: apiMocks.pushWorkspaceToRemote,
 		setWorkspaceManualStatus: apiMocks.setWorkspaceManualStatus,
 	};
@@ -50,8 +50,8 @@ const EMPTY_GIT_ACTION_STATUS: WorkspaceGitActionStatus = {
 	pushStatus: "unknown",
 };
 
-const EMPTY_PR_ACTION_STATUS: WorkspacePrActionStatus = {
-	pr: null,
+const EMPTY_FORGE_ACTION_STATUS: ForgeActionStatus = {
+	changeRequest: null,
 	reviewDecision: null,
 	mergeable: null,
 	deployments: [],
@@ -70,13 +70,13 @@ function createWrapper(queryClient: QueryClient) {
 
 describe("useWorkspaceCommitLifecycle", () => {
 	beforeEach(() => {
-		apiMocks.closeWorkspacePr.mockReset();
+		apiMocks.closeWorkspaceChangeRequest.mockReset();
 		apiMocks.createSession.mockReset();
 		apiMocks.hideSession.mockReset();
 		apiMocks.loadRepoPreferences.mockReset();
 		apiMocks.loadAutoCloseActionKinds.mockReset();
-		apiMocks.lookupWorkspacePr.mockReset();
-		apiMocks.mergeWorkspacePr.mockReset();
+		apiMocks.lookupWorkspaceChangeRequest.mockReset();
+		apiMocks.mergeWorkspaceChangeRequest.mockReset();
 		apiMocks.pushWorkspaceToRemote.mockReset();
 		apiMocks.setWorkspaceManualStatus.mockReset();
 
@@ -84,13 +84,13 @@ describe("useWorkspaceCommitLifecycle", () => {
 		apiMocks.loadRepoPreferences.mockResolvedValue({});
 		apiMocks.loadAutoCloseActionKinds.mockResolvedValue(["create-pr"]);
 		apiMocks.setWorkspaceManualStatus.mockResolvedValue(undefined);
-		apiMocks.lookupWorkspacePr.mockResolvedValue({
+		apiMocks.lookupWorkspaceChangeRequest.mockResolvedValue({
 			number: 53,
 			title: "Fix overflow",
 			url: "https://github.com/example/repo/pull/53",
 			state: "OPEN",
 			isMerged: false,
-		} satisfies PullRequestInfo);
+		} satisfies ChangeRequestInfo);
 		apiMocks.pushWorkspaceToRemote.mockResolvedValue({
 			targetRef: "origin/feature/test",
 			headCommit: "abc123",
@@ -135,8 +135,8 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef,
 					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
-					workspacePrInfo: null,
-					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
 					completedSessionIds,
 					interactionRequiredSessionIds,
@@ -182,14 +182,16 @@ describe("useWorkspaceCommitLifecycle", () => {
 		});
 
 		await waitFor(() => {
-			expect(apiMocks.lookupWorkspacePr).toHaveBeenCalledWith("workspace-1");
+			expect(apiMocks.lookupWorkspaceChangeRequest).toHaveBeenCalledWith(
+				"workspace-1",
+			);
 		});
 		await waitFor(() => {
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-				queryKey: helmorQueryKeys.workspacePr("workspace-1"),
+				queryKey: helmorQueryKeys.workspaceChangeRequest("workspace-1"),
 			});
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-				queryKey: helmorQueryKeys.workspacePrActionStatus("workspace-1"),
+				queryKey: helmorQueryKeys.workspaceForgeActionStatus("workspace-1"),
 			});
 		});
 		await waitFor(() => {
@@ -230,8 +232,8 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef,
 					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
-					workspacePrInfo: null,
-					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
 					completedSessionIds,
 					abortedSessionIds,
@@ -277,7 +279,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		await waitFor(() => {
 			expect(result.current.commitButtonState).toBe("idle");
 		});
-		expect(apiMocks.lookupWorkspacePr).not.toHaveBeenCalled();
+		expect(apiMocks.lookupWorkspaceChangeRequest).not.toHaveBeenCalled();
 		expect(apiMocks.setWorkspaceManualStatus).not.toHaveBeenCalled();
 	});
 
@@ -301,8 +303,8 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
-					workspacePrInfo: null,
-					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: {
 						...EMPTY_GIT_ACTION_STATUS,
 						pushStatus: "unpublished",
@@ -332,10 +334,10 @@ describe("useWorkspaceCommitLifecycle", () => {
 				queryKey: helmorQueryKeys.workspaceGitActionStatus("workspace-1"),
 			});
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-				queryKey: helmorQueryKeys.workspacePr("workspace-1"),
+				queryKey: helmorQueryKeys.workspaceChangeRequest("workspace-1"),
 			});
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-				queryKey: helmorQueryKeys.workspacePrActionStatus("workspace-1"),
+				queryKey: helmorQueryKeys.workspaceForgeActionStatus("workspace-1"),
 			});
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
 				queryKey: helmorQueryKeys.workspaceDetail("workspace-1"),
@@ -373,8 +375,8 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
-					workspacePrInfo: null,
-					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: {
 						...EMPTY_GIT_ACTION_STATUS,
 						pushStatus: "unpublished",
@@ -422,8 +424,8 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
-					workspacePrInfo: null,
-					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
 					completedSessionIds: new Set<string>(),
 					interactionRequiredSessionIds: new Set<string>(),
@@ -456,7 +458,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 			},
 		});
 		const pushToast = vi.fn();
-		apiMocks.mergeWorkspacePr.mockRejectedValueOnce(
+		apiMocks.mergeWorkspaceChangeRequest.mockRejectedValueOnce(
 			new Error("GitHub merge failed"),
 		);
 
@@ -468,15 +470,15 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
-					workspacePrInfo: {
+					changeRequest: {
 						number: 53,
 						title: "Fix overflow",
 						url: "https://github.com/example/repo/pull/53",
 						state: "OPEN",
 						isMerged: false,
 					},
-					workspacePrActionStatus: {
-						...EMPTY_PR_ACTION_STATUS,
+					forgeActionStatus: {
+						...EMPTY_FORGE_ACTION_STATUS,
 						mergeable: "MERGEABLE",
 					},
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,

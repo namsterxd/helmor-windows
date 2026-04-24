@@ -26,7 +26,10 @@ pub enum UiMutationEvent {
     WorkspaceGitStateChanged {
         workspace_id: String,
     },
-    WorkspacePrChanged {
+    WorkspaceForgeChanged {
+        workspace_id: String,
+    },
+    WorkspaceChangeRequestChanged {
         workspace_id: String,
     },
     RepositoryListChanged,
@@ -94,7 +97,10 @@ mod tests {
             UiMutationEvent::WorkspaceGitStateChanged {
                 workspace_id: "w".into(),
             },
-            UiMutationEvent::WorkspacePrChanged {
+            UiMutationEvent::WorkspaceForgeChanged {
+                workspace_id: "w".into(),
+            },
+            UiMutationEvent::WorkspaceChangeRequestChanged {
                 workspace_id: "w".into(),
             },
             UiMutationEvent::RepositoryChanged {

@@ -18,6 +18,12 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	getSessionContextUsage: vi.fn(),
+	getCodexRateLimits: vi.fn(),
+	loadRepoScripts: vi.fn(),
+	getWorkspaceForge: vi.fn(),
+	lookupWorkspaceChangeRequest: vi.fn(),
+	loadWorkspaceForgeActionStatus: vi.fn(),
 	stopAgentStream: vi.fn(),
 	requestQuit: vi.fn(),
 }));
@@ -75,6 +81,12 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
+		getSessionContextUsage: apiMocks.getSessionContextUsage,
+		getCodexRateLimits: apiMocks.getCodexRateLimits,
+		loadRepoScripts: apiMocks.loadRepoScripts,
+		getWorkspaceForge: apiMocks.getWorkspaceForge,
+		lookupWorkspaceChangeRequest: apiMocks.lookupWorkspaceChangeRequest,
+		loadWorkspaceForgeActionStatus: apiMocks.loadWorkspaceForgeActionStatus,
 		requestQuit: apiMocks.requestQuit,
 		stopAgentStream: apiMocks.stopAgentStream,
 	};
@@ -270,6 +282,42 @@ function createWorkspaceSessions(workspaceId: WorkspaceFixtureId) {
 	}));
 }
 
+const UNKNOWN_FORGE_DETECTION = {
+	provider: "unknown",
+	host: null,
+	namespace: null,
+	repo: null,
+	remoteUrl: null,
+	labels: {
+		providerName: "Forge",
+		cliName: "CLI",
+		changeRequestName: "PR",
+		changeRequestFullName: "change request",
+	},
+	cli: null,
+	detectionSignals: [],
+};
+
+const UNAVAILABLE_FORGE_ACTION_STATUS = {
+	changeRequest: null,
+	reviewDecision: null,
+	mergeable: null,
+	deployments: [],
+	checks: [],
+	remoteState: "unavailable",
+	message: null,
+};
+
+const EMPTY_REPO_SCRIPTS = {
+	setupScript: null,
+	runScript: null,
+	archiveScript: null,
+	setupFromProject: false,
+	runFromProject: false,
+	archiveFromProject: false,
+	autoRunSetup: true,
+};
+
 function getSessionTab(title: string) {
 	const tab = screen.getByText(title).closest('[role="tab"]');
 
@@ -356,6 +404,12 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.getSessionContextUsage.mockReset();
+		apiMocks.getCodexRateLimits.mockReset();
+		apiMocks.loadRepoScripts.mockReset();
+		apiMocks.getWorkspaceForge.mockReset();
+		apiMocks.lookupWorkspaceChangeRequest.mockReset();
+		apiMocks.loadWorkspaceForgeActionStatus.mockReset();
 		apiMocks.stopAgentStream.mockReset();
 		eventApiMocks.listen.mockClear();
 		eventApiMocks.handlers.clear();
@@ -480,6 +534,14 @@ describe("App global navigation shortcuts", () => {
 				createWorkspaceSessions(workspaceId as WorkspaceFixtureId),
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+		apiMocks.getSessionContextUsage.mockResolvedValue(null);
+		apiMocks.getCodexRateLimits.mockResolvedValue(null);
+		apiMocks.loadRepoScripts.mockResolvedValue(EMPTY_REPO_SCRIPTS);
+		apiMocks.getWorkspaceForge.mockResolvedValue(UNKNOWN_FORGE_DETECTION);
+		apiMocks.lookupWorkspaceChangeRequest.mockResolvedValue(null);
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
+			UNAVAILABLE_FORGE_ACTION_STATUS,
+		);
 		apiMocks.stopAgentStream.mockResolvedValue(undefined);
 	});
 

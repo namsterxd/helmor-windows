@@ -3,8 +3,8 @@ pub mod cli;
 pub(crate) mod commands;
 pub mod data_dir;
 pub mod error;
+pub mod forge;
 pub mod git;
-pub mod github;
 mod import;
 pub mod logging;
 pub mod mcp;
@@ -21,11 +21,12 @@ pub mod workspace;
 #[cfg(test)]
 pub(crate) mod testkit;
 
+pub use forge as forge_ops;
+pub use forge::github::auth;
+pub use forge::github::cli as github_cli;
+pub use forge::github::graphql as github_graphql;
 pub use git::ops as git_ops;
 pub use git::watcher as git_watcher;
-pub use github::auth;
-pub use github::cli as github_cli;
-pub use github::graphql as github_graphql;
 pub use models::db;
 pub use models::repos;
 pub use models::sessions;
@@ -188,6 +189,15 @@ pub fn run() {
             commands::github_commands::get_github_cli_status,
             commands::github_commands::get_github_cli_user,
             commands::github_commands::get_github_identity_session,
+            commands::forge_commands::get_workspace_forge,
+            commands::forge_commands::get_forge_cli_status,
+            commands::forge_commands::install_forge_cli,
+            commands::forge_commands::open_forge_cli_auth_terminal,
+            commands::forge_commands::lookup_workspace_change_request,
+            commands::forge_commands::get_workspace_forge_action_status,
+            commands::forge_commands::get_workspace_forge_check_insert_text,
+            commands::forge_commands::merge_workspace_change_request,
+            commands::forge_commands::close_workspace_change_request,
             commands::workspace_commands::get_workspace,
             commands::repository_commands::add_repository_from_local_path,
             commands::repository_commands::clone_repository_from_url,
@@ -238,11 +248,6 @@ pub fn run() {
             commands::editor_commands::stage_workspace_file,
             commands::editor_commands::unstage_workspace_file,
             commands::editor_commands::get_workspace_git_action_status,
-            commands::github_commands::lookup_workspace_pr,
-            commands::github_commands::get_workspace_pr_action_status,
-            commands::github_commands::get_workspace_pr_check_insert_text,
-            commands::github_commands::merge_workspace_pr,
-            commands::github_commands::close_workspace_pr,
             commands::system_commands::drain_pending_cli_sends,
             commands::editor_commands::read_editor_file,
             commands::editor_commands::read_file_at_ref,
