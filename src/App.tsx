@@ -1520,6 +1520,7 @@ function AppShell({
 			workspace,
 			sessions,
 			session,
+			activateAdjacent: true,
 			onSessionsChanged: () => {
 				void Promise.all([
 					queryClient.invalidateQueries({

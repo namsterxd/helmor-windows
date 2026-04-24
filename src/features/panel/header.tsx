@@ -230,6 +230,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 					workspace,
 					sessions,
 					session: targetSession,
+					activateAdjacent: targetSession.id === selectedSessionId,
 					provider: sessionDisplayProviders?.[targetSession.id] ?? null,
 					onSessionsChanged,
 				});
@@ -241,6 +242,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 				workspace,
 				sessions,
 				sessionId,
+				activateAdjacent: sessionId === selectedSessionId,
 				onSelectSession,
 				onSessionsChanged,
 				pushToast,
@@ -252,6 +254,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 			onSessionsChanged,
 			pushToast,
 			queryClient,
+			selectedSessionId,
 			sessionDisplayProviders,
 			sessions,
 			workspace,
@@ -325,6 +328,11 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	const handleCancelRename = useCallback(() => {
 		setEditingSessionId(null);
 		setEditingTitle("");
+	}, []);
+
+	const stopTabActionPointerDown = useCallback((event: React.PointerEvent) => {
+		event.preventDefault();
+		event.stopPropagation();
 	}, []);
 
 	return (
@@ -636,6 +644,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 																<span
 																	role="button"
 																	aria-label="Rename session"
+																	onPointerDown={stopTabActionPointerDown}
 																	onClick={(event) =>
 																		handleStartRename(session, event)
 																	}
@@ -646,6 +655,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 																<span
 																	role="button"
 																	aria-label="Close session"
+																	onPointerDown={stopTabActionPointerDown}
 																	onClick={(event) =>
 																		handleHideSession(session.id, event)
 																	}
