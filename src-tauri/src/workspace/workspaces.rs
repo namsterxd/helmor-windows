@@ -57,6 +57,7 @@ pub struct WorkspaceSidebarRow {
     pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,8 +90,10 @@ pub struct WorkspaceSummary {
     pub active_session_agent_type: Option<String>,
     pub active_session_status: Option<String>,
     pub pr_title: Option<String>,
+    pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -618,6 +621,7 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
+        created_at: record.created_at,
     }
 }
 
@@ -643,8 +647,10 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         active_session_agent_type: record.active_session_agent_type,
         active_session_status: record.active_session_status,
         pr_title: record.pr_title,
+        pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
+        created_at: record.created_at,
     }
 }
 

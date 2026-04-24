@@ -73,6 +73,9 @@ export type WorkspaceRow = {
 	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
+	/** ISO-8601 timestamp — present for rows coming from the backend; absent
+	 * for ad-hoc optimistic rows that haven't been given one. */
+	createdAt?: string;
 };
 
 export type WorkspaceGroup = {
@@ -144,8 +147,10 @@ export type WorkspaceSummary = {
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
 	prTitle?: string | null;
+	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
+	createdAt: string;
 };
 
 export type RepositoryCreateOption = {
