@@ -602,7 +602,7 @@ export class ClaudeSessionManager implements SessionManager {
 					// Bail on the first one we see; any steer() still in its
 					// image-load await will find `promptSource.closed` via
 					// the finally block below and return false.
-					const meta = buildClaudeStoredMeta(message);
+					const meta = buildClaudeStoredMeta(message, model ?? "");
 					if (meta) {
 						emitter.contextUsageUpdated(
 							requestId,
@@ -1036,7 +1036,7 @@ export class ClaudeSessionManager implements SessionManager {
 		const live = this.sessions.get(helmorSessionId);
 		if (live) {
 			const raw = await live.query.getContextUsage();
-			return JSON.stringify(buildClaudeRichMeta(raw));
+			return JSON.stringify(buildClaudeRichMeta(raw, model));
 		}
 
 		// Slow path: spawn a transient Query. `resume` is optional — when
@@ -1095,7 +1095,7 @@ export class ClaudeSessionManager implements SessionManager {
 
 		try {
 			const raw = await q.getContextUsage();
-			return JSON.stringify(buildClaudeRichMeta(raw));
+			return JSON.stringify(buildClaudeRichMeta(raw, model));
 		} catch (err) {
 			if (timedOut) {
 				throw new Error(

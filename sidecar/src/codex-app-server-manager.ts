@@ -99,6 +99,8 @@ interface AppServerContext {
 	 *  the frontend pipeline/UI until after the synthetic user_prompt
 	 *  event lands. Microtask FIFO preserves their relative ordering. */
 	notificationGate: Promise<void> | null;
+	/** Last send's model id; Codex usage notifications omit it. */
+	lastSentModel: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +234,8 @@ export class CodexAppServerManager implements SessionManager {
 			permissionMode,
 			effectiveFastMode,
 		);
+		// Codex usage notifications do not include a model id.
+		if (model) ctx.lastSentModel = model;
 
 		// Codex, unlike Claude, has no `additionalDirectoriesForClaudeMd`
 		// equivalent — `sandboxPolicy.writableRoots` only grants write
@@ -339,7 +343,7 @@ export class CodexAppServerManager implements SessionManager {
 					const tokenUsage = deepGet(n.params, "tokenUsage");
 					if (tokenUsage && typeof tokenUsage === "object") {
 						try {
-							const meta = buildCodexStoredMeta(tokenUsage);
+							const meta = buildCodexStoredMeta(tokenUsage, ctx.lastSentModel);
 							if (meta) {
 								emitter.contextUsageUpdated(
 									requestId,
@@ -837,6 +841,7 @@ export class CodexAppServerManager implements SessionManager {
 			activeRequestId: null,
 			activeEmitter: null,
 			notificationGate: null,
+			lastSentModel: model ?? "",
 		};
 
 		this.sessions.set(sessionId, ctx);

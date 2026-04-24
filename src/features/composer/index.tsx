@@ -730,10 +730,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								<ContextUsageRing
 									sessionId={sessionId}
 									providerSessionId={providerSessionId}
-									// Only used to spawn the transient Query for
-									// the Claude rich hover fetch; the ring
-									// display itself never reads it.
-									richFetchModel={selectedModel?.cliModel ?? null}
+									composerModelId={selectedModel?.id ?? null}
 									cwd={workspaceRootPath}
 									agentType={agentType}
 									alwaysShow={alwaysShowContextUsage}

@@ -30,10 +30,8 @@ type Props = {
 	cwd: string | null;
 	/** Only Claude supports the rich hover breakdown. */
 	agentType: "claude" | "codex" | null;
-	/** Composer's current model — needed to spawn the transient Query
-	 *  for the rich hover fetch (window size is model-specific). NOT
-	 *  used for display gating. */
-	richFetchModel: string | null;
+	/** Composer's current model id; used for rich fetches and stale checks. */
+	composerModelId: string | null;
 	alwaysShow: boolean;
 	disabled?: boolean;
 	className?: string;
@@ -46,19 +44,13 @@ const RING_CIRCUM = 2 * Math.PI * RING_RADIUS;
 const HOVER_OPEN_DELAY_MS = 180;
 const HOVER_CLOSE_DELAY_MS = 80;
 
-// Two streams feed this ring:
-//
-//   * Baseline (always on): sidecar writes `StoredContextUsageMeta` into
-//     `sessions.context_usage_meta` at turn end; `use-ui-sync-bridge`
-//     invalidates → observer refetches. Drives ring visual.
-//   * Rich (hover-only, Claude): user hovers → ad-hoc
-//     `q.getContextUsage()` → categories + auto-compact note overlay.
+// Baseline comes from DB; Claude rich details are fetched on hover.
 export function ContextUsageRing({
 	sessionId,
 	providerSessionId,
 	cwd,
 	agentType,
-	richFetchModel,
+	composerModelId,
 	alwaysShow,
 	disabled,
 	className,
@@ -79,27 +71,25 @@ export function ContextUsageRing({
 	const [open, setOpen] = useState(false);
 
 	const isClaude = agentType === "claude";
-	// Rich fetch gated on `providerSessionId` — a session with no turn
-	// yet has no Claude session id to resume, and we don't want to pay
-	// the transient-Query spin-up cost to show baseline-only data.
+	// No provider session means there is nothing useful to resume.
 	const { data: richJson = null, isFetching: richFetching } = useQuery(
 		claudeRichContextUsageQueryOptions({
 			sessionId,
 			providerSessionId,
-			model: richFetchModel,
+			model: composerModelId,
 			cwd,
 			enabled:
 				open &&
 				isClaude &&
-				richFetchModel !== null &&
+				composerModelId !== null &&
 				providerSessionId !== null,
 		}),
 	);
 	const rich = useMemo(() => parseClaudeRichMeta(richJson), [richJson]);
 
 	const display = useMemo(
-		() => resolveContextUsageDisplay(baseline, rich),
-		[baseline, rich],
+		() => resolveContextUsageDisplay(baseline, rich, composerModelId),
+		[baseline, rich, composerModelId],
 	);
 
 	const hasCodexRateLimits =

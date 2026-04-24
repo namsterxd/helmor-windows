@@ -401,6 +401,8 @@ describe("CodexAppServerManager", () => {
 		expect(ctxUsage?.id).toBe("REQ-usage");
 		const meta = JSON.parse(ctxUsage?.meta as string);
 		expect(meta).toEqual({
+			// Stamped from the sendMessage param, not the notification.
+			modelId: "gpt-5.4",
 			usedTokens: 17_500,
 			maxTokens: 400_000,
 			percentage: 4.38,

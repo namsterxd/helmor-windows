@@ -29,7 +29,13 @@ vi.mock("@/lib/api", async () => {
 
 import { ContextUsageRing } from "./index";
 
-function Harness({ sessionId }: { sessionId: string }) {
+function Harness({
+	sessionId,
+	composerModelId = "gpt-5.4",
+}: {
+	sessionId: string;
+	composerModelId?: string | null;
+}) {
 	const queryClient = createHelmorQueryClient();
 	queryClient.setDefaultOptions({ queries: { retry: false } });
 	return (
@@ -40,7 +46,7 @@ function Harness({ sessionId }: { sessionId: string }) {
 				providerSessionId={null}
 				cwd={null}
 				agentType="codex"
-				richFetchModel={null}
+				composerModelId={composerModelId}
 				alwaysShow={true}
 			/>
 		</QueryClientProvider>
@@ -82,9 +88,11 @@ describe("ContextUsageRing end-to-end with UI sync bridge", () => {
 	it("refetches baseline from DB when contextUsageChanged fires, then re-renders with new %", async () => {
 		// First read: no usage persisted yet (new session pre-turn).
 		apiMockState.getSessionContextUsage.mockResolvedValueOnce(null);
-		// Second read (after event): new meta from turn end.
+		// Second read (after event): new meta from turn end. modelId stamp
+		// matches the composer's current model so display resolves to `full`.
 		apiMockState.getSessionContextUsage.mockResolvedValueOnce(
 			JSON.stringify({
+				modelId: "gpt-5.4",
 				usedTokens: 23_363,
 				maxTokens: 950_000,
 				percentage: 2.46,
@@ -127,7 +135,12 @@ describe("ContextUsageRing end-to-end with UI sync bridge", () => {
 
 	it("does not refetch when contextUsageChanged is for a different session", async () => {
 		apiMockState.getSessionContextUsage.mockResolvedValue(
-			JSON.stringify({ usedTokens: 10, maxTokens: 100, percentage: 10 }),
+			JSON.stringify({
+				modelId: "gpt-5.4",
+				usedTokens: 10,
+				maxTokens: 100,
+				percentage: 10,
+			}),
 		);
 
 		render(<Harness sessionId="session-abc" />);
@@ -146,5 +159,26 @@ describe("ContextUsageRing end-to-end with UI sync bridge", () => {
 		// Give any potential refetch a tick to fire, then assert it didn't.
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(apiMockState.getSessionContextUsage).toHaveBeenCalledTimes(1);
+	});
+
+	it("degrades to tokensOnly aria-label when composer's model differs from the recorded one", async () => {
+		apiMockState.getSessionContextUsage.mockResolvedValue(
+			JSON.stringify({
+				modelId: "gpt-5.4",
+				usedTokens: 23_363,
+				maxTokens: 950_000,
+				percentage: 2.46,
+			}),
+		);
+
+		const { findByRole, queryByRole } = render(
+			<Harness
+				sessionId="session-mismatch"
+				composerModelId="gpt-5.5-preview"
+			/>,
+		);
+
+		await findByRole("button", { name: "Context usage" });
+		expect(queryByRole("button", { name: /2%/i })).toBeNull();
 	});
 });

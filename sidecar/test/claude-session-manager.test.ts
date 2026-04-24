@@ -241,7 +241,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(last).toEqual({ id: "REQ-1", type: "end" });
 	});
 
-	test("emits contextUsageUpdated from the terminal result's usage + modelUsage", async () => {
+	test("emits contextUsageUpdated from the terminal result's usage + modelUsage, stamping the requested modelId", async () => {
 		const sdkMessages = [
 			{
 				type: "result",
@@ -266,7 +266,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			{
 				sessionId: "helmor-sess-ctx",
 				prompt: "hi",
-				model: undefined,
+				model: "claude-opus-4-7[1m]",
 				cwd: undefined,
 				resume: undefined,
 				permissionMode: undefined,
@@ -282,6 +282,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(ctxUsage?.sessionId).toBe("helmor-sess-ctx");
 		const meta = JSON.parse(ctxUsage?.meta as string);
 		expect(meta).toEqual({
+			modelId: "claude-opus-4-7[1m]",
 			usedTokens: 25_384,
 			maxTokens: 1_000_000,
 			// 25384 / 1_000_000 * 100 rounded to 2 decimals.
@@ -368,6 +369,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(getContextUsageCalls).toBe(1);
 		const meta = JSON.parse(json);
 		expect(meta).toEqual({
+			modelId: "claude-opus-4-7",
 			usedTokens: 1500,
 			maxTokens: 200_000,
 			percentage: 0.75,
@@ -406,6 +408,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		});
 
 		const meta = JSON.parse(json);
+		expect(meta.modelId).toBe("claude-opus-4-7");
 		expect(meta.usedTokens).toBe(42_000);
 		expect(meta.maxTokens).toBe(1_000_000);
 		// Assert the transient query was configured with resume + model so
@@ -446,7 +449,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			{
 				sessionId: "helmor-sess-err",
 				prompt: "hi",
-				model: undefined,
+				model: "claude-sonnet-4-5",
 				cwd: undefined,
 				resume: undefined,
 				permissionMode: undefined,
@@ -459,6 +462,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		const ctxUsage = captured.find((e) => e.type === "contextUsageUpdated");
 		expect(ctxUsage).toBeDefined();
 		const meta = JSON.parse(ctxUsage?.meta as string);
+		expect(meta.modelId).toBe("claude-sonnet-4-5");
 		expect(meta.usedTokens).toBe(5100);
 		expect(meta.maxTokens).toBe(200_000);
 	});

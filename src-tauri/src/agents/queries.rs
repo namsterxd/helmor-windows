@@ -1000,8 +1000,7 @@ fn fetch_models_for_provider(
 pub struct GetLiveContextUsageRequest {
     pub session_id: String,
     pub provider_session_id: Option<String>,
-    /// CLI model id — required by the sidecar; it stamps this into the
-    /// returned rich meta for the ring's model-match check.
+    /// Model id used by the sidecar and stamped into the returned meta.
     pub model: String,
     pub cwd: Option<String>,
 }

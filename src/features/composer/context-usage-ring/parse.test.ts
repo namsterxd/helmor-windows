@@ -10,6 +10,8 @@ import {
 	type StoredContextUsageMeta,
 } from "./parse";
 
+const CLAUDE_MODEL = "claude-opus-4-7[1m]";
+
 describe("parseStoredMeta", () => {
 	it("returns null for empty / null / unparseable input", () => {
 		expect(parseStoredMeta(null)).toBeNull();
@@ -19,38 +21,60 @@ describe("parseStoredMeta", () => {
 		expect(parseStoredMeta("{}")).toBeNull();
 	});
 
-	it("parses the baseline shape", () => {
+	it("parses the baseline shape including modelId", () => {
 		const meta = parseStoredMeta(
 			JSON.stringify({
+				modelId: CLAUDE_MODEL,
 				usedTokens: 25_384,
 				maxTokens: 1_000_000,
 				percentage: 2.5384,
 			}),
 		);
 		expect(meta).toEqual({
+			modelId: CLAUDE_MODEL,
 			usedTokens: 25_384,
 			maxTokens: 1_000_000,
 			percentage: 2.5384,
 		});
 	});
 
+	it("tolerates a row with no modelId (legacy) as empty string", () => {
+		const meta = parseStoredMeta(
+			JSON.stringify({
+				usedTokens: 100,
+				maxTokens: 1000,
+				percentage: 10,
+			}),
+		);
+		expect(meta?.modelId).toBe("");
+	});
+
 	it("computes percentage from used/max when not provided", () => {
 		const meta = parseStoredMeta(
-			JSON.stringify({ usedTokens: 500, maxTokens: 1000 }),
+			JSON.stringify({
+				modelId: "m",
+				usedTokens: 500,
+				maxTokens: 1000,
+			}),
 		);
 		expect(meta?.percentage).toBe(50);
 	});
 
 	it("returns null when used or max is missing", () => {
-		expect(parseStoredMeta(JSON.stringify({ usedTokens: 100 }))).toBeNull();
-		expect(parseStoredMeta(JSON.stringify({ maxTokens: 1000 }))).toBeNull();
+		expect(
+			parseStoredMeta(JSON.stringify({ modelId: "m", usedTokens: 100 })),
+		).toBeNull();
+		expect(
+			parseStoredMeta(JSON.stringify({ modelId: "m", maxTokens: 1000 })),
+		).toBeNull();
 	});
 });
 
 describe("parseClaudeRichMeta", () => {
-	it("parses the rich shape", () => {
+	it("parses the rich shape including modelId", () => {
 		const rich = parseClaudeRichMeta(
 			JSON.stringify({
+				modelId: CLAUDE_MODEL,
 				usedTokens: 1500,
 				maxTokens: 200_000,
 				percentage: 0.75,
@@ -59,6 +83,7 @@ describe("parseClaudeRichMeta", () => {
 			}),
 		);
 		expect(rich).toEqual({
+			modelId: CLAUDE_MODEL,
 			usedTokens: 1500,
 			maxTokens: 200_000,
 			percentage: 0.75,
@@ -75,20 +100,24 @@ describe("parseClaudeRichMeta", () => {
 });
 
 describe("resolveContextUsageDisplay", () => {
-	const baseline: StoredContextUsageMeta = {
+	const baselineClaude: StoredContextUsageMeta = {
+		modelId: CLAUDE_MODEL,
 		usedTokens: 50_000,
 		maxTokens: 200_000,
 		percentage: 25,
 	};
 
 	it("returns `empty` when baseline + rich are both null", () => {
-		expect(resolveContextUsageDisplay(null, null)).toEqual({ kind: "empty" });
+		expect(resolveContextUsageDisplay(null, null, CLAUDE_MODEL)).toEqual({
+			kind: "empty",
+		});
 	});
 
-	it("returns `full` from baseline alone", () => {
-		const res = resolveContextUsageDisplay(baseline, null);
+	it("returns `full` when baseline model matches composer", () => {
+		const res = resolveContextUsageDisplay(baselineClaude, null, CLAUDE_MODEL);
 		expect(res).toEqual({
 			kind: "full",
+			modelId: CLAUDE_MODEL,
 			usedTokens: 50_000,
 			maxTokens: 200_000,
 			percentage: 25,
@@ -97,15 +126,49 @@ describe("resolveContextUsageDisplay", () => {
 		});
 	});
 
-	it("rich overrides baseline when both present", () => {
+	it("returns `tokensOnly` when composer switched to a different model", () => {
+		const res = resolveContextUsageDisplay(
+			baselineClaude,
+			null,
+			"claude-sonnet-4-5",
+		);
+		expect(res).toEqual({
+			kind: "tokensOnly",
+			recordedModelId: CLAUDE_MODEL,
+			usedTokens: 50_000,
+		});
+	});
+
+	it("treats null composerModelId as match (avoids flash of tokensOnly during mount)", () => {
+		const res = resolveContextUsageDisplay(baselineClaude, null, null);
+		expect(res.kind).toBe("full");
+	});
+
+	it("legacy baseline (empty modelId) degrades to tokensOnly when composer has a model", () => {
+		const legacy: StoredContextUsageMeta = {
+			modelId: "",
+			usedTokens: 10_000,
+			maxTokens: 200_000,
+			percentage: 5,
+		};
+		const res = resolveContextUsageDisplay(legacy, null, CLAUDE_MODEL);
+		expect(res).toEqual({
+			kind: "tokensOnly",
+			recordedModelId: "",
+			usedTokens: 10_000,
+		});
+	});
+
+	it("rich overrides baseline values when both present and model matches", () => {
 		const rich: ClaudeRichContextUsage = {
+			modelId: CLAUDE_MODEL,
 			usedTokens: 60_000,
 			maxTokens: 200_000,
 			percentage: 30,
 			isAutoCompactEnabled: true,
 			categories: [{ name: "Messages", tokens: 60_000 }],
 		};
-		const res = resolveContextUsageDisplay(baseline, rich);
+		const res = resolveContextUsageDisplay(baselineClaude, rich, CLAUDE_MODEL);
 		expect(res.kind).toBe("full");
 		if (res.kind !== "full") throw new Error("unreachable");
 		expect(res.usedTokens).toBe(60_000);
@@ -114,8 +177,11 @@ describe("resolveContextUsageDisplay", () => {
 	});
 
 	it("computes ring tier from percentage", () => {
-		const near: StoredContextUsageMeta = { ...baseline, percentage: 85 };
-		const res = resolveContextUsageDisplay(near, null);
+		const near: StoredContextUsageMeta = {
+			...baselineClaude,
+			percentage: 85,
+		};
+		const res = resolveContextUsageDisplay(near, null, CLAUDE_MODEL);
 		if (res.kind !== "full") throw new Error("unreachable");
 		expect(res.tier).toBe("danger");
 	});

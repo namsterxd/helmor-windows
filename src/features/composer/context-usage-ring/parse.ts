@@ -1,17 +1,15 @@
-// Parses `context_usage_meta` JSON (and Codex rate-limits JSON) into
-// display-ready shapes for the ring + popover. One shape per source;
-// no model matching, no legacy fallback — sidecar always writes the
-// current format.
+// Display-ready parsing for context usage and Codex rate limits.
+// Percentages are only trusted when the stored model matches the composer.
 
 /** Baseline: written at turn end by both Claude and Codex. */
 export type StoredContextUsageMeta = {
+	readonly modelId: string;
 	readonly usedTokens: number;
 	readonly maxTokens: number;
 	readonly percentage: number;
 };
 
-/** Claude-only rich breakdown from `q.getContextUsage()`. Fetched live
- *  on hover. */
+/** Claude-only breakdown fetched live on hover. */
 export type ClaudeRichContextUsage = StoredContextUsageMeta & {
 	readonly isAutoCompactEnabled: boolean;
 	readonly categories: ReadonlyArray<{ name: string; tokens: number }>;
@@ -26,11 +24,17 @@ export function ringTier(percentage: number): RingTier {
 	return "default";
 }
 
-/** Ring display. `rich` is set when Claude's hover fetch has resolved. */
+/** Ring display state. */
 export type DisplayResolution =
 	| { readonly kind: "empty" }
 	| {
+			readonly kind: "tokensOnly";
+			readonly recordedModelId: string;
+			readonly usedTokens: number;
+	  }
+	| {
 			readonly kind: "full";
+			readonly modelId: string;
 			readonly usedTokens: number;
 			readonly maxTokens: number;
 			readonly percentage: number;
@@ -38,15 +42,28 @@ export type DisplayResolution =
 			readonly rich: ClaudeRichContextUsage | null;
 	  };
 
-/** Rich overrides baseline when present (same units, strictly fresher). */
+/** Rich overrides baseline; model mismatches degrade to tokens-only. */
 export function resolveContextUsageDisplay(
 	baseline: StoredContextUsageMeta | null,
 	rich: ClaudeRichContextUsage | null,
+	composerModelId: string | null,
 ): DisplayResolution {
 	const effective = rich ?? baseline;
 	if (!effective) return { kind: "empty" };
+
+	const matches =
+		composerModelId === null || effective.modelId === composerModelId;
+	if (!matches) {
+		return {
+			kind: "tokensOnly",
+			recordedModelId: effective.modelId,
+			usedTokens: effective.usedTokens,
+		};
+	}
+
 	return {
 		kind: "full",
+		modelId: effective.modelId,
 		usedTokens: effective.usedTokens,
 		maxTokens: effective.maxTokens,
 		percentage: effective.percentage,
@@ -90,6 +107,7 @@ export function parseStoredMeta(
 	const max = asNumber(root.maxTokens);
 	if (used === null || max === null) return null;
 	return {
+		modelId: typeof root.modelId === "string" ? root.modelId : "",
 		usedTokens: used,
 		maxTokens: max,
 		percentage: asNumber(root.percentage) ?? clampPercent(used, max),
@@ -122,6 +140,7 @@ export function parseClaudeRichMeta(
 		categories.push({ name, tokens });
 	}
 	return {
+		modelId: typeof root.modelId === "string" ? root.modelId : "",
 		usedTokens: used,
 		maxTokens: max,
 		percentage: asNumber(root.percentage) ?? clampPercent(used, max),
