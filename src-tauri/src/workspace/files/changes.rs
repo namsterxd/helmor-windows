@@ -11,17 +11,32 @@ use super::{
     support::allowed_workspace_roots,
     types::{EditorFileListItem, EditorFilePrefetchItem, EditorFilesWithContentResponse},
 };
-use crate::{db, git_ops, workspace_state};
+use crate::{
+    bail_coded, db,
+    error::{AnyhowCodedExt, ErrorCode},
+    git_ops, workspace_state,
+};
 
 const MAX_PREFETCH_BYTES: u64 = 1_048_576;
 
 pub fn list_workspace_changes(workspace_root_path: &str) -> Result<Vec<EditorFileListItem>> {
     let workspace_root = Path::new(workspace_root_path);
-    if !workspace_root.is_absolute() || !workspace_root.is_dir() {
+    if !workspace_root.is_absolute() {
         bail!(
-            "Workspace root is not a valid directory: {}",
+            "Workspace root must be an absolute path: {}",
             workspace_root.display()
         );
+    }
+    if !workspace_root.is_dir() {
+        // Workspace dir vanished externally (deleted / archive cleanup /
+        // repo moved). The inspector polls this on a fixed interval — if
+        // we bailed, every tick would log an error. Return empty changes
+        // silently; the selection layer is responsible for reconciling.
+        tracing::warn!(
+            path = %workspace_root.display(),
+            "workspace root missing; returning empty change list",
+        );
+        return Ok(Vec::new());
     }
 
     let target_ref = resolve_target_ref(workspace_root)?;
@@ -170,9 +185,19 @@ fn validate_workspace_relative_path(
     relative_path: &str,
 ) -> Result<(PathBuf, PathBuf)> {
     let workspace_root = PathBuf::from(workspace_root_path);
-    if !workspace_root.is_absolute() || !workspace_root.is_dir() {
+    if !workspace_root.is_absolute() {
         bail!(
-            "Workspace root is not a valid directory: {}",
+            "Workspace root must be an absolute path: {}",
+            workspace_root.display()
+        );
+    }
+    // Directory vanished (archived, deleted externally, repo moved). Tag
+    // the error so the frontend can offer "Permanently Delete" rather than
+    // a generic red toast with no recovery action.
+    if !workspace_root.is_dir() {
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
+            "Workspace directory is missing: {}",
             workspace_root.display()
         );
     }
@@ -191,11 +216,15 @@ fn validate_workspace_relative_path(
         bail!("Relative path must not contain parent traversal: {relative_path}");
     }
 
-    let canonical_root = workspace_root.canonicalize().with_context(|| {
-        format!(
-            "Failed to canonicalize workspace root: {}",
-            workspace_root.display()
-        )
+    let canonical_root = workspace_root.canonicalize().map_err(|error| {
+        // canonicalize only fails here if the directory was removed between
+        // the is_dir() check above and now (TOCTOU). Same recovery action.
+        anyhow::Error::new(error)
+            .context(format!(
+                "Failed to canonicalize workspace root: {}",
+                workspace_root.display()
+            ))
+            .with_code(ErrorCode::WorkspaceBroken)
     })?;
     let workspace_roots = allowed_workspace_roots()?;
     if !workspace_roots

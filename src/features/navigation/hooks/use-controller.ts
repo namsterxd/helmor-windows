@@ -38,11 +38,18 @@ import {
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
 import {
+	beginSidebarMutation as gateBeginSidebarMutation,
+	endSidebarMutation as gateEndSidebarMutation,
+	flushSidebarLists as gateFlushSidebarLists,
+	isSidebarMutationInFlight,
+} from "@/lib/sidebar-mutation-gate";
+import {
 	createOptimisticCreatingWorkspaceDetail,
 	describeUnknownError,
 	findInitialWorkspaceId,
 	findReplacementWorkspaceIdAfterRemoval,
 	hasWorkspaceId,
+	insertRowByCreatedAtDesc,
 	rowToWorkspaceSummary,
 	summaryToArchivedRow,
 	workspaceGroupIdFromStatus,
@@ -108,7 +115,6 @@ export function useWorkspacesSidebarController({
 			}
 		>
 	>(() => new Map());
-	const sidebarMutationCountRef = useRef(0);
 	// Live mirror of `selectedWorkspaceId` so async callbacks (Phase 2
 	// finalize catch, archive/restore handlers, etc.) can read the
 	// current selection rather than a stale closure snapshot.
@@ -116,24 +122,16 @@ export function useWorkspacesSidebarController({
 	selectedWorkspaceIdRef.current = selectedWorkspaceId;
 
 	const flushSidebarLists = useCallback(() => {
-		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.workspaceGroups,
-		});
-		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.archivedWorkspaces,
-		});
+		gateFlushSidebarLists(queryClient);
 	}, [queryClient]);
 
 	const beginSidebarMutation = useCallback(() => {
-		sidebarMutationCountRef.current += 1;
+		gateBeginSidebarMutation();
 	}, []);
 
 	const endSidebarMutation = useCallback(() => {
-		sidebarMutationCountRef.current = Math.max(
-			0,
-			sidebarMutationCountRef.current - 1,
-		);
-		if (sidebarMutationCountRef.current === 0) {
+		gateEndSidebarMutation();
+		if (!isSidebarMutationInFlight()) {
 			flushSidebarLists();
 		}
 	}, [flushSidebarLists]);
@@ -387,6 +385,13 @@ export function useWorkspacesSidebarController({
 			return;
 		}
 
+		// Only restore archived workspaces if they were the live selection
+		// (runtime state). Never auto-restore archived from persisted
+		// `lastWorkspaceId` — the directory may be gone, which would spam
+		// git/editor errors on every poll. Fall through to an active group.
+		const isInActiveGroups = (id: string) =>
+			groups.some((group) => group.rows.some((row) => row.id === id));
+
 		let nextWorkspaceId: string | null;
 		if (
 			selectedWorkspaceId &&
@@ -395,7 +400,7 @@ export function useWorkspacesSidebarController({
 			nextWorkspaceId = selectedWorkspaceId;
 		} else if (
 			settings.lastWorkspaceId &&
-			hasWorkspaceId(settings.lastWorkspaceId, groups, archivedSummaries)
+			isInActiveGroups(settings.lastWorkspaceId)
 		) {
 			nextWorkspaceId = settings.lastWorkspaceId;
 		} else {
@@ -476,7 +481,7 @@ export function useWorkspacesSidebarController({
 					queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 				}),
 			]);
-			if (!opts?.skipSidebarFlush && sidebarMutationCountRef.current === 0) {
+			if (!opts?.skipSidebarFlush && !isSidebarMutationInFlight()) {
 				flushSidebarLists();
 			}
 		},
@@ -600,12 +605,11 @@ export function useWorkspacesSidebarController({
 					pinnedAt: currentlyPinned ? null : new Date().toISOString(),
 				};
 
-				const targetGroupId = currentlyPinned
-					? workspaceGroupIdFromStatus(
-							updatedRow.manualStatus,
-							updatedRow.derivedStatus,
-						)
-					: "pinned";
+				const targetGroupId = workspaceGroupIdFromStatus(
+					updatedRow.manualStatus,
+					updatedRow.derivedStatus,
+					updatedRow.pinnedAt,
+				);
 
 				return withoutRow.map((group) =>
 					group.id === targetGroupId
@@ -1125,6 +1129,20 @@ export function useWorkspacesSidebarController({
 		[handleDeleteWorkspace, pushWorkspaceToast],
 	);
 
+	const notifyTargetBranchRestore = useCallback(
+		(targetBranch: string | null) => {
+			if (!targetBranch) {
+				return;
+			}
+			pushWorkspaceToast(
+				`No archive commit was available, so the workspace was restored from "${targetBranch}".`,
+				"Restored from target branch",
+				"default",
+			);
+		},
+		[pushWorkspaceToast],
+	);
+
 	// Keep the forward-ref used by `pushWorkspaceErrorToast` in sync.
 	useEffect(() => {
 		handleDeleteWorkspaceRef.current = handleDeleteWorkspace;
@@ -1310,6 +1328,7 @@ export function useWorkspacesSidebarController({
 					.then((response) => {
 						prefetchWorkspace(workspaceId);
 						onSelectWorkspace(workspaceId);
+						notifyTargetBranchRestore(response.restoredFromTargetBranch);
 						if (response.branchRename) {
 							notifyBranchRename(response.branchRename);
 						}
@@ -1341,12 +1360,19 @@ export function useWorkspacesSidebarController({
 			const targetGroupId = workspaceGroupIdFromStatus(
 				archivedSummary.manualStatus,
 				archivedSummary.derivedStatus,
+				archivedSummary.pinnedAt,
 			);
+			// Sorted insert by createdAt DESC so the row lands where the server
+			// will place it on refetch — avoids the reorder flicker we'd get from
+			// unconditionally prepending.
 			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
 				Array.isArray(current)
 					? (current as typeof groups).map((group) =>
 							group.id === targetGroupId
-								? { ...group, rows: [placeholderRow, ...group.rows] }
+								? {
+										...group,
+										rows: insertRowByCreatedAtDesc(group.rows, placeholderRow),
+									}
 								: group,
 						)
 					: current,
@@ -1369,6 +1395,7 @@ export function useWorkspacesSidebarController({
 					if (response.branchRename) {
 						notifyBranchRename(response.branchRename);
 					}
+					notifyTargetBranchRestore(response.restoredFromTargetBranch);
 				})
 				.catch((error) => {
 					queryClient.setQueryData(
@@ -1392,6 +1419,7 @@ export function useWorkspacesSidebarController({
 			beginSidebarMutation,
 			endSidebarMutation,
 			notifyBranchRename,
+			notifyTargetBranchRestore,
 			onSelectWorkspace,
 			pendingCreations,
 			prefetchWorkspace,
@@ -1497,6 +1525,7 @@ function createPreparedWorkspaceRow(
 		pinnedAt: null,
 		sessionCount: 1,
 		messageCount: 0,
+		createdAt: new Date().toISOString(),
 	};
 }
 

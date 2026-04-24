@@ -32,6 +32,7 @@ const composerMockState = vi.hoisted(() => ({
 		name: string;
 		description: string;
 		source: string;
+		providers?: readonly string[] | null;
 	}>,
 	lastLinkedDirectories: [] as readonly string[],
 	lastOnRemoveLinkedDirectory: null as RemoveHandler | null,
@@ -53,6 +54,7 @@ vi.mock("./index", async () => {
 				name: string;
 				description: string;
 				source: string;
+				providers?: readonly string[] | null;
 			}[];
 			linkedDirectories?: readonly string[];
 			onRemoveLinkedDirectory?: RemoveHandler;
@@ -605,7 +607,10 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	describe("/add-dir integration", () => {
-		function renderWithLinkedDirs(linked: string[]) {
+		function renderWithLinkedDirs(
+			linked: string[],
+			displayedSessionId = "session-1",
+		) {
 			// Returning the list from the API mock — not setQueryData —
 			// so the background refetch (`staleTime: 0`) doesn't overwrite
 			// the seeded value with the default setup.ts mock.
@@ -627,7 +632,7 @@ describe("WorkspaceComposerContainer", () => {
 				<QueryClientProvider client={queryClient}>
 					<WorkspaceComposerContainer
 						displayedWorkspaceId="workspace-1"
-						displayedSessionId="session-1"
+						displayedSessionId={displayedSessionId}
 						disabled={false}
 						sending={false}
 						sendError={null}
@@ -682,6 +687,28 @@ describe("WorkspaceComposerContainer", () => {
 				name: "add-dir",
 				description: "Link extra directories to this workspace",
 				source: "client-action",
+			});
+		});
+
+		it("adds a built-in /compact command for Codex sessions", async () => {
+			apiMockState.listSlashCommands.mockResolvedValue({
+				commands: [],
+				isComplete: true,
+			});
+
+			renderWithLinkedDirs([], "session-2");
+
+			await waitFor(() => {
+				expect(composerMockState.lastSlashCommands.map((c) => c.name)).toEqual([
+					"add-dir",
+					"compact",
+				]);
+			});
+			expect(composerMockState.lastSlashCommands[1]).toEqual({
+				name: "compact",
+				description: "Compact this Codex thread's context",
+				source: "builtin",
+				providers: ["codex"],
 			});
 		});
 

@@ -30,6 +30,7 @@ import {
 	stopAgentStream,
 } from "@/lib/api";
 import type { ComposerCustomTag } from "@/lib/composer-insert";
+import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
 	agentModelSectionsQueryOptions,
 	helmorQueryKeys,
@@ -47,6 +48,7 @@ import {
 } from "@/lib/session-thread-cache";
 import type { FollowUpBehavior } from "@/lib/settings";
 import type { SubmitQueueApi } from "@/lib/use-submit-queue";
+import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import {
 	createLiveThreadMessage,
 	findModelOption,
@@ -132,6 +134,7 @@ type UseConversationStreamingArgs = {
 		interactionCounts: Map<string, number>,
 	) => void;
 	onSessionCompleted?: (sessionId: string, workspaceId: string) => void;
+	onSessionAborted?: (sessionId: string, workspaceId: string) => void;
 };
 
 export function useConversationStreaming({
@@ -147,6 +150,7 @@ export function useConversationStreaming({
 	onSendingSessionsChange,
 	onInteractionSessionsChange,
 	onSessionCompleted,
+	onSessionAborted,
 }: UseConversationStreamingArgs) {
 	const queryClient = useQueryClient();
 	const pushToast = useWorkspaceToast();
@@ -266,6 +270,8 @@ export function useConversationStreaming({
 	onInteractionSessionsChangeRef.current = onInteractionSessionsChange;
 	const onSessionCompletedRef = useRef(onSessionCompleted);
 	onSessionCompletedRef.current = onSessionCompleted;
+	const onSessionAbortedRef = useRef(onSessionAborted);
+	onSessionAbortedRef.current = onSessionAborted;
 	useLayoutEffect(() => {
 		const workspaceIds = new Set<string>();
 		for (const [, workspaceId] of sendingWorkspaceMapRef.current) {
@@ -882,6 +888,11 @@ export function useConversationStreaming({
 								if (sid && displayedWorkspaceId) {
 									onSessionCompletedRef.current?.(sid, displayedWorkspaceId);
 								}
+							} else if (event.kind === "aborted") {
+								const sid = event.sessionId ?? displayedSessionId;
+								if (sid && displayedWorkspaceId) {
+									onSessionAbortedRef.current?.(sid, displayedWorkspaceId);
+								}
 							}
 
 							void queryClient.invalidateQueries({
@@ -939,7 +950,17 @@ export function useConversationStreaming({
 				);
 			} catch (error) {
 				console.error("[conversation] deferred tool response:", error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
+				const { code, message: errorMsg } = extractError(
+					error,
+					"Failed to resume agent stream.",
+				);
+				if (isRecoverableByPurge(code) && displayedWorkspaceId) {
+					showWorkspaceBrokenToast({
+						workspaceId: displayedWorkspaceId,
+						pushToast,
+						queryClient,
+					});
+				}
 				setPendingDeferredByContext((current) => ({
 					...current,
 					[contextKey]: deferred,
@@ -1155,13 +1176,15 @@ export function useConversationStreaming({
 				typeof currentSession?.title === "string"
 					? currentSession.title
 					: undefined;
+			const isCompactCommand = trimmedPrompt === "/compact";
 			const isFirstUserMessage =
 				(currentThread ?? []).every((message) => message.role !== "user") &&
 				(currentTitle == null || currentTitle === "Untitled");
 			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
-			const finalPrompt = isFirstUserMessage
-				? prependGeneralPreferencePrompt(trimmedPrompt, repoPreferences)
-				: trimmedPrompt;
+			const finalPrompt =
+				isFirstUserMessage && !isCompactCommand
+					? prependGeneralPreferencePrompt(trimmedPrompt, repoPreferences)
+					: trimmedPrompt;
 			const now = new Date().toISOString();
 			const userMessageId = crypto.randomUUID();
 			const optimisticUserMessage = createLiveThreadMessage({
@@ -1172,7 +1195,7 @@ export function useConversationStreaming({
 				files: filePaths,
 			});
 			let titleSeed: string | null = null;
-			if (isFirstUserMessage) {
+			if (isFirstUserMessage && !isCompactCommand) {
 				titleSeed = buildTitleSeed(trimmedPrompt);
 				seedSessionTitle(targetSessionId, targetWorkspaceId, titleSeed);
 				void renameSession(targetSessionId, titleSeed).catch((error) => {
@@ -1390,6 +1413,11 @@ export function useConversationStreaming({
 								if (sid && targetWorkspaceId) {
 									onSessionCompletedRef.current?.(sid, targetWorkspaceId);
 								}
+							} else if (event.kind === "aborted") {
+								const sid = event.sessionId ?? targetSessionId;
+								if (sid && targetWorkspaceId) {
+									onSessionAbortedRef.current?.(sid, targetWorkspaceId);
+								}
 							}
 
 							void queryClient.invalidateQueries({
@@ -1463,7 +1491,17 @@ export function useConversationStreaming({
 				);
 			} catch (error) {
 				console.error("[conversation] invoke error:", error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
+				const { code, message: errorMsg } = extractError(
+					error,
+					"Failed to send message.",
+				);
+				if (isRecoverableByPurge(code) && displayedWorkspaceId) {
+					showWorkspaceBrokenToast({
+						workspaceId: displayedWorkspaceId,
+						pushToast,
+						queryClient,
+					});
+				}
 				setSendErrorsByContext((current) => ({
 					...current,
 					[contextKey]: errorMsg,

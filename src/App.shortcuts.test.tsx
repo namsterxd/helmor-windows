@@ -284,6 +284,18 @@ function expectSelectedSession(title: string) {
 	expect(getSessionTab(title)).toHaveAttribute("aria-selected", "true");
 }
 
+function getSessionCloseButton(title: string) {
+	const closeButton = getSessionTab(title).querySelector(
+		'[aria-label="Close session"]',
+	);
+
+	if (!closeButton) {
+		throw new Error(`Unable to find close button for "${title}".`);
+	}
+
+	return closeButton as HTMLElement;
+}
+
 function expectSelectedWorkspace(title: string) {
 	expect(screen.getByRole("button", { name: title })).toHaveClass(
 		"workspace-row-selected",
@@ -323,12 +335,12 @@ function emitTauriEvent(eventName: string) {
 	}
 }
 
-async function renderAppReady() {
+async function renderAppReady(expectedSessionTitle = "Done session 1") {
 	render(<App />);
 
 	await waitFor(() => {
 		expectSelectedWorkspace("Done workspace");
-		expectSelectedSession("Done session 1");
+		expectSelectedSession(expectedSessionTitle);
 	});
 }
 
@@ -718,6 +730,106 @@ describe("App global navigation shortcuts", () => {
 		});
 		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-1");
 		expect(apiMocks.deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("selects the right session after closing a middle session", async () => {
+		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
+			{
+				id: "session-done-1",
+				title: "Done session 1",
+				active: true,
+			},
+			{
+				id: "session-done-2",
+				title: "Done session 2",
+				active: false,
+			},
+			{
+				id: "session-done-3",
+				title: "Done session 3",
+				active: false,
+			},
+		];
+
+		await renderAppReady();
+		await userEvent.click(getSessionTab("Done session 2"));
+		await waitFor(() => {
+			expectSelectedSession("Done session 2");
+		});
+
+		fireEvent.keyDown(window, {
+			key: "w",
+			metaKey: true,
+		});
+
+		await waitFor(() => {
+			expectSelectedSession("Done session 3");
+		});
+		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-2");
+	});
+
+	it("selects the left session after closing the rightmost session", async () => {
+		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
+			{
+				id: "session-done-1",
+				title: "Done session 1",
+				active: true,
+			},
+			{
+				id: "session-done-2",
+				title: "Done session 2",
+				active: false,
+			},
+			{
+				id: "session-done-3",
+				title: "Done session 3",
+				active: false,
+			},
+		];
+
+		await renderAppReady();
+		await userEvent.click(getSessionTab("Done session 3"));
+		await waitFor(() => {
+			expectSelectedSession("Done session 3");
+		});
+
+		fireEvent.keyDown(window, {
+			key: "w",
+			metaKey: true,
+		});
+
+		await waitFor(() => {
+			expectSelectedSession("Done session 2");
+		});
+		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-3");
+	});
+
+	it("keeps the active session when closing an inactive session tab", async () => {
+		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
+			{
+				id: "session-done-1",
+				title: "Done session 1",
+				active: true,
+			},
+			{
+				id: "session-done-2",
+				title: "Done session 2",
+				active: false,
+			},
+			{
+				id: "session-done-3",
+				title: "Done session 3",
+				active: false,
+			},
+		];
+
+		await renderAppReady();
+		await userEvent.click(getSessionCloseButton("Done session 2"));
+
+		await waitFor(() => {
+			expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-2");
+		});
+		expectSelectedSession("Done session 1");
 	});
 
 	it("quits silently on a Rust-emitted quit-requested event when nothing is in flight", async () => {

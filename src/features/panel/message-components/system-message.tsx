@@ -41,7 +41,7 @@ function SystemNotice({ part }: { part: SystemNoticePart }) {
 				? "text-chart-5"
 				: "text-chart-3";
 	return (
-		<span className="inline-flex items-center gap-1 whitespace-nowrap">
+		<span className="inline-flex min-h-4 items-center gap-1 whitespace-nowrap leading-none">
 			<Icon className={cn("size-3 shrink-0", iconClass)} strokeWidth={1.8} />
 			<span>{part.label}</span>
 			{part.body ? (
@@ -111,11 +111,21 @@ function MessageTimestamp({ createdAt }: { createdAt?: string }) {
 	if (Number.isNaN(date.getTime())) return null;
 	return (
 		<>
-			<span className="mx-0.5 text-[11px] text-muted-foreground/60">•</span>
-			<span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+			<span className="inline-flex h-4 items-center text-[11px] leading-none text-muted-foreground/60">
+				•
+			</span>
+			<span className="inline-flex h-4 shrink-0 items-center text-[11px] leading-none tabular-nums text-muted-foreground">
 				{formatDistanceToNow(date, { addSuffix: true })}
 			</span>
 		</>
+	);
+}
+
+// Only the turn-end row (Claude `result` / Codex `turn.completed`) gets a
+// timestamp — the adapter tags its text part id with `:turn-result`.
+function shouldShowTimestamp(parts: MessagePart[]) {
+	return parts.some(
+		(part) => isTextPart(part) && part.id.endsWith(":turn-result"),
 	);
 }
 
@@ -138,7 +148,7 @@ export function ChatSystemMessage({
 			data-message-role="system"
 			className="group/sys flex min-w-0 items-center gap-1.5"
 		>
-			<div className="py-1 text-[11px] text-muted-foreground">
+			<div className="flex min-w-0 items-center gap-1.5 py-1 text-[11px] leading-none text-muted-foreground">
 				{parts.map((part, index) => {
 					if (isSystemNoticePart(part)) {
 						return <SystemNotice key={index} part={part} />;
@@ -151,8 +161,10 @@ export function ChatSystemMessage({
 					}
 					return null;
 				})}
+				{shouldShowTimestamp(parts) ? (
+					<MessageTimestamp createdAt={message.createdAt} />
+				) : null}
 			</div>
-			<MessageTimestamp createdAt={message.createdAt} />
 			<CopyMessageButton
 				message={copyTarget}
 				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"

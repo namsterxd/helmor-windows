@@ -48,6 +48,7 @@ type WorkspaceConversationContainerProps = {
 	) => void;
 	interactionRequiredSessionIds?: Set<string>;
 	onSessionCompleted?: (sessionId: string, workspaceId: string) => void;
+	onSessionAborted?: (sessionId: string, workspaceId: string) => void;
 	workspacePrInfo?: PullRequestInfo | null;
 	headerActions?: React.ReactNode;
 	headerLeading?: React.ReactNode;
@@ -93,6 +94,7 @@ export const WorkspaceConversationContainer = memo(
 		onInteractionSessionsChange,
 		interactionRequiredSessionIds,
 		onSessionCompleted,
+		onSessionAborted,
 		workspacePrInfo = null,
 		headerActions,
 		headerLeading,
@@ -168,6 +170,7 @@ export const WorkspaceConversationContainer = memo(
 			onSendingWorkspacesChange,
 			onInteractionSessionsChange,
 			onSessionCompleted,
+			onSessionAborted,
 		});
 
 		const queueItems = displayedSessionId

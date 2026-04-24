@@ -52,9 +52,20 @@ pub(super) fn parse_codex_output(
 pub(super) fn resolve_working_directory(provided: Option<&str>) -> Result<PathBuf> {
     if let Some(path) = non_empty(provided) {
         let directory = PathBuf::from(path);
-        if directory.is_dir() {
-            return Ok(directory);
+        // Provided path MUST exist — silently falling back to the helmor
+        // process's cwd would spawn the agent CLI in `/` (or the app bundle)
+        // and pollute session_messages with nonsense output. Tag the error
+        // with `WorkspaceBroken` so the frontend can offer "Permanently
+        // Delete" instead of a generic failure toast.
+        if !directory.is_dir() {
+            return Err(
+                crate::error::coded(crate::error::ErrorCode::WorkspaceBroken).context(format!(
+                    "Workspace directory is missing: {}",
+                    directory.display()
+                )),
+            );
         }
+        return Ok(directory);
     }
 
     std::env::current_dir().context("Failed to resolve working directory")

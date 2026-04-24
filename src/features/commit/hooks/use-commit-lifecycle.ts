@@ -92,6 +92,7 @@ export function useWorkspaceCommitLifecycle({
 	workspacePrActionStatus,
 	workspaceGitActionStatus,
 	completedSessionIds,
+	abortedSessionIds,
 	interactionRequiredSessionIds,
 	sendingSessionIds,
 	onSelectSession,
@@ -106,6 +107,7 @@ export function useWorkspaceCommitLifecycle({
 	workspacePrActionStatus: WorkspacePrActionStatus | null;
 	workspaceGitActionStatus: WorkspaceGitActionStatus | null;
 	completedSessionIds: Set<string>;
+	abortedSessionIds?: Set<string>;
 	interactionRequiredSessionIds: Set<string>;
 	sendingSessionIds: Set<string>;
 	onSelectSession: (sessionId: string | null) => void;
@@ -355,6 +357,7 @@ export function useWorkspaceCommitLifecycle({
 		console.log("[commitButton] action-session settlement check", {
 			sendingIds: Array.from(sendingSessionIds),
 			completedIds: Array.from(completedSessionIds),
+			abortedIds: abortedSessionIds ? Array.from(abortedSessionIds) : [],
 			interactionRequiredIds: Array.from(interactionRequiredSessionIds),
 			lifecyclePhase: current?.phase ?? null,
 			trackedSessionId: current?.trackedSessionId ?? null,
@@ -366,6 +369,19 @@ export function useWorkspaceCommitLifecycle({
 		if (current.phase !== "creating" && current.phase !== "streaming") return;
 
 		const trackedSessionId = current.trackedSessionId;
+
+		// Aborted sessions clear the lifecycle — no PR was created, so the
+		// button returns to idle rather than proceeding to verify.
+		if (abortedSessionIds?.has(trackedSessionId)) {
+			console.log(
+				"[commitButton] tracked session aborted — clearing lifecycle",
+			);
+			hasObservedSendingRef.current = false;
+			completedSessionHandledRef.current = null;
+			setCommitLifecycle(null);
+			return;
+		}
+
 		const isSending = sendingSessionIds.has(trackedSessionId);
 		if (isSending) {
 			console.log("[commitButton] tracked session is streaming");
@@ -435,6 +451,7 @@ export function useWorkspaceCommitLifecycle({
 		})();
 	}, [
 		completedSessionIds,
+		abortedSessionIds,
 		interactionRequiredSessionIds,
 		pushToast,
 		refreshWorkspaceRemoteStatus,

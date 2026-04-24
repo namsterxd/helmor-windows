@@ -139,6 +139,11 @@ type WorkspaceComposerProps = {
 	alwaysShowContextUsage?: boolean;
 	/** Helmor session id for the context-usage ring. */
 	sessionId?: string | null;
+	/** Provider's own session id (Claude Code UUID). Threaded into the
+	 *  context-usage ring for its hover-triggered live fetch. */
+	providerSessionId?: string | null;
+	/** Agent provider for this session — gates the Claude-only rich fetch. */
+	agentType?: "claude" | "codex" | null;
 };
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
@@ -209,6 +214,8 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	hasPlanReview = false,
 	alwaysShowContextUsage = false,
 	sessionId = null,
+	providerSessionId = null,
+	agentType = null,
 }: WorkspaceComposerProps) {
 	const instanceIdRef = useRef(
 		`composer-${Math.random().toString(36).slice(2, 10)}`,
@@ -722,6 +729,10 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							{sessionId ? (
 								<ContextUsageRing
 									sessionId={sessionId}
+									providerSessionId={providerSessionId}
+									composerModelId={selectedModel?.id ?? null}
+									cwd={workspaceRootPath}
+									agentType={agentType}
 									alwaysShow={alwaysShowContextUsage}
 									disabled={disabled}
 								/>

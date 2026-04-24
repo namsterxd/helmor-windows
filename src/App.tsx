@@ -112,6 +112,7 @@ import {
 	type ThemeMode,
 	useSettings,
 } from "./lib/settings";
+import { flushSidebarListsIfIdle } from "./lib/sidebar-mutation-gate";
 import { useOsNotifications } from "./lib/use-os-notifications";
 import {
 	recomputeWorkspaceDetailUnread,
@@ -433,6 +434,12 @@ function AppShell({
 	const [settledSessionIds, setSettledSessionIds] = useState<Set<string>>(
 		() => new Set(),
 	);
+	// Sessions that terminated via abort (stop stream) rather than normal
+	// completion. Used by the commit lifecycle to return the button to idle
+	// when the user aborts an action session (e.g. Create PR).
+	const [abortedSessionIds, setAbortedSessionIds] = useState<Set<string>>(
+		() => new Set(),
+	);
 	const [interactionRequiredSessions, setInteractionRequiredSessions] =
 		useState<Map<string, string>>(() => new Map());
 	const interactionRequiredSessionIds = useMemo(
@@ -526,14 +533,14 @@ function AppShell({
 
 		void markSessionRead(sessionId)
 			.then(() => {
-				const invalidations = [
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceGroups,
-					}),
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.archivedWorkspaces,
-					}),
-				];
+				// Skip sidebar-list invalidations while a sidebar mutation
+				// (archive/restore/create/delete/pin) is in flight: the server
+				// state is mid-transition and a refetch here would overwrite
+				// the optimistic cache with a stale snapshot, bouncing the row
+				// back to its pre-mutation position. The mutation owner flushes
+				// these lists in its own `.finally`.
+				flushSidebarListsIfIdle(queryClient);
+				const invalidations: Promise<void>[] = [];
 				if (workspaceId) {
 					invalidations.push(
 						queryClient.invalidateQueries({
@@ -694,7 +701,10 @@ function AppShell({
 	// button's mode derivation — shared cache with inspector's actions.tsx.
 	const workspacePrActionStatusQuery = useQuery({
 		...workspacePrActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled: isIdentityConnected && selectedWorkspaceId !== null,
+		enabled:
+			isIdentityConnected &&
+			selectedWorkspaceId !== null &&
+			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspacePrActionStatus = workspacePrActionStatusQuery.data ?? null;
 
@@ -1379,6 +1389,7 @@ function AppShell({
 		workspacePrActionStatus,
 		workspaceGitActionStatus,
 		completedSessionIds: settledSessionIds,
+		abortedSessionIds,
 		interactionRequiredSessionIds,
 		sendingSessionIds,
 		onSelectSession: handleSelectSession,
@@ -1400,22 +1411,19 @@ function AppShell({
 			// sidebar workspace dot and the dock badge.
 			if (!isCurrentSession) {
 				void markSessionUnread(sessionId)
-					.then(() =>
-						Promise.all([
-							queryClient.invalidateQueries({
-								queryKey: helmorQueryKeys.workspaceGroups,
-							}),
-							queryClient.invalidateQueries({
-								queryKey: helmorQueryKeys.archivedWorkspaces,
-							}),
+					.then(() => {
+						// Same rationale as the mark-read path — defer the
+						// sidebar-list flush when a mutation owns the cache.
+						flushSidebarListsIfIdle(queryClient);
+						return Promise.all([
 							queryClient.invalidateQueries({
 								queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
 							}),
 							queryClient.invalidateQueries({
 								queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 							}),
-						]),
-					)
+						]);
+					})
 					.catch((error) => {
 						console.error("[app] mark session unread on completion:", error);
 					});
@@ -1430,6 +1438,15 @@ function AppShell({
 		},
 		[notify, queryClient],
 	);
+
+	const handleSessionAborted = useCallback((sessionId: string) => {
+		setAbortedSessionIds((prev) => {
+			if (prev.has(sessionId)) return prev;
+			const next = new Set(prev);
+			next.add(sessionId);
+			return next;
+		});
+	}, []);
 
 	const lastInteractionCountsRef = useRef<Map<string, number>>(new Map());
 	const handleInteractionSessionsChange = useCallback(
@@ -1522,6 +1539,7 @@ function AppShell({
 			workspace,
 			sessions,
 			session,
+			activateAdjacent: true,
 			onSessionsChanged: () => {
 				void Promise.all([
 					queryClient.invalidateQueries({
@@ -2149,6 +2167,7 @@ function AppShell({
 													interactionRequiredSessionIds
 												}
 												onSessionCompleted={handleSessionCompleted}
+												onSessionAborted={handleSessionAborted}
 												workspacePrInfo={workspacePrInfo}
 												pendingPromptForSession={pendingPromptForSession}
 												onPendingPromptConsumed={handlePendingPromptConsumed}
