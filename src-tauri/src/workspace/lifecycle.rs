@@ -28,6 +28,7 @@ pub struct RestoreWorkspaceResponse {
     /// suffixed branch instead. The frontend uses this to surface an
     /// informational toast so the rename never happens silently.
     pub branch_rename: Option<BranchRename>,
+    pub restored_from_target_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,8 +189,8 @@ pub fn prepare_workspace_from_repo_impl(repo_id: &str) -> Result<PrepareWorkspac
     })
 }
 
-/// Phase 2 of workspace creation: creates the git worktree, seeds the
-/// `.context` scaffold, probes `helmor.json` for a setup script, and
+/// Phase 2 of workspace creation: creates the git worktree, probes
+/// `helmor.json` for a setup script, and
 /// upgrades the workspace row from `Initializing` to `Ready` /
 /// `SetupPending`. On failure, cleans up the worktree + DB rows so the
 /// caller can surface the error without leaving a broken workspace
@@ -254,7 +255,6 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
             }
         };
 
-        helpers::create_workspace_context_scaffold(&workspace_dir)?;
         // Defer setup to the frontend inspector: if a script is configured AND
         // the user opted into auto-run, the workspace starts in "setup_pending"
         // and the UI auto-triggers it. Otherwise we go straight to Ready and
@@ -362,7 +362,6 @@ pub struct ArchivePreparedPlan {
     repo_root: PathBuf,
     branch: String,
     workspace_dir: PathBuf,
-    archived_context_dir: PathBuf,
 }
 
 fn is_archive_eligible_state(state: WorkspaceState) -> bool {
@@ -490,15 +489,6 @@ pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
         );
     }
 
-    let archived_context_dir =
-        crate::data_dir::archived_context_dir(&record.repo_name, &record.directory_name)?;
-    if archived_context_dir.exists() {
-        bail!(
-            "Archived context target already exists at {}",
-            archived_context_dir.display()
-        );
-    }
-
     tracing::debug!(
         workspace_id,
         elapsed_ms = timing.elapsed().as_millis(),
@@ -509,7 +499,6 @@ pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
         repo_root,
         branch,
         workspace_dir,
-        archived_context_dir,
     })
 }
 
@@ -526,7 +515,6 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
     let repo_root = &plan.repo_root;
     let branch = &plan.branch;
     let workspace_dir = &plan.workspace_dir;
-    let archived_context_dir = &plan.archived_context_dir;
     let workspace_id = &plan.workspace_id;
     let timing = std::time::Instant::now();
     let git_started = std::time::Instant::now();
@@ -547,34 +535,8 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
         "Archive hook finished"
     );
 
-    fs::create_dir_all(archived_context_dir.parent().with_context(|| {
-        format!(
-            "Archived context target has no parent: {}",
-            archived_context_dir.display()
-        )
-    })?)
-    .with_context(|| {
-        format!(
-            "Failed to create archived context parent directory for {}",
-            archived_context_dir.display()
-        )
-    })?;
-
-    let workspace_context_dir = workspace_dir.join(".context");
-    let staged_archive_dir = helpers::staged_archive_context_dir(archived_context_dir);
-    let context_copy_started = std::time::Instant::now();
-    create_staged_archive_context(&workspace_context_dir, &staged_archive_dir)?;
-    tracing::info!(
-        workspace_id,
-        elapsed_ms = context_copy_started.elapsed().as_millis(),
-        "Archive context staging finished"
-    );
-
     let remove_worktree_started = std::time::Instant::now();
-    if let Err(error) = git_ops::remove_worktree(repo_root, workspace_dir) {
-        let _ = fs::remove_dir_all(&staged_archive_dir);
-        return Err(error);
-    }
+    git_ops::remove_worktree(repo_root, workspace_dir)?;
     tracing::info!(
         workspace_id,
         elapsed_ms = remove_worktree_started.elapsed().as_millis(),
@@ -599,35 +561,11 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
         "Archive: branch delete finished"
     );
 
-    if let Err(error) = fs::rename(&staged_archive_dir, archived_context_dir) {
-        cleanup_failed_archive(
-            repo_root,
-            workspace_dir,
-            &workspace_context_dir,
-            branch,
-            &archive_commit,
-            &staged_archive_dir,
-            archived_context_dir,
-        );
-        bail!(
-            "Failed to move archived context into {}: {error}",
-            archived_context_dir.display()
-        );
-    }
-
     let db_started = std::time::Instant::now();
     if let Err(error) =
         workspace_models::update_archived_workspace_state(workspace_id, &archive_commit)
     {
-        cleanup_failed_archive(
-            repo_root,
-            workspace_dir,
-            &workspace_context_dir,
-            branch,
-            &archive_commit,
-            &staged_archive_dir,
-            archived_context_dir,
-        );
+        cleanup_failed_archive(repo_root, workspace_dir, branch, &archive_commit);
         return Err(error);
     }
 
@@ -651,9 +589,10 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
 struct RestorePreflightData {
     repo_root: PathBuf,
     branch: String,
-    archive_commit: String,
+    archive_commit: Option<String>,
+    target_branch: String,
+    remote: String,
     workspace_dir: PathBuf,
-    archived_context_dir: PathBuf,
 }
 
 fn restore_workspace_preflight(workspace_id: &str) -> Result<RestorePreflightData> {
@@ -671,30 +610,26 @@ fn restore_workspace_preflight(workspace_id: &str) -> Result<RestorePreflightDat
     let branch = helpers::non_empty(&record.branch)
         .map(ToOwned::to_owned)
         .with_context(|| format!("Workspace {workspace_id} is missing branch"))?;
-    let archive_commit = helpers::non_empty(&record.archive_commit)
-        .map(ToOwned::to_owned)
-        .with_context(|| format!("Workspace {workspace_id} is missing archive_commit"))?;
+    let archive_commit = helpers::non_empty(&record.archive_commit).map(ToOwned::to_owned);
+    let target_branch = helpers::non_empty(&record.intended_target_branch)
+        .or_else(|| helpers::non_empty(&record.default_branch))
+        .unwrap_or("main")
+        .to_string();
+    let remote = record.remote.unwrap_or_else(|| "origin".to_string());
 
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
-    let archived_context_dir =
-        crate::data_dir::archived_context_dir(&record.repo_name, &record.directory_name)?;
-    if !archived_context_dir.is_dir() {
-        bail_coded!(
-            ErrorCode::WorkspaceBroken,
-            "Archived context directory is missing at {}",
-            archived_context_dir.display()
-        );
-    }
-
     git_ops::ensure_git_repository(&repo_root)?;
-    git_ops::verify_commit_exists(&repo_root, &archive_commit)?;
+    if let Some(archive_commit) = archive_commit.as_deref() {
+        git_ops::verify_commit_exists(&repo_root, archive_commit)?;
+    }
 
     Ok(RestorePreflightData {
         repo_root,
         branch,
         archive_commit,
+        target_branch,
+        remote,
         workspace_dir,
-        archived_context_dir,
     })
 }
 
@@ -746,9 +681,13 @@ pub fn restore_workspace_impl(
         repo_root,
         branch,
         archive_commit,
+        target_branch: stored_target_branch,
+        remote,
         workspace_dir,
-        archived_context_dir,
     } = restore_workspace_preflight(workspace_id)?;
+    let target_branch = target_branch_override
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(stored_target_branch.as_str());
 
     if workspace_dir.exists() {
         std::fs::remove_dir_all(&workspace_dir).with_context(|| {
@@ -785,13 +724,22 @@ pub fn restore_workspace_impl(
         branch.clone()
     };
 
-    git_ops::verify_commit_exists(&repo_root, &archive_commit).with_context(|| {
-        format!(
-            "Archive commit {archive_commit} no longer exists in {} \
-             (likely garbage-collected). Cannot restore.",
-            repo_root.display()
-        )
-    })?;
+    let (start_point, restored_from_target_branch) = match archive_commit.as_deref() {
+        Some(commit) => {
+            git_ops::verify_commit_exists(&repo_root, commit).with_context(|| {
+                format!(
+                    "Archive commit {commit} no longer exists in {} \
+                     (likely garbage-collected). Cannot restore.",
+                    repo_root.display()
+                )
+            })?;
+            (commit.to_string(), None)
+        }
+        None => (
+            resolve_restore_target_start_point(&repo_root, &remote, target_branch)?,
+            Some(target_branch.to_string()),
+        ),
+    };
 
     git_ops::run_git(
         [
@@ -799,25 +747,27 @@ pub fn restore_workspace_impl(
             &repo_root.display().to_string(),
             "branch",
             &actual_branch,
-            &archive_commit,
+            &start_point,
         ],
         None,
     )
-    .with_context(|| format!("Failed to create branch {actual_branch} from {archive_commit}"))?;
+    .with_context(|| format!("Failed to create branch {actual_branch} from {start_point}"))?;
+    let _ = git_ops::run_git(
+        [
+            "-C",
+            &repo_root.display().to_string(),
+            "branch",
+            "--unset-upstream",
+            &actual_branch,
+        ],
+        None,
+    );
 
     git_ops::create_worktree(&repo_root, &workspace_dir, &actual_branch)?;
 
-    let staged_archive_dir = helpers::staged_archive_context_dir(&archived_context_dir);
     if actual_branch != branch {
         let conn = db::write_conn().map_err(|error| {
-            cleanup_failed_restore(
-                &repo_root,
-                &workspace_dir,
-                None,
-                &staged_archive_dir,
-                &archived_context_dir,
-                &actual_branch,
-            );
+            cleanup_failed_restore(&repo_root, &workspace_dir, &actual_branch);
             error.context("Failed to open DB to persist restored branch name")
         })?;
         conn.execute(
@@ -825,63 +775,16 @@ pub fn restore_workspace_impl(
             rusqlite::params![actual_branch, workspace_id],
         )
         .map_err(|error| {
-            cleanup_failed_restore(
-                &repo_root,
-                &workspace_dir,
-                None,
-                &staged_archive_dir,
-                &archived_context_dir,
-                &actual_branch,
-            );
+            cleanup_failed_restore(&repo_root, &workspace_dir, &actual_branch);
             anyhow::anyhow!("Failed to persist restored branch name in DB: {error}")
         })?;
-    }
-
-    fs::rename(&archived_context_dir, &staged_archive_dir).map_err(|error| {
-        cleanup_failed_restore(
-            &repo_root,
-            &workspace_dir,
-            None,
-            &staged_archive_dir,
-            &archived_context_dir,
-            &actual_branch,
-        );
-        anyhow::anyhow!(
-            "Failed to stage archived context {}: {error}",
-            archived_context_dir.display()
-        )
-    })?;
-
-    let workspace_context_dir = workspace_dir.join(".context");
-    if let Err(error) = helpers::copy_dir_all(&staged_archive_dir, &workspace_context_dir) {
-        cleanup_failed_restore(
-            &repo_root,
-            &workspace_dir,
-            Some(&workspace_context_dir),
-            &staged_archive_dir,
-            &archived_context_dir,
-            &actual_branch,
-        );
-        return Err(error);
     }
 
     if let Err(error) =
         workspace_models::update_restored_workspace_state(workspace_id, target_branch_override)
     {
-        cleanup_failed_restore(
-            &repo_root,
-            &workspace_dir,
-            Some(&workspace_context_dir),
-            &staged_archive_dir,
-            &archived_context_dir,
-            &actual_branch,
-        );
+        cleanup_failed_restore(&repo_root, &workspace_dir, &actual_branch);
         return Err(error);
-    }
-
-    if let Err(error) = fs::remove_dir_all(&staged_archive_dir) {
-        let _ = fs::rename(&staged_archive_dir, &archived_context_dir);
-        tracing::error!(dir = %staged_archive_dir.display(), "Failed to delete staged archived context: {error}");
     }
 
     let branch_rename = if actual_branch != branch {
@@ -898,7 +801,26 @@ pub fn restore_workspace_impl(
         restored_state: WorkspaceState::Ready,
         selected_workspace_id: workspace_id.to_string(),
         branch_rename,
+        restored_from_target_branch,
     })
+}
+
+fn resolve_restore_target_start_point(
+    repo_root: &Path,
+    remote: &str,
+    target_branch: &str,
+) -> Result<String> {
+    if git_ops::verify_branch_exists(repo_root, target_branch).is_ok() {
+        return Ok(target_branch.to_string());
+    }
+
+    if git_ops::verify_remote_ref_exists(repo_root, remote, target_branch)? {
+        return Ok(format!("{remote}/{target_branch}"));
+    }
+
+    bail!(
+        "Cannot restore workspace without an archive commit: target branch {target_branch} was not found"
+    );
 }
 
 fn cleanup_failed_created_workspace(
@@ -919,85 +841,23 @@ fn cleanup_failed_created_workspace(
     let _ = workspace_models::delete_workspace_and_session_rows(workspace_id);
 }
 
-fn cleanup_failed_restore(
-    repo_root: &Path,
-    workspace_dir: &Path,
-    workspace_context_dir: Option<&Path>,
-    staged_archive_dir: &Path,
-    archived_context_dir: &Path,
-    branch: &str,
-) {
-    if let Some(context_dir) = workspace_context_dir {
-        let _ = fs::remove_dir_all(context_dir);
-    }
-
+fn cleanup_failed_restore(repo_root: &Path, workspace_dir: &Path, branch: &str) {
     let _ = git_ops::remove_worktree(repo_root, workspace_dir);
     let _ = fs::remove_dir_all(workspace_dir);
     let _ = git_ops::remove_branch(repo_root, branch);
-
-    if staged_archive_dir.exists() && !archived_context_dir.exists() {
-        let _ = fs::rename(staged_archive_dir, archived_context_dir);
-    }
 }
 
 fn cleanup_failed_archive(
     repo_root: &Path,
     workspace_dir: &Path,
-    workspace_context_dir: &Path,
     branch: &str,
     archive_commit: &str,
-    staged_archive_dir: &Path,
-    archived_context_dir: &Path,
 ) {
-    if archived_context_dir.exists() && !staged_archive_dir.exists() {
-        let _ = fs::rename(archived_context_dir, staged_archive_dir);
-    }
-
     let _ = git_ops::point_branch_to_commit(repo_root, branch, archive_commit);
 
     if !workspace_dir.exists() {
         let _ = git_ops::create_worktree(repo_root, workspace_dir, branch);
     }
-
-    if staged_archive_dir.exists() {
-        let _ = fs::remove_dir_all(workspace_context_dir);
-        let _ = helpers::copy_dir_contents(staged_archive_dir, workspace_context_dir);
-        let _ = fs::remove_dir_all(staged_archive_dir);
-    }
-}
-
-fn create_staged_archive_context(
-    workspace_context_dir: &Path,
-    staged_archive_dir: &Path,
-) -> Result<()> {
-    if staged_archive_dir.exists() {
-        bail!(
-            "Archive staging directory already exists at {}",
-            staged_archive_dir.display()
-        );
-    }
-
-    fs::create_dir_all(staged_archive_dir).with_context(|| {
-        format!(
-            "Failed to create archive staging directory {}",
-            staged_archive_dir.display()
-        )
-    })?;
-
-    if workspace_context_dir.is_dir() {
-        if let Err(error) = helpers::copy_dir_contents(workspace_context_dir, staged_archive_dir) {
-            let _ = fs::remove_dir_all(staged_archive_dir);
-            return Err(error);
-        }
-    } else if workspace_context_dir.exists() {
-        let _ = fs::remove_dir_all(staged_archive_dir);
-        bail!(
-            "Workspace context path is not a directory: {}",
-            workspace_context_dir.display()
-        );
-    }
-
-    Ok(())
 }
 
 /// Resolve the setup script command string from DB or project config.

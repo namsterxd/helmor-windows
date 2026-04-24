@@ -135,6 +135,40 @@ impl WorkspacePrActionStatus {
     }
 }
 
+/// Send a blocking HTTP request with up to 2 retries on transient network
+/// failures (TLS handshake, connect, timeout, connection reset). JSON bodies
+/// are always cloneable via `try_clone`; on the rare non-cloneable case we
+/// fall through to a single send.
+fn send_with_retry(
+    builder: reqwest::blocking::RequestBuilder,
+) -> reqwest::Result<reqwest::blocking::Response> {
+    const BACKOFF_MS: [u64; 2] = [200, 500];
+    for &delay in &BACKOFF_MS {
+        let Some(attempt) = builder.try_clone() else {
+            return builder.send();
+        };
+        match attempt.send() {
+            Ok(resp) => return Ok(resp),
+            Err(e) if is_transient_network_error(&e) => {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    builder.send()
+}
+
+fn is_transient_network_error(err: &reqwest::Error) -> bool {
+    if err.is_connect() || err.is_timeout() {
+        return true;
+    }
+    let msg = err.to_string().to_lowercase();
+    msg.contains("tls handshake")
+        || msg.contains("handshake eof")
+        || msg.contains("connection reset")
+        || msg.contains("connection closed")
+}
+
 /// Look up the (most recent) pull request matching this workspace's current
 /// branch on GitHub.
 ///
@@ -209,15 +243,16 @@ query($owner: String!, $name: String!, $head: String!) {
         },
     });
 
-    let response = client
-        .post("https://api.github.com/graphql")
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .json(&body)
-        .send()
-        .context("Failed to reach GitHub GraphQL API")?;
+    let response = send_with_retry(
+        client
+            .post("https://api.github.com/graphql")
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}"))
+            .json(&body),
+    )
+    .context("Failed to reach GitHub GraphQL API")?;
 
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
@@ -461,15 +496,16 @@ query($owner: String!, $name: String!, $head: String!) {
         },
     });
 
-    let response = client
-        .post("https://api.github.com/graphql")
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .json(&body)
-        .send()
-        .context("Failed to reach GitHub GraphQL API")?;
+    let response = send_with_retry(
+        client
+            .post("https://api.github.com/graphql")
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}"))
+            .json(&body),
+    )
+    .context("Failed to reach GitHub GraphQL API")?;
 
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
@@ -528,15 +564,16 @@ fn query_check_run_detail(
     name: &str,
     check_run_id: i64,
 ) -> Result<GithubCheckRunDetail> {
-    let response = client
-        .get(format!(
-            "https://api.github.com/repos/{owner}/{name}/check-runs/{check_run_id}"
-        ))
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/vnd.github+json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .send()
-        .context("Failed to reach GitHub REST API")?;
+    let response = send_with_retry(
+        client
+            .get(format!(
+                "https://api.github.com/repos/{owner}/{name}/check-runs/{check_run_id}"
+            ))
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/vnd.github+json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}")),
+    )
+    .context("Failed to reach GitHub REST API")?;
 
     let status = response.status();
     if !status.is_success() {
@@ -601,17 +638,18 @@ query($owner: String!, $name: String!, $head: String!) {
         "variables": { "owner": owner, "name": name, "head": branch },
     });
 
-    let id_response: GraphqlEnvelope = client
-        .post("https://api.github.com/graphql")
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .json(&id_body)
-        .send()
-        .context("Failed to reach GitHub GraphQL API")?
-        .json()
-        .context("Failed to decode GraphQL response")?;
+    let id_response: GraphqlEnvelope = send_with_retry(
+        client
+            .post("https://api.github.com/graphql")
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}"))
+            .json(&id_body),
+    )
+    .context("Failed to reach GitHub GraphQL API")?
+    .json()
+    .context("Failed to decode GraphQL response")?;
 
     let pr_node_id = id_response
         .data
@@ -635,17 +673,18 @@ mutation($prId: ID!) {
         "variables": { "prId": pr_node_id },
     });
 
-    let merge_response: serde_json::Value = client
-        .post("https://api.github.com/graphql")
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .json(&merge_body)
-        .send()
-        .context("Failed to call mergePullRequest")?
-        .json()
-        .context("Failed to decode merge response")?;
+    let merge_response: serde_json::Value = send_with_retry(
+        client
+            .post("https://api.github.com/graphql")
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}"))
+            .json(&merge_body),
+    )
+    .context("Failed to call mergePullRequest")?
+    .json()
+    .context("Failed to decode merge response")?;
 
     if let Some(errors) = merge_response.get("errors") {
         if let Some(arr) = errors.as_array() {
@@ -711,17 +750,18 @@ query($owner: String!, $name: String!, $head: String!) {
         "variables": { "owner": owner, "name": name, "head": branch },
     });
 
-    let id_response: GraphqlEnvelope = client
-        .post("https://api.github.com/graphql")
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .json(&id_body)
-        .send()
-        .context("Failed to reach GitHub GraphQL API")?
-        .json()
-        .context("Failed to decode GraphQL response")?;
+    let id_response: GraphqlEnvelope = send_with_retry(
+        client
+            .post("https://api.github.com/graphql")
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}"))
+            .json(&id_body),
+    )
+    .context("Failed to reach GitHub GraphQL API")?
+    .json()
+    .context("Failed to decode GraphQL response")?;
 
     let pr_node_id = id_response
         .data
@@ -744,17 +784,18 @@ mutation($prId: ID!) {
         "variables": { "prId": pr_node_id },
     });
 
-    let close_response: serde_json::Value = client
-        .post("https://api.github.com/graphql")
-        .header(USER_AGENT, "Helmor")
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {access_token}"))
-        .json(&close_body)
-        .send()
-        .context("Failed to call closePullRequest")?
-        .json()
-        .context("Failed to decode close response")?;
+    let close_response: serde_json::Value = send_with_retry(
+        client
+            .post("https://api.github.com/graphql")
+            .header(USER_AGENT, "Helmor")
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {access_token}"))
+            .json(&close_body),
+    )
+    .context("Failed to call closePullRequest")?
+    .json()
+    .context("Failed to decode close response")?;
 
     if let Some(errors) = close_response.get("errors") {
         if let Some(arr) = errors.as_array() {

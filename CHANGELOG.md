@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.3
+
+### Patch Changes
+
+- [#220](https://github.com/dohooo/helmor/pull/220) [`46b35ab`](https://github.com/dohooo/helmor/commit/46b35abfa53af6e2e04a8f42076e1a013fa0e166) Thanks [@natllian](https://github.com/natllian)! - Fix session tab closing so Helmor activates the tab to the right, falls back to the left, and keeps the current tab active when closing a background session.
+
+- [#222](https://github.com/dohooo/helmor/pull/222) [`1e2c19c`](https://github.com/dohooo/helmor/commit/1e2c19c938d18b428db069152cd5e776895086a0) Thanks [@natllian](https://github.com/natllian)! - Improve recovery when a workspace directory disappears outside Helmor:
+
+  - Preserve chat history by moving missing workspaces to the archive instead of deleting their records.
+  - Let archived workspaces without an archive snapshot restore from their target branch, with an in-app notice explaining the fallback.
+  - Reduce repeated git, file, and inspector errors for missing worktrees while still offering an explicit permanent delete action when recovery is needed.
+
+- [#218](https://github.com/dohooo/helmor/pull/218) [`978f979`](https://github.com/dohooo/helmor/commit/978f9793beae7456ca56c124546f9f1d970395eb) Thanks [@natllian](https://github.com/natllian)! - Fix the composer's context-usage ring pinning at 100% after a single tool-heavy turn on Claude — the ring now reflects the actual end-of-turn context fill instead of cumulative per-call token usage.
+
+- [#223](https://github.com/dohooo/helmor/pull/223) [`dedc9ca`](https://github.com/dohooo/helmor/commit/dedc9caf15426fec32935d797493a9d308330aa4) Thanks [@natllian](https://github.com/natllian)! - Make the composer context-usage percentage model-aware so it does not show stale or misleading window percentages after model switches or mixed Claude model usage.
+
+- [#224](https://github.com/dohooo/helmor/pull/224) [`af04884`](https://github.com/dohooo/helmor/commit/af0488427c93f8670c85605afb1eb83f6b57d0a1) Thanks [@natllian](https://github.com/natllian)! - Add Codex context compaction support so Codex chats can run `/compact` from the composer and show a context-compacted notice when the provider finishes.
+
+- [#221](https://github.com/dohooo/helmor/pull/221) [`7fea750`](https://github.com/dohooo/helmor/commit/7fea750f4bec9134b969cfe01dfd3580dfa3de7c) Thanks [@natllian](https://github.com/natllian)! - Hide duplicate Claude local command completion notices so finished shell tasks no longer appear as top-level subagent messages.
+
+- [#226](https://github.com/dohooo/helmor/pull/226) [`20a922e`](https://github.com/dohooo/helmor/commit/20a922e812f1d86a5cf342f2ea73c49aec5d534e) Thanks [@natllian](https://github.com/natllian)! - Show relative timestamps only on the turn-end row in the chat thread so errors and other system notices no longer carry a redundant "N minutes ago".
+
+- [#227](https://github.com/dohooo/helmor/pull/227) [`cfa0ee5`](https://github.com/dohooo/helmor/commit/cfa0ee53a76f6080be67c1d0810e97847672972b) Thanks [@natllian](https://github.com/natllian)! - Tighten up a handful of transient failure paths so they stop surfacing as errors:
+
+  - Retry the slash-command popup once when the Claude SDK tears down its query mid-request, so the `/` menu loads instead of flashing an error.
+  - Retry GitHub PR actions (show / merge / close) once on transient TLS and connect errors with a short backoff, so a flaky network doesn't bounce the user out of a commit flow.
+  - Stop raising an error when a session is deleted while its title is still being generated in the background.
+
+- [#225](https://github.com/dohooo/helmor/pull/225) [`090c1a0`](https://github.com/dohooo/helmor/commit/090c1a05c02836ffb13102644d9419d0916784b0) Thanks [@natllian](https://github.com/natllian)! - Fix the Create PR button getting stuck on "Creating…" after aborting the PR-creation session; it now returns to idle so the action can be retried.
+
+## 0.6.2
+
+### Patch Changes
+
+- [#215](https://github.com/dohooo/helmor/pull/215) [`561b4de`](https://github.com/dohooo/helmor/commit/561b4de89b9c6e53a3dcbb92a65129af7929437c) Thanks [@natllian](https://github.com/natllian)! - Upgrade the bundled Codex CLI to 0.124.0 so the Codex model picker picks up newer OpenAI models, including GPT-5.5.
+
+- [#210](https://github.com/dohooo/helmor/pull/210) [`d49f63a`](https://github.com/dohooo/helmor/commit/d49f63aee60a8bce61bba7c1ffc501f22c204ef1) Thanks [@natllian](https://github.com/natllian)! - Fix Claude's AskUserQuestion so the answer you pick in the UI actually reaches the assistant when you submit.
+
+- [#211](https://github.com/dohooo/helmor/pull/211) [`92193b5`](https://github.com/dohooo/helmor/commit/92193b5a475dc03b4711bd879c87a3344fbb8076) Thanks [@natllian](https://github.com/natllian)! - Stop rendering mislabeled "Subagent started / completed" rows next to long-running Bash commands — those came from Claude's per-bash lifecycle notices and duplicated the Bash tool call itself.
+
+- [#214](https://github.com/dohooo/helmor/pull/214) [`cebac7b`](https://github.com/dohooo/helmor/commit/cebac7bc3678241ef55d0d9945a4aa3413ca1cbe) Thanks [@natllian](https://github.com/natllian)! - Fix the composer's context-usage ring so it updates immediately after every turn instead of appearing stuck until the user switched sessions or refocused the window.
+
+- [#216](https://github.com/dohooo/helmor/pull/216) [`06e3cdd`](https://github.com/dohooo/helmor/commit/06e3cddd27994511757a90006f88d0219932ed15) Thanks [@natllian](https://github.com/natllian)! - Remove the unused workspace `.context` scaffold and stop preserving it during archive, restore, and import flows.
+
+- [#217](https://github.com/dohooo/helmor/pull/217) [`3f8d37d`](https://github.com/dohooo/helmor/commit/3f8d37d22f2fea497efca0287d5136a8160df45f) Thanks [@natllian](https://github.com/natllian)! - Keep pinned workspaces in the pinned section and place unarchived workspaces directly into their final newest-first position so the sidebar no longer jumps when the list refreshes.
+
 ## 0.6.1
 
 ### Patch Changes

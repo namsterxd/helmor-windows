@@ -206,6 +206,81 @@ describe("useWorkspaceCommitLifecycle", () => {
 		});
 	});
 
+	it("clears the lifecycle when the tracked action session is aborted", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+
+		const selectedWorkspaceIdRef = { current: "workspace-1" };
+		const onSelectSession = vi.fn();
+
+		const { result, rerender } = renderHook(
+			({
+				completedSessionIds,
+				abortedSessionIds,
+				sendingSessionIds,
+			}: {
+				completedSessionIds: Set<string>;
+				abortedSessionIds: Set<string>;
+				sendingSessionIds: Set<string>;
+			}) =>
+				useWorkspaceCommitLifecycle({
+					queryClient,
+					selectedWorkspaceId: "workspace-1",
+					selectedWorkspaceIdRef,
+					selectedRepoId: "repo-1",
+					workspaceManualStatus: null,
+					workspacePrInfo: null,
+					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
+					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
+					completedSessionIds,
+					abortedSessionIds,
+					interactionRequiredSessionIds: new Set<string>(),
+					sendingSessionIds,
+					onSelectSession,
+				}),
+			{
+				initialProps: {
+					completedSessionIds: new Set<string>(),
+					abortedSessionIds: new Set<string>(),
+					sendingSessionIds: new Set<string>(),
+				},
+				wrapper: createWrapper(queryClient),
+			},
+		);
+
+		await act(async () => {
+			await result.current.handleInspectorCommitAction("create-pr");
+		});
+
+		expect(result.current.commitButtonState).toBe("busy");
+
+		act(() => {
+			result.current.handlePendingPromptConsumed();
+		});
+
+		// Session starts streaming.
+		rerender({
+			completedSessionIds: new Set<string>(),
+			abortedSessionIds: new Set<string>(),
+			sendingSessionIds: new Set(["session-action"]),
+		});
+
+		// User aborts: session leaves sendingSessionIds and enters
+		// abortedSessionIds without ever reaching completedSessionIds.
+		rerender({
+			completedSessionIds: new Set<string>(),
+			abortedSessionIds: new Set(["session-action"]),
+			sendingSessionIds: new Set<string>(),
+		});
+
+		await waitFor(() => {
+			expect(result.current.commitButtonState).toBe("idle");
+		});
+		expect(apiMocks.lookupWorkspacePr).not.toHaveBeenCalled();
+		expect(apiMocks.setWorkspaceManualStatus).not.toHaveBeenCalled();
+	});
+
 	it("pushes directly without creating an action session", async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: {

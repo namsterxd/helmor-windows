@@ -18,8 +18,9 @@ mod support;
 pub use self::action_kind::ActionKind;
 pub use self::catalog::{resolve_model, AgentModelOption, AgentModelSection, ResolvedModel};
 pub use self::queries::{
-    fetch_agent_model_sections, GenerateSessionTitleRequest, GenerateSessionTitleResponse,
-    ListSlashCommandsRequest, SlashCommandEntry, SlashCommandsResponse,
+    fetch_agent_model_sections, fetch_live_context_usage, GenerateSessionTitleRequest,
+    GenerateSessionTitleResponse, GetLiveContextUsageRequest, ListSlashCommandsRequest,
+    SlashCommandEntry, SlashCommandsResponse,
 };
 pub use self::slash_commands::SlashCommandCache;
 pub use self::streaming::{
@@ -238,10 +239,17 @@ fn resolve_stream_working_directory(
         if let Some(session_id) = request.helmor_session_id.as_deref() {
             if let Some(workspace_dir) = resolve_resume_working_directory(session_id)? {
                 if !workspace_dir.is_dir() {
-                    return Err(anyhow::anyhow!(
-                        "Workspace directory not found for resumed session: {}",
-                        workspace_dir.display()
-                    ));
+                    // Tag as `WorkspaceBroken` so the frontend toast can
+                    // offer "Permanently Delete" + default-keep-history,
+                    // matching the non-resume path in resolve_working_directory.
+                    return Err(
+                        crate::error::coded(crate::error::ErrorCode::WorkspaceBroken).context(
+                            format!(
+                                "Workspace directory is missing for resumed session: {}",
+                                workspace_dir.display()
+                            ),
+                        ),
+                    );
                 }
                 return Ok(workspace_dir);
             }
@@ -889,7 +897,11 @@ mod tests {
         let error = resolve_stream_working_directory(&request).unwrap_err();
         assert!(error
             .to_string()
-            .contains("Workspace directory not found for resumed session"),);
+            .contains("Workspace directory is missing for resumed session"),);
+        assert_eq!(
+            crate::error::extract_code(&error),
+            crate::error::ErrorCode::WorkspaceBroken,
+        );
 
         std::env::remove_var("HELMOR_DATA_DIR");
     }

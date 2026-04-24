@@ -193,6 +193,34 @@ describe("MemoConversationMessage plan review", () => {
 		expect(writeTextMock).toHaveBeenCalledWith("Real assistant reply");
 	});
 
+	it("hides timestamps on Codex compact status notices", () => {
+		vi.setSystemTime(new Date("2026-04-12T12:01:00.000Z"));
+		const systemMessage: ThreadMessageLike = {
+			id: "compact-start",
+			role: "system",
+			createdAt: "2026-04-12T12:00:00.000Z",
+			content: [
+				{
+					type: "system-notice",
+					id: "compact-start:notice",
+					severity: "info",
+					label: "Compacting context",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={systemMessage}
+				sessionId="session-1"
+				itemIndex={1}
+			/>,
+		);
+
+		expect(screen.getByText("Compacting context")).toBeInTheDocument();
+		expect(screen.queryByText("1 minute ago")).not.toBeInTheDocument();
+	});
+
 	it("copies a user message from the bubble action slot", () => {
 		const userMessage: ThreadMessageLike = {
 			id: "user-copy-source",

@@ -100,6 +100,39 @@ pub fn list_session_historical_records(session_id: &str) -> Result<Vec<Historica
     list_session_historical_records_with_connection(&connection, session_id)
 }
 
+fn adjacent_visible_session_id(
+    transaction: &Transaction<'_>,
+    workspace_id: &str,
+    session_id: &str,
+) -> Result<Option<String>> {
+    let mut statement = transaction.prepare(
+        r#"
+            SELECT id FROM sessions
+            WHERE workspace_id = ?1 AND COALESCE(is_hidden, 0) = 0
+            ORDER BY datetime(created_at) ASC
+            "#,
+    )?;
+    let visible_session_ids = statement
+        .query_map([workspace_id], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let Some(index) = visible_session_ids
+        .iter()
+        .position(|candidate| candidate == session_id)
+    else {
+        return Ok(None);
+    };
+
+    Ok(visible_session_ids
+        .get(index + 1)
+        .or_else(|| {
+            index
+                .checked_sub(1)
+                .and_then(|prev| visible_session_ids.get(prev))
+        })
+        .cloned())
+}
+
 fn list_session_historical_records_with_connection(
     connection: &Connection,
     session_id: &str,
@@ -183,7 +216,9 @@ pub(crate) fn mark_session_unread_in_transaction(
         )
         .with_context(|| format!("Failed to mark session {session_id} as unread"))?;
 
-    if updated_rows != 1 {
+    // 0 rows = session was deleted mid-flight; benign race, skip silently.
+    // >1 rows = duplicate primary key, genuinely broken schema.
+    if updated_rows > 1 {
         bail!("Session unread update affected {updated_rows} rows for session {session_id}");
     }
 
@@ -429,6 +464,21 @@ pub fn hide_session(session_id: &str) -> Result<()> {
         )
         .with_context(|| format!("Failed to find session {session_id}"))?;
 
+    // If this was the workspace's active session, switch to its right neighbor,
+    // falling back to the left neighbor when closing the rightmost tab.
+    let current_active: Option<String> = transaction
+        .query_row(
+            "SELECT active_session_id FROM workspaces WHERE id = ?1",
+            [&workspace_id],
+            |row| row.get(0),
+        )
+        .context("Failed to read active session for workspace")?;
+    let next_session_id = if current_active.as_deref() == Some(session_id) {
+        adjacent_visible_session_id(&transaction, &workspace_id, session_id)?
+    } else {
+        None
+    };
+
     transaction
         .execute(
             "UPDATE sessions SET is_hidden = 1 WHERE id = ?1",
@@ -441,29 +491,7 @@ pub fn hide_session(session_id: &str) -> Result<()> {
     // workspace flag can fall off too when this was the last unread session.
     mark_session_read_in_transaction(&transaction, session_id)?;
 
-    // If this was the workspace's active session, switch to the next visible one
-    let current_active: Option<String> = transaction
-        .query_row(
-            "SELECT active_session_id FROM workspaces WHERE id = ?1",
-            [&workspace_id],
-            |row| row.get(0),
-        )
-        .context("Failed to read active session for workspace")?;
-
     if current_active.as_deref() == Some(session_id) {
-        let next_session_id: Option<String> = transaction
-            .query_row(
-                r#"
-                SELECT id FROM sessions
-                WHERE workspace_id = ?1 AND COALESCE(is_hidden, 0) = 0
-                ORDER BY datetime(created_at) ASC
-                LIMIT 1
-                "#,
-                [&workspace_id],
-                |row| row.get(0),
-            )
-            .ok();
-
         transaction
             .execute(
                 "UPDATE workspaces SET active_session_id = ?1 WHERE id = ?2",
@@ -501,6 +529,24 @@ pub fn delete_session(session_id: &str) -> Result<()> {
         )
         .ok();
 
+    let current_active: Option<String> = if let Some(ws_id) = &workspace_id {
+        transaction
+            .query_row(
+                "SELECT active_session_id FROM workspaces WHERE id = ?1",
+                [ws_id],
+                |row| row.get(0),
+            )
+            .ok()
+    } else {
+        None
+    };
+    let next_session_id = match (&workspace_id, current_active.as_deref()) {
+        (Some(ws_id), Some(active_id)) if active_id == session_id => {
+            adjacent_visible_session_id(&transaction, ws_id, session_id)?
+        }
+        _ => None,
+    };
+
     transaction
         .execute(
             "DELETE FROM session_messages WHERE session_id = ?1",
@@ -511,14 +557,14 @@ pub fn delete_session(session_id: &str) -> Result<()> {
         .execute("DELETE FROM sessions WHERE id = ?1", [session_id])
         .context("Failed to delete session")?;
 
-    // Clear active_session_id if it pointed to the deleted session
+    // If this was active, persist the same right-then-left tab fallback as the UI.
     if let Some(ws_id) = &workspace_id {
         transaction
             .execute(
-                "UPDATE workspaces SET active_session_id = NULL WHERE id = ?1 AND active_session_id = ?2",
-                (ws_id, session_id),
+                "UPDATE workspaces SET active_session_id = ?1 WHERE id = ?2 AND active_session_id = ?3",
+                (next_session_id.as_deref(), ws_id, session_id),
             )
-            .context("Failed to clear active session")?;
+            .context("Failed to update active session")?;
     }
 
     transaction
@@ -666,7 +712,19 @@ mod tests {
     fn seed_two_sessions(conn: &Connection) {
         seed_with_active_session(conn);
         conn.execute(
+            "UPDATE sessions SET created_at = '2026-01-01T00:00:00', updated_at = '2026-01-01T00:00:00' WHERE id = 's1'",
+            [],
+        ).unwrap();
+        conn.execute(
             "INSERT INTO sessions (id, workspace_id, status, title, created_at, updated_at) VALUES ('s2', 'w1', 'idle', 'Second Session', '2026-01-02T00:00:00', '2026-01-02T00:00:00')",
+            [],
+        ).unwrap();
+    }
+
+    fn seed_three_sessions(conn: &Connection) {
+        seed_two_sessions(conn);
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title, created_at, updated_at) VALUES ('s3', 'w1', 'idle', 'Third Session', '2026-01-03T00:00:00', '2026-01-03T00:00:00')",
             [],
         ).unwrap();
     }
@@ -753,6 +811,26 @@ mod tests {
     }
 
     #[test]
+    fn adjacent_visible_session_prefers_right_then_left() {
+        let (mut conn, _dir) = test_db();
+        seed_three_sessions(&conn);
+        let transaction = conn.transaction().unwrap();
+
+        assert_eq!(
+            adjacent_visible_session_id(&transaction, "w1", "s1").unwrap(),
+            Some("s2".to_string())
+        );
+        assert_eq!(
+            adjacent_visible_session_id(&transaction, "w1", "s2").unwrap(),
+            Some("s3".to_string())
+        );
+        assert_eq!(
+            adjacent_visible_session_id(&transaction, "w1", "s3").unwrap(),
+            Some("s2".to_string())
+        );
+    }
+
+    #[test]
     fn delete_session_clears_active_session_id() {
         let (conn, _dir) = test_db();
         seed_with_active_session(&conn);
@@ -770,6 +848,35 @@ mod tests {
 
         assert_eq!(get_active_session_id(&conn, "w1"), None);
         assert_eq!(count_sessions(&conn, "w1"), 0);
+    }
+
+    #[test]
+    fn delete_active_session_switches_to_adjacent_visible_session() {
+        let (mut conn, _dir) = test_db();
+        seed_three_sessions(&conn);
+        conn.execute(
+            "UPDATE workspaces SET active_session_id = 's2' WHERE id = 'w1'",
+            [],
+        )
+        .unwrap();
+
+        let transaction = conn.transaction().unwrap();
+        let next_session_id = adjacent_visible_session_id(&transaction, "w1", "s2").unwrap();
+        transaction
+            .execute("DELETE FROM session_messages WHERE session_id = 's2'", [])
+            .unwrap();
+        transaction
+            .execute("DELETE FROM sessions WHERE id = 's2'", [])
+            .unwrap();
+        transaction
+            .execute(
+                "UPDATE workspaces SET active_session_id = ?1 WHERE id = 'w1' AND active_session_id = 's2'",
+                [next_session_id.as_deref()],
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+
+        assert_eq!(get_active_session_id(&conn, "w1"), Some("s3".to_string()));
     }
 
     #[test]

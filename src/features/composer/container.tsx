@@ -57,17 +57,25 @@ const EMPTY_CANDIDATE_DIRECTORIES: readonly CandidateDirectory[] = [];
 const EMPTY_QUEUE_ITEMS: readonly QueuedSubmit[] = [];
 
 /**
- * Host-app built-in slash commands. Prepended to the agent-supplied list
- * so they always appear at the top of the popup. `source: "client-action"`
- * tells the plugin to fire an in-app handler instead of inserting the
- * command as prompt text.
+ * Host-app slash commands. Prepended to the agent-supplied list so they
+ * always appear at the top of the popup.
  */
+const ADD_DIR_COMMAND: SlashCommandEntry = {
+	name: "add-dir",
+	description: "Link extra directories to this workspace",
+	source: "client-action",
+};
+
+const CODEX_COMPACT_COMMAND: SlashCommandEntry = {
+	name: "compact",
+	description: "Compact this Codex thread's context",
+	source: "builtin",
+	providers: ["codex"],
+};
+
 const BUILTIN_CLIENT_COMMANDS: readonly SlashCommandEntry[] = [
-	{
-		name: "add-dir",
-		description: "Link extra directories to this workspace",
-		source: "client-action",
-	},
+	ADD_DIR_COMMAND,
+	CODEX_COMPACT_COMMAND,
 ];
 
 type WorkspaceComposerContainerProps = {
@@ -515,8 +523,14 @@ export const WorkspaceComposerContainer = memo(
 		// show at the top of the popup, even before the agent-supplied list
 		// has loaded.
 		const slashCommands = useMemo<readonly SlashCommandEntry[]>(
-			() => [...BUILTIN_CLIENT_COMMANDS, ...agentSlashCommands],
-			[agentSlashCommands],
+			() => [
+				...BUILTIN_CLIENT_COMMANDS.filter(
+					(command) =>
+						!command.providers || command.providers.includes(slashProvider),
+				),
+				...agentSlashCommands,
+			],
+			[agentSlashCommands, slashProvider],
 		);
 		// Pending only (`isPending`) covers the very first fetch with no data
 		// yet; once we have data, `isFetching` covers background refetches but
@@ -740,6 +754,10 @@ export const WorkspaceComposerContainer = memo(
 					<WorkspaceComposer
 						contextKey={composerContextKey}
 						sessionId={displayedSessionId}
+						providerSessionId={currentSession?.providerSessionId ?? null}
+						agentType={
+							effectiveModel?.provider === "codex" ? "codex" : "claude"
+						}
 						alwaysShowContextUsage={settings.alwaysShowContextUsage}
 						onSubmit={handleComposerSubmit}
 						disabled={composerUnavailable}

@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -72,17 +73,25 @@ pub async fn generate_session_title(
                    WHERE s.id = ?1 AND w.state {}"#,
             workspace_state::OPERATIONAL_FILTER,
         );
-        connection
-            .query_row(&sql, [&request.session_id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .ok()
+        match connection.query_row(&sql, [&request.session_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        }) {
+            Ok(info) => Some(info),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(error) => {
+                tracing::error!(
+                    session_id = %request.session_id,
+                    "generate_session_title: workspace lookup SQL failed: {error:#}"
+                );
+                None
+            }
+        }
     } else {
         None
     };
@@ -208,18 +217,45 @@ pub async fn generate_session_title(
 
     let (generated_title, generated_branch) = result;
 
+    if should_generate_title && generated_title.is_none() {
+        tracing::error!(
+            session_id = %session_id,
+            "generate_session_title: sidecar returned no title, but title generation was expected"
+        );
+    }
+    if should_generate_branch && generated_branch.is_none() {
+        tracing::error!(
+            session_id = %session_id,
+            "generate_session_title: sidecar returned no branch name, but branch rename was expected"
+        );
+    }
+
     let mut title_renamed = false;
     if should_generate_title {
         if let Some(ref title) = generated_title {
             let connection = crate::models::db::read_conn()
                 .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
-            let latest_title: String = connection
+            // Session may have been deleted while title generation was in flight.
+            // Treat as a silent skip — matches the branch re-read a few lines below.
+            let latest_title: Option<String> = connection
                 .query_row(
                     "SELECT title FROM sessions WHERE id = ?1",
                     [&session_id],
                     |row| row.get(0),
                 )
+                .optional()
                 .map_err(|e| anyhow::anyhow!("Failed to re-read session title: {e}"))?;
+            let Some(latest_title) = latest_title else {
+                tracing::debug!(
+                    session_id = %session_id,
+                    "Skipping auto session rename: session deleted during title generation"
+                );
+                return Ok(GenerateSessionTitleResponse {
+                    title: generated_title,
+                    branch_renamed: false,
+                    skipped: false,
+                });
+            };
 
             if can_replace_session_title(&latest_title, request.title_seed.as_deref()) {
                 crate::sessions::rename_session(&session_id, title)
@@ -989,6 +1025,100 @@ fn fetch_models_for_provider(
 
     sidecar.unsubscribe(&request_id);
     ProviderModelFetchResult::Ready(models)
+}
+
+// ---------------------------------------------------------------------------
+// Live context-usage (hover popover, Claude only)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetLiveContextUsageRequest {
+    pub session_id: String,
+    pub provider_session_id: Option<String>,
+    /// Model id used by the sidecar and stamped into the returned meta.
+    pub model: String,
+    pub cwd: Option<String>,
+}
+
+/// Slightly longer than the sidecar's own 30 s cap so the timeout surfaces
+/// as a friendly sidecar-side message instead of a Rust-side one.
+const CONTEXT_USAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(32);
+
+pub fn fetch_live_context_usage(
+    sidecar: &crate::sidecar::ManagedSidecar,
+    request: GetLiveContextUsageRequest,
+) -> CmdResult<String> {
+    let request_id = Uuid::new_v4().to_string();
+
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "sessionId".into(),
+        Value::String(request.session_id.clone()),
+    );
+    if let Some(provider_session_id) = request.provider_session_id.as_deref() {
+        params.insert(
+            "providerSessionId".into(),
+            Value::String(provider_session_id.to_string()),
+        );
+    }
+    params.insert("model".into(), Value::String(request.model.clone()));
+    if let Some(cwd) = request.cwd.as_deref() {
+        params.insert("cwd".into(), Value::String(cwd.to_string()));
+    }
+
+    let sidecar_req = crate::sidecar::SidecarRequest {
+        id: request_id.clone(),
+        method: "getContextUsage".to_string(),
+        params: Value::Object(params),
+    };
+
+    let rx = sidecar.subscribe(&request_id);
+    if let Err(e) = sidecar.send(&sidecar_req) {
+        sidecar.unsubscribe(&request_id);
+        return Err(anyhow::anyhow!("getContextUsage sidecar send failed: {e}").into());
+    }
+
+    let result: CmdResult<String> = loop {
+        match rx.recv_timeout(CONTEXT_USAGE_TIMEOUT) {
+            Ok(event) => match event.event_type() {
+                "contextUsageResult" => {
+                    let meta = event
+                        .raw
+                        .get("meta")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    break Ok(meta);
+                }
+                "error" => {
+                    let msg = event
+                        .raw
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    break Err(anyhow::anyhow!("getContextUsage failed: {msg}").into());
+                }
+                _ => {}
+            },
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                break Err(anyhow::anyhow!(
+                    "getContextUsage timed out after {}s",
+                    CONTEXT_USAGE_TIMEOUT.as_secs()
+                )
+                .into());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break Err(
+                    anyhow::anyhow!("Sidecar disconnected while waiting for context usage").into(),
+                );
+            }
+        }
+    };
+
+    sidecar.unsubscribe(&request_id);
+    result
 }
 
 fn classify_model_list_error(message: &str) -> ProviderModelFetchResult {

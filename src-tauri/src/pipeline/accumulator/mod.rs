@@ -134,7 +134,7 @@ pub struct StreamAccumulator {
     /// `__part_id` indices when the SDK delivers finalized blocks in
     /// separate per-block `assistant` events (delta-style).
     cur_asst_block_count: usize,
-
+    local_bash_task_refs: HashSet<String>,
     // ── Codex state ──────────────────────────────────────────────────
     /// Per-item delta accumulation for Codex App Server streaming.
     codex_items: HashMap<String, codex::CodexItemState>,
@@ -300,6 +300,7 @@ impl StreamAccumulator {
             cur_asst_blocks: Vec::new(),
             cur_asst_template: None,
             cur_asst_block_count: 0,
+            local_bash_task_refs: HashSet::new(),
             codex_items: codex::new_item_states(),
             codex_partial_idx: None,
             codex_turn_started_at: None,
@@ -460,6 +461,10 @@ impl StreamAccumulator {
             Some("turn/started") => {
                 self.codex_turn_started_at = Some(now_ms());
                 PushOutcome::NoOp
+            }
+            Some("thread/compacted") => {
+                codex::handle_thread_compacted(self, raw_line, value);
+                PushOutcome::Finalized
             }
             Some("thread/started") => {
                 if let Some(tid) = value
@@ -1040,6 +1045,20 @@ impl StreamAccumulator {
             if crate::pipeline::event_filter::is_suppressed_system_subtype(subtype) {
                 return;
             }
+        }
+        // `local_bash` task_* events duplicate the accompanying Bash tool.
+        // Claude omits `task_type` on the later notification, so remember
+        // refs from the start event and apply them to the completion event.
+        if crate::pipeline::event_filter::is_explicit_local_bash_task(value) {
+            crate::pipeline::event_filter::remember_task_refs(
+                value,
+                &mut self.local_bash_task_refs,
+            );
+            return;
+        }
+        if crate::pipeline::event_filter::is_local_bash_task_ref(value, &self.local_bash_task_refs)
+        {
+            return;
         }
         self.collect_message(raw_line, value, MessageRole::System, None);
     }

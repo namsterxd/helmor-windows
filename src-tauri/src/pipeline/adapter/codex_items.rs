@@ -16,7 +16,7 @@ use serde_json::Value;
 use super::blocks::parse_codex_todolist_items;
 use crate::pipeline::types::{
     ExtendedMessagePart, IntermediateMessage, MessagePart, MessageRole, MessageStatus,
-    PlanAllowedPrompt, ThreadMessageLike,
+    NoticeSeverity, PlanAllowedPrompt, ThreadMessageLike,
 };
 
 /// Render a single `item.completed` IntermediateMessage. Pushes 0 or 1
@@ -58,6 +58,7 @@ pub(super) fn render_item_completed(
         Some("web_search") => render_web_search(msg, item, result),
         Some("mcp_tool_call") => render_mcp_tool_call(msg, item, result),
         Some("plan") => render_plan(msg, item, result),
+        Some("context_compaction") => render_context_compaction(msg, item, result),
         _ => {}
     }
 }
@@ -104,6 +105,33 @@ fn render_command_execution(
             status_type: "complete".to_string(),
             reason: Some("stop".to_string()),
         }),
+        streaming: None,
+    });
+}
+
+fn render_context_compaction(
+    msg: &IntermediateMessage,
+    item: &Value,
+    result: &mut Vec<ThreadMessageLike>,
+) {
+    let body = item
+        .get("summary")
+        .or_else(|| item.get("text"))
+        .or_else(|| item.get("content"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string);
+    result.push(ThreadMessageLike {
+        role: MessageRole::System,
+        id: Some(msg.id.clone()),
+        created_at: Some(msg.created_at.clone()),
+        content: vec![ExtendedMessagePart::Basic(MessagePart::SystemNotice {
+            id: format!("{}:notice", msg.id),
+            severity: NoticeSeverity::Info,
+            label: "Context compacted".to_string(),
+            body,
+        })],
+        status: None,
         streaming: None,
     });
 }

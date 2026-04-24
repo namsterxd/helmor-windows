@@ -26,6 +26,23 @@ pub(super) fn make_system(msg: &IntermediateMessage, text: &str) -> ThreadMessag
     }
 }
 
+/// Turn-end system row (Claude `result` / Codex `turn.completed`).
+/// Tagged with a `:turn-result` part id so the frontend can single it out
+/// as the only system row that renders a timestamp.
+pub(super) fn make_turn_result_system(msg: &IntermediateMessage, text: &str) -> ThreadMessageLike {
+    ThreadMessageLike {
+        role: MessageRole::System,
+        id: Some(msg.id.clone()),
+        created_at: Some(msg.created_at.clone()),
+        content: vec![ExtendedMessagePart::Basic(MessagePart::Text {
+            id: format!("{}:turn-result", msg.id),
+            text: text.to_string(),
+        })],
+        status: None,
+        streaming: None,
+    }
+}
+
 pub(super) fn make_system_notice(
     msg: &IntermediateMessage,
     part: MessagePart,
@@ -200,6 +217,22 @@ pub(super) fn build_system_notice(parsed: Option<&Value>, msg_id: &str) -> Optio
             })
         }
         "compact_boundary" => Some(build_compact_boundary_notice(parsed, msg_id)),
+        "codex_compacting" => Some(MessagePart::SystemNotice {
+            id: notice_part_id(msg_id),
+            severity: NoticeSeverity::Info,
+            label: "Compacting context".to_string(),
+            body: None,
+        }),
+        "codex_compacted" => Some(MessagePart::SystemNotice {
+            id: notice_part_id(msg_id),
+            severity: NoticeSeverity::Info,
+            label: "Context compacted".to_string(),
+            body: parsed
+                .get("summary")
+                .and_then(Value::as_str)
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string),
+        }),
         "api_retry" => Some(build_api_retry_notice(parsed, msg_id)),
         _ => None,
     }
