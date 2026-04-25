@@ -46,65 +46,54 @@ pub async fn update_app_settings(
     .await
 }
 
-/// Read the account-global Codex rate-limit snapshot. Stored under
-/// `settings::CODEX_RATE_LIMITS_KEY` by `agents/streaming.rs` whenever
-/// Codex emits an `account/rateLimits/updated` notification. Returns
-/// `Ok(None)` when no turn has run yet (fresh DB).
+/// Read the account-global Codex rate-limit snapshot. Each call attempts
+/// a live `wham/usage` fetch via the Codex OAuth token in
+/// `~/.codex/auth.json` and falls back to the cached body on failure.
+/// `app.codex_rate_limits` stores the raw response — no shape mapping —
+/// so downstream parsing lives entirely in the frontend, mirroring the
+/// Claude pipeline.
 #[tauri::command]
-pub async fn get_codex_rate_limits() -> CmdResult<Option<String>> {
-    run_blocking(|| settings::load_setting_value(settings::CODEX_RATE_LIMITS_KEY)).await
-}
-
-#[tauri::command]
-pub async fn get_claude_rate_limits(
-    app: AppHandle,
-) -> CmdResult<crate::claude_rate_limits::RateLimitsQueryResult> {
+pub async fn get_codex_rate_limits(app: AppHandle) -> CmdResult<Option<String>> {
     run_blocking(move || {
-        let cached = settings::load_setting_value(settings::CLAUDE_RATE_LIMITS_KEY)?;
-        let now = chrono::Utc::now().timestamp();
-        let cached_snapshot = cached.as_deref().and_then(|raw| {
-            serde_json::from_str::<crate::claude_rate_limits::RateLimitSnapshot>(raw).ok()
-        });
-        if let Some(raw) = cached.as_deref() {
-            if let Ok(snapshot) =
-                serde_json::from_str::<crate::claude_rate_limits::RateLimitSnapshot>(raw)
-            {
-                if snapshot.is_fresh(now) {
-                    return Ok(crate::claude_rate_limits::query_result(
-                        Some(snapshot),
-                        crate::claude_rate_limits::RateLimitsQueryStatus::CacheHit,
-                        None,
-                    ));
-                }
+        let cached = settings::load_setting_value(settings::CODEX_RATE_LIMITS_KEY)?;
+        match crate::rate_limits::codex::fetch_codex_rate_limits() {
+            Ok(body) => {
+                settings::upsert_setting_value(settings::CODEX_RATE_LIMITS_KEY, &body)?;
+                crate::ui_sync::publish(
+                    &app,
+                    crate::ui_sync::UiMutationEvent::CodexRateLimitsChanged,
+                );
+                Ok(Some(body))
+            }
+            Err(error) => {
+                tracing::warn!("Failed to refresh Codex rate limits: {error}");
+                Ok(cached)
             }
         }
+    })
+    .await
+}
 
-        match crate::claude_rate_limits::fetch_claude_rate_limits() {
-            Ok(snapshot) => {
-                let raw = serde_json::to_string(&snapshot)?;
-                settings::upsert_setting_value(settings::CLAUDE_RATE_LIMITS_KEY, &raw)?;
+/// Read the account-global Claude rate-limit snapshot. Each call
+/// attempts a live fetch and falls back to the cached body on failure.
+/// `app.claude_rate_limits` stores the raw Anthropic response — no
+/// shape mapping — so downstream parsing lives entirely in the frontend.
+#[tauri::command]
+pub async fn get_claude_rate_limits(app: AppHandle) -> CmdResult<Option<String>> {
+    run_blocking(move || {
+        let cached = settings::load_setting_value(settings::CLAUDE_RATE_LIMITS_KEY)?;
+        match crate::rate_limits::claude::fetch_claude_rate_limits() {
+            Ok(body) => {
+                settings::upsert_setting_value(settings::CLAUDE_RATE_LIMITS_KEY, &body)?;
                 crate::ui_sync::publish(
                     &app,
                     crate::ui_sync::UiMutationEvent::ClaudeRateLimitsChanged,
                 );
-                Ok(crate::claude_rate_limits::query_result(
-                    Some(snapshot),
-                    crate::claude_rate_limits::RateLimitsQueryStatus::Fresh,
-                    None,
-                ))
+                Ok(Some(body))
             }
             Err(error) => {
                 tracing::warn!("Failed to refresh Claude rate limits: {error}");
-                let status = if cached_snapshot.is_some() {
-                    crate::claude_rate_limits::RateLimitsQueryStatus::StaleFallback
-                } else {
-                    crate::claude_rate_limits::RateLimitsQueryStatus::Error
-                };
-                Ok(crate::claude_rate_limits::query_result(
-                    cached_snapshot,
-                    status,
-                    Some(crate::claude_rate_limits::classify_error(&error)),
-                ))
+                Ok(cached)
             }
         }
     })

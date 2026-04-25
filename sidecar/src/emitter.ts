@@ -152,16 +152,6 @@ export type ContextUsageUpdatedEvent = {
 	readonly meta: string | null;
 };
 
-// Account-global Codex rate-limit snapshot (5h / 7d windows). Forwarded
-// from Codex's `account/rateLimits/updated` notification. Rides on the
-// streaming requestId but the value is account-scoped — Rust persists it
-// in `settings`, not on a session row.
-export type CodexRateLimitsUpdatedEvent = {
-	readonly id: string;
-	readonly type: "codexRateLimitsUpdated";
-	readonly snapshot: string;
-};
-
 // Ad-hoc response to a `getContextUsage` RPC. Rides on the request's
 // own id (not a stream id) and carries the slim JSON directly — not
 // persisted, frontend caches for 30s.
@@ -190,7 +180,6 @@ export type SidecarControlEvent =
 	| ModelsListedEvent
 	| UserInputRequestEvent
 	| ContextUsageUpdatedEvent
-	| CodexRateLimitsUpdatedEvent
 	| ContextUsageResultEvent;
 
 /**
@@ -268,7 +257,6 @@ export interface SidecarEmitter {
 		sessionId: string,
 		meta: string | null,
 	): void;
-	codexRateLimitsUpdated(requestId: string, snapshot: string): void;
 	contextUsageResult(requestId: string, meta: string): void;
 	/**
 	 * Forward a raw provider SDK message. `id` is appended LAST so an SDK
@@ -380,12 +368,6 @@ export function createSidecarEmitter(
 				type: "contextUsageUpdated",
 				sessionId,
 				meta,
-			}),
-		codexRateLimitsUpdated: (requestId, snapshot) =>
-			write({
-				id: requestId,
-				type: "codexRateLimitsUpdated",
-				snapshot,
 			}),
 		contextUsageResult: (requestId, meta) =>
 			write({ id: requestId, type: "contextUsageResult", meta }),

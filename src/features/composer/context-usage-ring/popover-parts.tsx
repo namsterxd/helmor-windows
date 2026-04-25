@@ -4,6 +4,7 @@ import {
 	formatTokens,
 	type RateLimitWindowDisplay,
 	type RingTier,
+	ringTier,
 } from "./parse";
 
 /** Top-of-card "Context — 12.4k/1.0M · 8%" row. Pass `used`/`max` as
@@ -83,9 +84,19 @@ export function Divider() {
 	return <div className="h-px w-full bg-border/60" />;
 }
 
-/** One Codex rate-limit row: label + "X% left" + thin bar + reset time. */
+/** One rate-limit row: label + "X% left" + thin bar + reset time.
+ *  Tier color tracks `usedPercent` (≥60 amber, ≥80 destructive) so the
+ *  bar that visually represents *remaining* still warns when little is
+ *  left — i.e. when usage is high. */
 export function LimitRow({ window }: { window: RateLimitWindowDisplay }) {
 	const muted = window.expired;
+	const tier = ringTier(window.usedPercent);
+	const barColor =
+		tier === "danger"
+			? "bg-destructive"
+			: tier === "warning"
+				? "bg-amber-500"
+				: "bg-foreground/70";
 	return (
 		<div className={cn("flex flex-col gap-1", muted && "opacity-60")}>
 			<div className="flex items-center justify-between text-[12px]">
@@ -96,7 +107,7 @@ export function LimitRow({ window }: { window: RateLimitWindowDisplay }) {
 			</div>
 			<div className="h-1 w-full overflow-hidden rounded-full bg-muted">
 				<div
-					className="h-full bg-foreground/70 transition-[width]"
+					className={cn("h-full transition-[width]", barColor)}
 					style={{ width: `${window.leftPercent}%` }}
 				/>
 			</div>

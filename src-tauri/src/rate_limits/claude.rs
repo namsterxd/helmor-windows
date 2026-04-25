@@ -1,85 +1,17 @@
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::Deserialize;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const CLAUDE_OAUTH_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_REFRESH_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
-const CLAUDE_CODE_USER_AGENT: &str = "claude-code/2.1.0";
-const CACHE_TTL_SECONDS: i64 = 5 * 60;
-
-// Snapshot timestamps are Unix seconds; Claude credential expiry is Unix millis.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RateLimitSnapshot {
-    pub provider: String,
-    pub updated_at: i64,
-    pub primary: Option<RateLimitWindow>,
-    pub secondary: Option<RateLimitWindow>,
-    pub tertiary: Option<RateLimitWindow>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub extra_windows: Vec<NamedRateLimitWindow>,
-}
-
-impl RateLimitSnapshot {
-    pub fn is_fresh(&self, now: i64) -> bool {
-        now.saturating_sub(self.updated_at) < CACHE_TTL_SECONDS
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RateLimitWindow {
-    pub used_percent: f64,
-    pub window_duration_mins: i64,
-    pub resets_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NamedRateLimitWindow {
-    pub id: String,
-    pub title: String,
-    pub window: RateLimitWindow,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RateLimitsQueryResult {
-    pub snapshot: Option<RateLimitSnapshot>,
-    pub status: RateLimitsQueryStatus,
-    pub error: Option<RateLimitsQueryError>,
-    pub ttl_seconds: i64,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RateLimitsQueryStatus {
-    CacheHit,
-    Fresh,
-    StaleFallback,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RateLimitsQueryError {
-    pub kind: RateLimitsQueryErrorKind,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RateLimitsQueryErrorKind {
-    NoCredentials,
-    Unauthorized,
-    Network,
-    Unknown,
-}
+const CLAUDE_CODE_FALLBACK_VERSION: &str = "2.1.0";
+const CLAUDE_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Deserialize)]
 struct ClaudeCredentialsFile {
@@ -115,13 +47,15 @@ struct RefreshResponse {
     expires_in: Option<i64>,
 }
 
-pub fn cache_ttl_seconds() -> i64 {
-    CACHE_TTL_SECONDS
-}
-
-pub fn fetch_claude_rate_limits() -> Result<RateLimitSnapshot> {
+/// Pull the raw `oauth/usage` response body straight from Anthropic.
+///
+/// The body is stored verbatim in `settings.app.claude_rate_limits` and
+/// parsed on the frontend — no shape-mapping happens in Rust on purpose,
+/// so changes to Anthropic's (undocumented) field set don't require a DB
+/// migration.
+pub fn fetch_claude_rate_limits() -> Result<String> {
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(Duration::from_secs(30))
         .build()
         .context("Failed to build Claude usage client")?;
     let credentials = load_best_credentials()?;
@@ -140,7 +74,7 @@ pub fn fetch_claude_rate_limits() -> Result<RateLimitSnapshot> {
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
         .header("anthropic-beta", CLAUDE_OAUTH_BETA)
-        .header("User-Agent", CLAUDE_CODE_USER_AGENT)
+        .header("User-Agent", claude_code_user_agent())
         .send()
         .context("Claude usage request failed")?;
     let status = response.status();
@@ -150,157 +84,7 @@ pub fn fetch_claude_rate_limits() -> Result<RateLimitSnapshot> {
             "Claude usage request failed with HTTP {status}: {body}"
         ));
     }
-
-    let usage: Value = response
-        .json()
-        .context("Failed to decode Claude usage response")?;
-    Ok(map_usage_response(usage))
-}
-
-pub fn query_result(
-    snapshot: Option<RateLimitSnapshot>,
-    status: RateLimitsQueryStatus,
-    error: Option<RateLimitsQueryError>,
-) -> RateLimitsQueryResult {
-    RateLimitsQueryResult {
-        snapshot,
-        status,
-        error,
-        ttl_seconds: cache_ttl_seconds(),
-    }
-}
-
-pub fn classify_error(error: &anyhow::Error) -> RateLimitsQueryError {
-    let message = error.to_string();
-    let lower = message.to_ascii_lowercase();
-    let kind = if lower.contains("no claude code oauth credentials") {
-        RateLimitsQueryErrorKind::NoCredentials
-    } else if lower.contains("unauthorized")
-        || lower.contains("http 401")
-        || lower.contains("missing user:profile")
-    {
-        RateLimitsQueryErrorKind::Unauthorized
-    } else if lower.contains("network") || lower.contains("request failed") {
-        RateLimitsQueryErrorKind::Network
-    } else {
-        RateLimitsQueryErrorKind::Unknown
-    };
-    RateLimitsQueryError { kind, message }
-}
-
-fn map_usage_response(usage: Value) -> RateLimitSnapshot {
-    let weekly_mins = 7 * 24 * 60;
-
-    RateLimitSnapshot {
-        provider: "claude".to_string(),
-        updated_at: now_seconds(),
-        primary: map_window(usage_window(&usage, "five_hour"), 5 * 60),
-        secondary: map_window(usage_window(&usage, "seven_day"), weekly_mins),
-        tertiary: map_window(
-            usage_window(&usage, "seven_day_sonnet")
-                .or_else(|| usage_window(&usage, "seven_day_opus")),
-            weekly_mins,
-        ),
-        extra_windows: extra_windows(&usage, weekly_mins),
-    }
-}
-
-fn usage_window<'a>(usage: &'a Value, snake_key: &str) -> Option<&'a Value> {
-    if let Some(value) = usage.get(snake_key) {
-        return Some(value);
-    }
-    let camel_key = snake_to_camel(snake_key);
-    usage.get(camel_key.as_str())
-}
-
-fn map_window(raw: Option<&Value>, window_duration_mins: i64) -> Option<RateLimitWindow> {
-    let raw = raw?;
-    let used_percent = raw.get("utilization").and_then(value_as_f64)?;
-    Some(RateLimitWindow {
-        used_percent: used_percent.clamp(0.0, 100.0),
-        window_duration_mins,
-        resets_at: raw
-            .get("resets_at")
-            .or_else(|| raw.get("resetsAt"))
-            .and_then(Value::as_str)
-            .and_then(parse_iso_to_unix),
-    })
-}
-
-fn extra_windows(usage: &Value, weekly_mins: i64) -> Vec<NamedRateLimitWindow> {
-    let Some(obj) = usage.as_object() else {
-        return Vec::new();
-    };
-    let mut windows = Vec::new();
-    for (key, value) in obj {
-        let Some(suffix) = extra_window_suffix(key) else {
-            continue;
-        };
-        let Some(window) = map_window(Some(value), weekly_mins) else {
-            continue;
-        };
-        windows.push(NamedRateLimitWindow {
-            id: format!("claude-{}", suffix.replace('_', "-")),
-            title: extra_window_title(suffix),
-            window,
-        });
-    }
-    windows.sort_by(|a, b| a.id.cmp(&b.id));
-    windows
-}
-
-fn extra_window_suffix(key: &str) -> Option<&str> {
-    let suffix = key.strip_prefix("seven_day_")?;
-    match suffix {
-        "opus" | "sonnet" => None,
-        _ => Some(suffix),
-    }
-}
-
-fn extra_window_title(suffix: &str) -> String {
-    match suffix {
-        "omelette" => "Designs".to_string(),
-        "cowork" => "Daily Routines".to_string(),
-        _ => suffix
-            .split('_')
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
-                    None => String::new(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    }
-}
-
-fn value_as_f64(value: &Value) -> Option<f64> {
-    value
-        .as_f64()
-        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
-}
-
-fn snake_to_camel(key: &str) -> String {
-    let mut out = String::new();
-    let mut uppercase_next = false;
-    for ch in key.chars() {
-        if ch == '_' {
-            uppercase_next = true;
-        } else if uppercase_next {
-            out.extend(ch.to_uppercase());
-            uppercase_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-fn parse_iso_to_unix(raw: &str) -> Option<i64> {
-    DateTime::parse_from_rfc3339(raw)
-        .ok()
-        .map(|date| date.timestamp())
+    response.text().context("Failed to read Claude usage body")
 }
 
 fn load_best_credentials() -> Result<ClaudeOAuthCredentials> {
@@ -462,8 +246,67 @@ fn refresh_credentials(
     })
 }
 
-fn now_seconds() -> i64 {
-    Utc::now().timestamp()
+/// `claude-code/<version>` so the request matches the real CLI shape.
+/// The version probe runs `claude --allowed-tools "" --version` with a
+/// 5 s ceiling; on any failure (binary missing, slow shell init, parse
+/// hiccup) we fall back to a hardcoded version string.
+fn claude_code_user_agent() -> String {
+    let version =
+        probe_claude_version().unwrap_or_else(|| CLAUDE_CODE_FALLBACK_VERSION.to_string());
+    format!("claude-code/{version}")
+}
+
+fn probe_claude_version() -> Option<String> {
+    let output = run_with_timeout(
+        Command::new("claude").args(["--allowed-tools", "", "--version"]),
+        CLAUDE_VERSION_PROBE_TIMEOUT,
+    )?;
+    parse_claude_version_output(&output)
+}
+
+fn parse_claude_version_output(raw: &str) -> Option<String> {
+    let first_line = raw.lines().next().unwrap_or(raw).trim();
+    if first_line.is_empty() {
+        return None;
+    }
+    // `claude --version` prints "<version> (Claude Code)" — take the
+    // first whitespace-delimited token. Tolerate ANSI-free leading junk
+    // by skipping non-numeric prefixes if present.
+    let token = first_line.split_whitespace().next()?.trim();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_string())
+    }
+}
+
+fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> Option<String> {
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => {
+                use std::io::Read;
+                let mut buf = String::new();
+                child.stdout.as_mut()?.read_to_string(&mut buf).ok()?;
+                return Some(buf);
+            }
+            Ok(Some(_)) => return None,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => return None,
+        }
+    }
 }
 
 fn now_ms() -> i64 {
@@ -473,65 +316,6 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn maps_oauth_usage_windows() {
-        let snapshot = map_usage_response(json!({
-            "five_hour": {
-                "utilization": 12.5,
-                "resets_at": "2026-04-25T06:30:00.754916+00:00",
-            },
-            "seven_day": { "utilization": 14.0 },
-            "seven_day_sonnet": { "utilization": 1.0 },
-            "seven_day_omelette": { "utilization": 3.0 },
-            "seven_day_cowork": { "utilization": "4.5" },
-        }));
-
-        assert_eq!(snapshot.provider, "claude");
-        assert_eq!(snapshot.primary.unwrap().window_duration_mins, 300);
-        assert_eq!(snapshot.secondary.unwrap().used_percent, 14.0);
-        assert_eq!(snapshot.tertiary.unwrap().used_percent, 1.0);
-        assert_eq!(snapshot.extra_windows.len(), 2);
-    }
-
-    #[test]
-    fn falls_back_to_opus_for_tertiary_window() {
-        let snapshot = map_usage_response(json!({
-            "seven_day_opus": { "utilization": 9.0 },
-        }));
-
-        assert_eq!(snapshot.tertiary.unwrap().used_percent, 9.0);
-    }
-
-    #[test]
-    fn scans_unknown_extra_weekly_windows() {
-        let snapshot = map_usage_response(json!({
-            "seven_day": { "utilization": 2.0 },
-            "seven_day_new_window": { "utilization": 33.0 },
-            "seven_day_bad": { "utilization": null },
-        }));
-
-        assert_eq!(snapshot.extra_windows.len(), 1);
-        assert_eq!(snapshot.extra_windows[0].id, "claude-new-window");
-        assert_eq!(snapshot.extra_windows[0].title, "New Window");
-        assert_eq!(snapshot.extra_windows[0].window.used_percent, 33.0);
-    }
-
-    #[test]
-    fn snapshot_freshness_uses_cache_ttl() {
-        let snapshot = RateLimitSnapshot {
-            provider: "claude".to_string(),
-            updated_at: 100,
-            primary: None,
-            secondary: None,
-            tertiary: None,
-            extra_windows: Vec::new(),
-        };
-
-        assert!(snapshot.is_fresh(100 + CACHE_TTL_SECONDS - 1));
-        assert!(!snapshot.is_fresh(100 + CACHE_TTL_SECONDS));
-    }
 
     #[test]
     fn parses_nested_claude_code_credentials() {
@@ -580,5 +364,19 @@ mod tests {
                 .map(|credential| credential.access_token.as_str()),
             Some("expired-with-scope")
         );
+    }
+
+    #[test]
+    fn parses_claude_version_output() {
+        assert_eq!(
+            parse_claude_version_output("2.1.70 (Claude Code)\n"),
+            Some("2.1.70".to_string())
+        );
+        assert_eq!(
+            parse_claude_version_output("2.1.0\n"),
+            Some("2.1.0".to_string())
+        );
+        assert!(parse_claude_version_output("").is_none());
+        assert!(parse_claude_version_output("   \n").is_none());
     }
 }

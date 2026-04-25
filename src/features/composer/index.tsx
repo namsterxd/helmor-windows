@@ -726,7 +726,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							)}
 						</div>
 
-						<div className="flex items-center gap-2">
+						<div className="flex items-center gap-1">
 							<UsageStatsIndicator agentType={agentType} disabled={disabled} />
 							{sessionId ? (
 								<ContextUsageRing
@@ -739,8 +739,12 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 									disabled={disabled}
 								/>
 							) : null}
+							{/* Trailing actions sit behind a visible outline/border, while the
+							    indicators to the left don't — that pulls the perceived gap in
+							    by ~6 px. ml-1.5 reserves the missing space so the row reads as
+							    evenly spaced. */}
 							{hasPlanReview && permissionMode === "plan" ? (
-								<>
+								<div className="ml-1.5 flex items-center gap-2">
 									<Button
 										variant="ghost"
 										size="sm"
@@ -763,9 +767,9 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										<Check className="size-3.5" strokeWidth={2} />
 										Implement
 									</Button>
-								</>
+								</div>
 							) : sending ? (
-								<div className="flex items-center gap-1.5">
+								<div className="ml-1.5 flex items-center gap-1.5">
 									<Button
 										variant="destructive"
 										size="icon"
@@ -796,7 +800,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 									aria-label="Send"
 									onClick={handleSubmit}
 									disabled={sendDisabled}
-									className="rounded-[9px]"
+									className="ml-1.5 rounded-[9px]"
 								>
 									<ArrowUp className="size-[15px]" strokeWidth={2.2} />
 								</Button>

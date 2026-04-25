@@ -2188,39 +2188,12 @@ export async function getCodexRateLimits(): Promise<string | null> {
 	return await invoke<string | null>("get_codex_rate_limits");
 }
 
-export type RateLimitWindowSnapshot = {
-	usedPercent: number;
-	windowDurationMins: number;
-	resetsAt: number | null;
-};
-
-export type NamedRateLimitWindowSnapshot = {
-	id: string;
-	title: string;
-	window: RateLimitWindowSnapshot;
-};
-
-export type RateLimitSnapshot = {
-	provider: string;
-	updatedAt: number;
-	primary: RateLimitWindowSnapshot | null;
-	secondary: RateLimitWindowSnapshot | null;
-	tertiary: RateLimitWindowSnapshot | null;
-	extraWindows: NamedRateLimitWindowSnapshot[];
-};
-
-export type RateLimitsQueryResult = {
-	snapshot: RateLimitSnapshot | null;
-	status: "cacheHit" | "fresh" | "staleFallback" | "error";
-	error: {
-		kind: "noCredentials" | "unauthorized" | "network" | "unknown";
-		message: string;
-	} | null;
-	ttlSeconds: number;
-};
-
-export async function getClaudeRateLimits(): Promise<RateLimitsQueryResult> {
-	return await invoke<RateLimitsQueryResult>("get_claude_rate_limits");
+/** Read the account-global Claude rate-limit snapshot. The string is
+ *  the raw Anthropic `/api/oauth/usage` response body — parsed on the
+ *  frontend via `parseClaudeRateLimits`. Null when no fetch has ever
+ *  succeeded (no cache, latest fetch failed). */
+export async function getClaudeRateLimits(): Promise<string | null> {
+	return await invoke<string | null>("get_claude_rate_limits");
 }
 
 /** Live Claude-only context-usage fetch for the hover popover. Pure

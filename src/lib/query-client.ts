@@ -238,11 +238,15 @@ export function sessionContextUsageQueryOptions(sessionId: string) {
 	});
 }
 
-export function codexRateLimitsQueryOptions() {
+const RATE_LIMITS_STALE_TIME = 5 * 60_000;
+
+export function codexRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.codexRateLimits,
 		queryFn: getCodexRateLimits,
-		staleTime: 0,
+		staleTime: RATE_LIMITS_STALE_TIME,
+		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
+		enabled,
 	});
 }
 
@@ -250,9 +254,8 @@ export function claudeRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.claudeRateLimits,
 		queryFn: getClaudeRateLimits,
-		staleTime: (query) => (query.state.data?.ttlSeconds ?? 0) * 1000,
-		refetchInterval: (query) =>
-			enabled && query.state.data ? query.state.data.ttlSeconds * 1000 : false,
+		staleTime: RATE_LIMITS_STALE_TIME,
+		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
 		enabled,
 	});
 }

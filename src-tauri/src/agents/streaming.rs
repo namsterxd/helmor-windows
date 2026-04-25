@@ -466,27 +466,8 @@ fn write_context_usage_meta(
     Ok(ContextUsageWriteOutcome::Wrote(session_id.to_string()))
 }
 
-/// Persist a `codexRateLimitsUpdated` event into the global settings table
-/// and broadcast `CodexRateLimitsChanged`. Account-scoped data — no
-/// session_id involved, so the event carries no payload.
-fn persist_codex_rate_limits_event(app: &AppHandle, raw: &Value) {
-    let Some(snapshot) = raw.get("snapshot").and_then(Value::as_str) else {
-        tracing::warn!("codexRateLimitsUpdated event missing snapshot");
-        return;
-    };
-    if let Err(err) = crate::models::settings::upsert_setting_value(
-        crate::models::settings::CODEX_RATE_LIMITS_KEY,
-        snapshot,
-    ) {
-        tracing::warn!("Failed to persist codex rate limits: {err}");
-        return;
-    }
-    crate::ui_sync::publish(app, crate::ui_sync::UiMutationEvent::CodexRateLimitsChanged);
-}
-
 /// Persist a `contextUsageUpdated` event and broadcast `ContextUsageChanged`.
-/// Payload-free — the frontend refetches via React Query on invalidation,
-/// same pattern as `codexRateLimitsUpdated`.
+/// Payload-free — the frontend refetches via React Query on invalidation.
 fn persist_context_usage_event(app: &AppHandle, raw: &Value) {
     let outcome = match crate::models::db::write_conn() {
         Ok(conn) => match write_context_usage_meta(&conn, raw) {
@@ -1210,9 +1191,6 @@ pub(super) fn stream_via_sidecar(
                 }
                 "contextUsageUpdated" => {
                     persist_context_usage_event(&app, &event.raw);
-                }
-                "codexRateLimitsUpdated" => {
-                    persist_codex_rate_limits_event(&app, &event.raw);
                 }
                 "elicitationRequest" => {
                     let resolved_model = pipeline

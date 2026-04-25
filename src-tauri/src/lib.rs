@@ -1,5 +1,4 @@
 pub mod agents;
-pub mod claude_rate_limits;
 pub mod cli;
 pub(crate) mod commands;
 pub mod data_dir;
@@ -12,6 +11,7 @@ pub mod logging;
 pub mod mcp;
 pub mod models;
 pub mod pipeline;
+pub mod rate_limits;
 pub mod schema;
 pub mod service;
 mod shell_env;

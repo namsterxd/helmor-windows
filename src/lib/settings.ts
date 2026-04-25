@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	defaultFastMode: false,
 	zoomLevel: 1.0,
 	followUpBehavior: "steer",
-	alwaysShowContextUsage: false,
+	alwaysShowContextUsage: true,
 	showUsageStats: true,
 };
 

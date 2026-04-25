@@ -12,8 +12,10 @@ import {
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import {
-	parseRateLimitSnapshot,
+	parseClaudeRateLimits,
+	parseCodexRateLimits,
 	type RateLimitWindowDisplay,
+	ringTier,
 } from "../context-usage-ring/parse";
 import { LimitRow } from "../context-usage-ring/popover-parts";
 
@@ -33,25 +35,28 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 		settings.showUsageStats &&
 		(agentType === "claude" || agentType === "codex");
 
-	const { data: codexRaw = null } = useQuery({
-		...codexRateLimitsQueryOptions(),
-		enabled: show && !disabled && agentType === "codex",
-	});
-	const { data: claudeResult = null } = useQuery(
+	const { data: codexRaw = null } = useQuery(
+		codexRateLimitsQueryOptions(show && !disabled && agentType === "codex"),
+	);
+	const { data: claudeRaw = null } = useQuery(
 		claudeRateLimitsQueryOptions(show && !disabled && agentType === "claude"),
 	);
 
 	const stats = useMemo(() => {
-		const raw = agentType === "claude" ? claudeResult?.snapshot : codexRaw;
-		return parseRateLimitSnapshot(raw);
-	}, [agentType, claudeResult, codexRaw]);
-	const errorMessage =
-		agentType === "claude" && claudeResult?.error
-			? usageStatsErrorMessage(claudeResult.error.kind)
-			: null;
+		if (agentType === "claude") return parseClaudeRateLimits(claudeRaw);
+		if (agentType === "codex") return parseCodexRateLimits(codexRaw);
+		return null;
+	}, [agentType, claudeRaw, codexRaw]);
 
-	if (!show || (!stats && !errorMessage)) return null;
-	if (stats && !stats.primary && !stats.secondary && !errorMessage) return null;
+	if (!show || !stats) return null;
+	if (
+		!stats.primary &&
+		!stats.secondary &&
+		stats.extraWindows.length === 0 &&
+		stats.notes.length === 0
+	) {
+		return null;
+	}
 
 	return (
 		<HoverCard
@@ -71,9 +76,8 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 					)}
 				>
 					<UsageStatsGlyph
-						primary={stats?.primary ?? null}
-						secondary={stats?.secondary ?? null}
-						hasError={!!errorMessage}
+						primary={stats.primary}
+						secondary={stats.secondary}
 					/>
 				</button>
 			</HoverCardTrigger>
@@ -87,11 +91,10 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 							{agentType === "claude" ? "Claude" : "Codex"}
 						</div>
 					</div>
-					{stats ? (
+					{stats.primary || stats.secondary || stats.extraWindows.length > 0 ? (
 						<div className="flex flex-col gap-2.5">
 							{stats.primary ? <LimitRow window={stats.primary} /> : null}
 							{stats.secondary ? <LimitRow window={stats.secondary} /> : null}
-							{stats.tertiary ? <LimitRow window={stats.tertiary} /> : null}
 							{stats.extraWindows.map((entry) => (
 								<LimitRow
 									key={entry.id}
@@ -100,9 +103,19 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 							))}
 						</div>
 					) : null}
-					{errorMessage ? (
-						<div className="text-[12px] leading-5 text-muted-foreground">
-							{errorMessage}
+					{stats.notes.length > 0 ? (
+						<div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
+							{stats.notes.map((note) => (
+								<div
+									key={note.label}
+									className="flex items-center justify-between text-[12px]"
+								>
+									<span className="text-muted-foreground">{note.label}</span>
+									<span className="font-medium tabular-nums text-foreground">
+										{note.value}
+									</span>
+								</div>
+							))}
 						</div>
 					) : null}
 				</div>
@@ -111,63 +124,65 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 	);
 }
 
+// Geometry mirrors CodexBar's menu-bar IconRenderer so this indicator
+// reads with the same visual weight users get from the system menu
+// equivalent: 15 pt-wide track, 6 pt top bar, 4 pt bottom bar, 3 pt
+// gap, all centered inside an 18 pt square. Each fill colors
+// independently by its own usedPercent tier.
+const GLYPH_TRACK_WIDTH = 15;
+const GLYPH_PRIMARY_HEIGHT = 6;
+const GLYPH_SECONDARY_HEIGHT = 4;
+const GLYPH_GAP = 3;
+
 function UsageStatsGlyph({
 	primary,
 	secondary,
-	hasError,
 }: {
 	primary: RateLimitWindowDisplay | null;
 	secondary: RateLimitWindowDisplay | null;
-	hasError?: boolean;
 }) {
-	const primaryWidth = hasError ? "100%" : `${primary?.usedPercent ?? 0}%`;
-	const secondaryWidth = hasError ? "70%" : `${secondary?.usedPercent ?? 0}%`;
-	const primaryClassName = hasError
-		? "bg-destructive"
-		: usageFillClassName(primary);
-	const secondaryClassName = hasError
-		? "bg-destructive/70"
-		: usageFillClassName(secondary);
-
 	return (
 		<div
-			className="flex h-[18px] w-[22px] flex-col justify-center gap-[3px]"
+			className="flex flex-col items-start justify-center"
+			style={{ gap: GLYPH_GAP }}
 			aria-hidden
 		>
-			<div className="h-[7px] w-[22px] overflow-hidden rounded-full bg-muted">
-				<div
-					className={cn("h-full rounded-full", primaryClassName)}
-					style={{ width: primaryWidth }}
-				/>
-			</div>
-			<div className="h-[5px] w-[18px] overflow-hidden rounded-full bg-muted">
-				<div
-					className={cn("h-full rounded-full", secondaryClassName)}
-					style={{ width: secondaryWidth }}
-				/>
-			</div>
+			<GlyphBar window={primary} height={GLYPH_PRIMARY_HEIGHT} />
+			<GlyphBar window={secondary} height={GLYPH_SECONDARY_HEIGHT} />
 		</div>
 	);
 }
 
-function usageFillClassName(window: RateLimitWindowDisplay | null) {
-	if (!window) return "bg-foreground/45";
-	if (window.usedPercent >= 80) return "bg-destructive";
-	if (window.usedPercent >= 60) return "bg-amber-500";
-	return "bg-foreground/65";
-}
-
-function usageStatsErrorMessage(
-	kind: "noCredentials" | "unauthorized" | "network" | "unknown",
-) {
-	if (kind === "noCredentials") {
-		return "Claude usage is unavailable. Run `claude` once in Terminal, then try again.";
-	}
-	if (kind === "unauthorized") {
-		return "Claude authorization needs to be refreshed. Run `claude` in Terminal to re-authenticate.";
-	}
-	if (kind === "network") {
-		return "Claude usage could not be refreshed because the network request failed.";
-	}
-	return "Claude usage could not be refreshed.";
+function GlyphBar({
+	window,
+	height,
+}: {
+	window: RateLimitWindowDisplay | null;
+	height: number;
+}) {
+	// Render the *remaining* fraction so the icon and popover read the
+	// same way: longer bar = more headroom. Tier still tracks
+	// `usedPercent` so a near-empty bar lights up amber/destructive.
+	const used = window?.usedPercent ?? 0;
+	const left = window ? window.leftPercent : 0;
+	const tier = ringTier(used);
+	const fillClass =
+		tier === "danger"
+			? "bg-destructive"
+			: tier === "warning"
+				? "bg-amber-500"
+				: window
+					? "bg-foreground/65"
+					: "bg-foreground/35";
+	return (
+		<div
+			className="overflow-hidden rounded-full bg-muted"
+			style={{ width: GLYPH_TRACK_WIDTH, height }}
+		>
+			<div
+				className={cn("h-full rounded-full transition-[width]", fillClass)}
+				style={{ width: `${left}%` }}
+			/>
+		</div>
+	);
 }
