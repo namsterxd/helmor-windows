@@ -29,7 +29,7 @@ import {
 	loadWorkspaceGitActionStatus,
 	loadWorkspaceGroups,
 	loadWorkspaceSessions,
-	lookupWorkspaceChangeRequest,
+	refreshWorkspaceChangeRequest,
 } from "./api";
 import {
 	hasUsableAgentModelSections,
@@ -410,7 +410,7 @@ export function forgeActionStatusRefetchInterval(
 export function workspaceChangeRequestQueryOptions(workspaceId: string) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
-		queryFn: () => lookupWorkspaceChangeRequest(workspaceId),
+		queryFn: () => refreshWorkspaceChangeRequest(workspaceId),
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
 		refetchOnWindowFocus: true,

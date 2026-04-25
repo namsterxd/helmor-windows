@@ -32,10 +32,11 @@ pub use models::db;
 pub use models::repos;
 pub use models::sessions;
 pub use models::settings;
-pub use workspace::derived_status as workspace_derived_status;
 pub use workspace::files as editor_files;
 pub use workspace::helpers;
+pub use workspace::pr_sync as workspace_pr_sync;
 pub use workspace::state as workspace_state;
+pub use workspace::status as workspace_status;
 pub use workspace::workspaces;
 
 use tauri::{Emitter, Manager};
@@ -194,7 +195,7 @@ pub fn run() {
             commands::forge_commands::get_forge_cli_status,
             commands::forge_commands::install_forge_cli,
             commands::forge_commands::open_forge_cli_auth_terminal,
-            commands::forge_commands::lookup_workspace_change_request,
+            commands::forge_commands::refresh_workspace_change_request,
             commands::forge_commands::get_workspace_forge_action_status,
             commands::forge_commands::get_workspace_forge_check_insert_text,
             commands::forge_commands::merge_workspace_change_request,
@@ -236,6 +237,7 @@ pub fn run() {
             commands::workspace_commands::update_intended_target_branch,
             commands::workspace_commands::prefetch_remote_refs,
             commands::workspace_commands::push_workspace_to_remote,
+            commands::workspace_commands::continue_workspace_from_target_branch,
             commands::workspace_commands::sync_workspace_with_target_branch,
             commands::workspace_commands::mark_workspace_unread,
             commands::workspace_commands::pin_workspace,
@@ -252,7 +254,7 @@ pub fn run() {
             commands::system_commands::drain_pending_cli_sends,
             commands::editor_commands::read_editor_file,
             commands::editor_commands::read_file_at_ref,
-            commands::workspace_commands::set_workspace_manual_status,
+            commands::workspace_commands::set_workspace_status,
             commands::workspace_commands::list_workspace_linked_directories,
             commands::workspace_commands::set_workspace_linked_directories,
             commands::workspace_commands::list_workspace_candidate_directories,

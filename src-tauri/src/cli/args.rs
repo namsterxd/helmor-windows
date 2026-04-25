@@ -283,10 +283,10 @@ pub enum WorkspaceAction {
         #[arg(name = "ref")]
         workspace_ref: String,
     },
-    /// Manage the manual status override.
-    ManualStatus {
+    /// Manage the workspace sidebar status.
+    SetStatus {
         #[command(subcommand)]
-        action: ManualStatusAction,
+        action: WorkspaceStatusAction,
     },
     /// Branch operations scoped to a workspace.
     Branch {
@@ -321,15 +321,15 @@ pub enum WorkspaceAction {
 }
 
 #[derive(Subcommand)]
-pub enum ManualStatusAction {
-    /// Set the manual status (replaces derived status).
+pub enum WorkspaceStatusAction {
+    /// Set the workspace status.
     Set {
         #[arg(value_enum)]
-        status: ManualStatus,
+        status: WorkspaceStatusValue,
         #[arg(name = "ref")]
         workspace_ref: String,
     },
-    /// Clear the manual status and fall back to derived.
+    /// Reset the workspace status to progress.
     Clear {
         #[arg(name = "ref")]
         workspace_ref: String,
@@ -337,7 +337,7 @@ pub enum ManualStatusAction {
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
-pub enum ManualStatus {
+pub enum WorkspaceStatusValue {
     Done,
     Review,
     Progress,

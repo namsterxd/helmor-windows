@@ -8,7 +8,6 @@ import {
 	type CommitLifecycle,
 	deriveCommitButtonMode,
 	deriveCommitButtonState,
-	deriveWorkspaceStatusFromChangeRequest,
 } from "./commit-button-logic";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -462,47 +461,5 @@ describe("deriveCommitButtonState", () => {
 				makeChangeRequestActionStatus({ mergeable: "UNKNOWN" }),
 			),
 		).toBe("busy");
-	});
-});
-
-// ── deriveWorkspaceStatusFromChangeRequest ──────────────────────────────────────
-
-describe("deriveWorkspaceStatusFromChangeRequest", () => {
-	it("returns null when no change request", () => {
-		expect(deriveWorkspaceStatusFromChangeRequest(null)).toBeNull();
-	});
-
-	it("returns review when change request is OPEN", () => {
-		expect(
-			deriveWorkspaceStatusFromChangeRequest(
-				makeChangeRequest({ state: "OPEN" }),
-			),
-		).toBe("review");
-	});
-
-	it("returns done when change request is merged", () => {
-		expect(
-			deriveWorkspaceStatusFromChangeRequest(
-				makeChangeRequest({ state: "MERGED", isMerged: true }),
-			),
-		).toBe("done");
-	});
-
-	it("returns canceled when change request is CLOSED (not merged)", () => {
-		expect(
-			deriveWorkspaceStatusFromChangeRequest(
-				makeChangeRequest({ state: "CLOSED", isMerged: false }),
-			),
-		).toBe("canceled");
-	});
-
-	it("prioritizes isMerged over state string", () => {
-		// Edge case: state is CLOSED but isMerged is true (GitHub sets
-		// state to MERGED but some API paths return CLOSED when merged)
-		expect(
-			deriveWorkspaceStatusFromChangeRequest(
-				makeChangeRequest({ state: "CLOSED", isMerged: true }),
-			),
-		).toBe("done");
 	});
 });

@@ -66,7 +66,6 @@ import { useZoom } from "@/shell/use-zoom";
 import {
 	type ConductorWorkspace,
 	createSession,
-	type DerivedStatus,
 	drainPendingCliSends,
 	isConductorAvailable,
 	listConductorRepos,
@@ -76,7 +75,6 @@ import {
 	openWorkspaceInEditor,
 	openWorkspaceInFinder,
 	prewarmSlashCommandsForWorkspace,
-	setWorkspaceManualStatus,
 	triggerWorkspaceFetch,
 	type WorkspaceDetail,
 	type WorkspaceGroup,
@@ -723,64 +721,6 @@ function AppShell({
 	});
 	const workspaceGitActionStatus = workspaceGitActionStatusQuery.data ?? null;
 
-	// Reactively transition workspace sidebar status when the PR query
-	// detects a state change. Handles PRs created/merged/closed externally.
-	const selectedWorkspaceManualStatus =
-		selectedWorkspaceDetailQuery.data?.manualStatus ?? null;
-	const selectedWorkspaceState =
-		selectedWorkspaceDetailQuery.data?.state ?? null;
-	const changeRequestStatusSyncRef = useRef<string | null>(null);
-	useEffect(() => {
-		if (!selectedWorkspaceId || !workspaceChangeRequest) {
-			changeRequestStatusSyncRef.current = null;
-			return;
-		}
-		if (
-			selectedWorkspaceState !== "ready" &&
-			selectedWorkspaceState !== "setup_pending"
-		) {
-			return;
-		}
-
-		let targetStatus: DerivedStatus | null = null;
-		if (workspaceChangeRequest.isMerged) {
-			targetStatus = "done";
-		} else if (workspaceChangeRequest.state === "OPEN") {
-			targetStatus = "review";
-		} else if (workspaceChangeRequest.state === "CLOSED") {
-			targetStatus = "canceled";
-		}
-
-		if (!targetStatus) return;
-		if (selectedWorkspaceManualStatus === targetStatus) return;
-
-		const syncKey = `${selectedWorkspaceId}:${targetStatus}`;
-		if (changeRequestStatusSyncRef.current === syncKey) return;
-		changeRequestStatusSyncRef.current = syncKey;
-
-		void (async () => {
-			try {
-				await setWorkspaceManualStatus(selectedWorkspaceId, targetStatus);
-				await Promise.all([
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceGroups,
-					}),
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceDetail(selectedWorkspaceId),
-					}),
-				]);
-			} catch (error) {
-				console.error("[changeRequestStatusSync] Failed:", error);
-			}
-		})();
-	}, [
-		selectedWorkspaceId,
-		workspaceChangeRequest,
-		selectedWorkspaceManualStatus,
-		selectedWorkspaceState,
-		queryClient,
-	]);
-
 	const clearWorkspaceRuntimeState = useCallback(() => {
 		selectedWorkspaceIdRef.current = null;
 		selectedSessionIdRef.current = null;
@@ -1395,7 +1335,6 @@ function AppShell({
 			selectedWorkspaceDetailQuery.data?.intendedTargetBranch ??
 			selectedWorkspaceDetailQuery.data?.defaultBranch ??
 			null,
-		workspaceManualStatus: selectedWorkspaceManualStatus,
 		changeRequest: workspaceChangeRequest,
 		forgeDetection: workspaceForge,
 		forgeActionStatus: workspaceForgeActionStatus,

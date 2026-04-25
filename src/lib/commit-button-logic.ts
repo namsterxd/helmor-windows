@@ -126,17 +126,3 @@ export function deriveCommitButtonState(
 			return "error";
 	}
 }
-
-/**
- * Derive what workspace manual_status should be based on PR state.
- * Returns null if no status change is needed.
- */
-export function deriveWorkspaceStatusFromChangeRequest(
-	changeRequest: ChangeRequestInfo | null,
-): string | null {
-	if (!changeRequest) return null;
-	if (changeRequest.isMerged) return "done";
-	if (changeRequest.state === "OPEN") return "review";
-	if (changeRequest.state === "CLOSED") return "canceled";
-	return null;
-}

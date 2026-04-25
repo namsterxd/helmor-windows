@@ -725,18 +725,7 @@ pub fn restore_workspace_impl(
         )
     })?;
 
-    let actual_branch = if git_ops::verify_branch_exists(&repo_root, &branch).is_ok() {
-        let mut candidate = branch.clone();
-        for version in 1..=999 {
-            candidate = format!("{branch}-v{version}");
-            if git_ops::verify_branch_exists(&repo_root, &candidate).is_err() {
-                break;
-            }
-        }
-        candidate
-    } else {
-        branch.clone()
-    };
+    let actual_branch = helpers::next_available_branch_name(&repo_root, &branch)?;
 
     let (start_point, restored_from_target_branch) = match archive_commit.as_deref() {
         Some(commit) => {

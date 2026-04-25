@@ -52,7 +52,7 @@ impl EditorFilesHarness {
             .unwrap();
         connection
 			.execute(
-				"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status) VALUES ('workspace-1', 'repo-1', 'editor-mode', 'ready', 'in-progress')",
+				"INSERT INTO workspaces (id, repository_id, directory_name, state, status) VALUES ('workspace-1', 'repo-1', 'editor-mode', 'ready', 'in-progress')",
 				[],
 			)
 			.unwrap();
@@ -132,7 +132,7 @@ pub(super) fn test_db_with_workspace(
     )
     .unwrap();
     conn.execute(
-		"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, intended_target_branch)
+		"INSERT INTO workspaces (id, repository_id, directory_name, state, status, intended_target_branch)
 		 VALUES ('w1', 'r1', 'ws-dir', 'ready', 'in-progress', ?1)",
 		rusqlite::params![target],
 	)

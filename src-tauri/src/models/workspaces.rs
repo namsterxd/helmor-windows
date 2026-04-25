@@ -1,7 +1,10 @@
 use anyhow::{bail, Context, Result};
 use rusqlite::Row;
 
-use crate::{repos, workspace_derived_status::DerivedStatus, workspace_state::WorkspaceState};
+use crate::{
+    repos, workspace_pr_sync::PrSyncState, workspace_state::WorkspaceState,
+    workspace_status::WorkspaceStatus,
+};
 
 use super::db;
 
@@ -18,8 +21,7 @@ pub struct WorkspaceRecord {
     pub has_unread: bool,
     pub workspace_unread: i64,
     pub unread_session_count: i64,
-    pub derived_status: DerivedStatus,
-    pub manual_status: Option<DerivedStatus>,
+    pub status: WorkspaceStatus,
     pub branch: Option<String>,
     pub initialization_parent_branch: Option<String>,
     pub intended_target_branch: Option<String>,
@@ -29,6 +31,7 @@ pub struct WorkspaceRecord {
     pub active_session_agent_type: Option<String>,
     pub active_session_status: Option<String>,
     pub pr_title: Option<String>,
+    pub pr_sync_state: PrSyncState,
     pub archive_commit: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
@@ -69,8 +72,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       END AS has_unread,
       COALESCE(w.unread, 0) AS workspace_unread,
       COALESCE(ss.unread_session_count, 0) AS unread_session_count,
-      COALESCE(w.derived_status, 'in-progress') AS derived_status,
-      w.manual_status,
+      COALESCE(w.status, 'in-progress') AS status,
       w.branch,
       w.initialization_parent_branch,
       w.intended_target_branch,
@@ -80,6 +82,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       s.agent_type AS active_session_agent_type,
       s.status AS active_session_status,
       w.pr_title,
+      COALESCE(w.pr_sync_state, 'none') AS pr_sync_state,
       w.archive_commit,
       COALESCE(ss.session_count, 0) AS session_count,
       COALESCE(ms.message_count, 0) AS message_count,
@@ -162,7 +165,7 @@ pub(crate) fn insert_initializing_workspace_and_session(
               state,
               initialization_parent_branch,
               intended_target_branch,
-              derived_status,
+              status,
               unread,
               created_at,
               updated_at
@@ -376,17 +379,17 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         has_unread: row.get::<_, i64>(8)? != 0,
         workspace_unread: row.get(9)?,
         unread_session_count: row.get(10)?,
-        derived_status: row.get(11)?,
-        manual_status: row.get(12)?,
-        branch: row.get(13)?,
-        initialization_parent_branch: row.get(14)?,
-        intended_target_branch: row.get(15)?,
-        pinned_at: row.get(16)?,
-        active_session_id: row.get(17)?,
-        active_session_title: row.get(18)?,
-        active_session_agent_type: row.get(19)?,
-        active_session_status: row.get(20)?,
-        pr_title: row.get(21)?,
+        status: row.get(11)?,
+        branch: row.get(12)?,
+        initialization_parent_branch: row.get(13)?,
+        intended_target_branch: row.get(14)?,
+        pinned_at: row.get(15)?,
+        active_session_id: row.get(16)?,
+        active_session_title: row.get(17)?,
+        active_session_agent_type: row.get(18)?,
+        active_session_status: row.get(19)?,
+        pr_title: row.get(20)?,
+        pr_sync_state: row.get(21)?,
         archive_commit: row.get(22)?,
         session_count: row.get(23)?,
         message_count: row.get(24)?,

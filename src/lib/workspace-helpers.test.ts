@@ -125,46 +125,38 @@ describe("isNewSession", () => {
 
 describe("workspaceGroupIdFromStatus", () => {
 	it("maps done → done", () => {
-		expect(workspaceGroupIdFromStatus("done", null)).toBe("done");
+		expect(workspaceGroupIdFromStatus("done")).toBe("done");
 	});
 
 	it("maps review → review", () => {
-		expect(workspaceGroupIdFromStatus("review", null)).toBe("review");
+		expect(workspaceGroupIdFromStatus("review")).toBe("review");
 	});
 
 	it("maps in-review → review", () => {
-		expect(workspaceGroupIdFromStatus("in-review", null)).toBe("review");
+		expect(workspaceGroupIdFromStatus("in-review")).toBe("review");
 	});
 
 	it("maps backlog → backlog", () => {
-		expect(workspaceGroupIdFromStatus("backlog", null)).toBe("backlog");
+		expect(workspaceGroupIdFromStatus("backlog")).toBe("backlog");
 	});
 
 	it("maps cancelled → canceled", () => {
-		expect(workspaceGroupIdFromStatus("cancelled", null)).toBe("canceled");
+		expect(workspaceGroupIdFromStatus("cancelled")).toBe("canceled");
 	});
 
 	it("defaults to progress", () => {
-		expect(workspaceGroupIdFromStatus(null, null)).toBe("progress");
-	});
-
-	it("manual status takes precedence over derived", () => {
-		expect(workspaceGroupIdFromStatus("done", "backlog")).toBe("done");
-	});
-
-	it("falls back to derived when manual is null", () => {
-		expect(workspaceGroupIdFromStatus(null, "review")).toBe("review");
+		expect(workspaceGroupIdFromStatus(null)).toBe("progress");
 	});
 
 	it("routes pinned rows to the pinned group regardless of status", () => {
-		expect(
-			workspaceGroupIdFromStatus("done", "backlog", "2024-01-01T00:00:00Z"),
-		).toBe("pinned");
+		expect(workspaceGroupIdFromStatus("done", "2024-01-01T00:00:00Z")).toBe(
+			"pinned",
+		);
 	});
 
 	it("ignores a null/empty pinnedAt", () => {
-		expect(workspaceGroupIdFromStatus("done", null, null)).toBe("done");
-		expect(workspaceGroupIdFromStatus("done", null, undefined)).toBe("done");
+		expect(workspaceGroupIdFromStatus("done", null)).toBe("done");
+		expect(workspaceGroupIdFromStatus("done", undefined)).toBe("done");
 	});
 });
 
@@ -254,7 +246,7 @@ describe("getWorkspaceBranchTone", () => {
 	});
 
 	it("done status without PR → merged", () => {
-		expect(getWorkspaceBranchTone({ manualStatus: "done" })).toBe("merged");
+		expect(getWorkspaceBranchTone({ status: "done" })).toBe("merged");
 	});
 
 	it("default → working", () => {

@@ -16,10 +16,9 @@ const apiMocks = vi.hoisted(() => ({
 	hideSession: vi.fn(),
 	loadRepoPreferences: vi.fn(),
 	loadAutoCloseActionKinds: vi.fn(),
-	lookupWorkspaceChangeRequest: vi.fn(),
+	refreshWorkspaceChangeRequest: vi.fn(),
 	mergeWorkspaceChangeRequest: vi.fn(),
 	pushWorkspaceToRemote: vi.fn(),
-	setWorkspaceManualStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -32,10 +31,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		hideSession: apiMocks.hideSession,
 		loadRepoPreferences: apiMocks.loadRepoPreferences,
 		loadAutoCloseActionKinds: apiMocks.loadAutoCloseActionKinds,
-		lookupWorkspaceChangeRequest: apiMocks.lookupWorkspaceChangeRequest,
+		refreshWorkspaceChangeRequest: apiMocks.refreshWorkspaceChangeRequest,
 		mergeWorkspaceChangeRequest: apiMocks.mergeWorkspaceChangeRequest,
 		pushWorkspaceToRemote: apiMocks.pushWorkspaceToRemote,
-		setWorkspaceManualStatus: apiMocks.setWorkspaceManualStatus,
 	};
 });
 
@@ -75,16 +73,14 @@ describe("useWorkspaceCommitLifecycle", () => {
 		apiMocks.hideSession.mockReset();
 		apiMocks.loadRepoPreferences.mockReset();
 		apiMocks.loadAutoCloseActionKinds.mockReset();
-		apiMocks.lookupWorkspaceChangeRequest.mockReset();
+		apiMocks.refreshWorkspaceChangeRequest.mockReset();
 		apiMocks.mergeWorkspaceChangeRequest.mockReset();
 		apiMocks.pushWorkspaceToRemote.mockReset();
-		apiMocks.setWorkspaceManualStatus.mockReset();
 
 		apiMocks.createSession.mockResolvedValue({ sessionId: "session-action" });
 		apiMocks.loadRepoPreferences.mockResolvedValue({});
 		apiMocks.loadAutoCloseActionKinds.mockResolvedValue(["create-pr"]);
-		apiMocks.setWorkspaceManualStatus.mockResolvedValue(undefined);
-		apiMocks.lookupWorkspaceChangeRequest.mockResolvedValue({
+		apiMocks.refreshWorkspaceChangeRequest.mockResolvedValue({
 			number: 53,
 			title: "Fix overflow",
 			url: "https://github.com/example/repo/pull/53",
@@ -135,7 +131,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef,
 					selectedRepoId: "repo-1",
 					selectedWorkspaceTargetBranch: "main",
-					workspaceManualStatus: null,
 					changeRequest: null,
 					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
@@ -183,7 +178,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		});
 
 		await waitFor(() => {
-			expect(apiMocks.lookupWorkspaceChangeRequest).toHaveBeenCalledWith(
+			expect(apiMocks.refreshWorkspaceChangeRequest).toHaveBeenCalledWith(
 				"workspace-1",
 			);
 		});
@@ -194,12 +189,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
 				queryKey: helmorQueryKeys.workspaceForgeActionStatus("workspace-1"),
 			});
-		});
-		await waitFor(() => {
-			expect(apiMocks.setWorkspaceManualStatus).toHaveBeenCalledWith(
-				"workspace-1",
-				"review",
-			);
 		});
 		await waitFor(() => {
 			expect(apiMocks.hideSession).toHaveBeenCalledWith("session-action");
@@ -233,7 +222,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceIdRef,
 					selectedRepoId: "repo-1",
 					selectedWorkspaceTargetBranch: "main",
-					workspaceManualStatus: null,
 					changeRequest: null,
 					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
@@ -281,8 +269,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		await waitFor(() => {
 			expect(result.current.commitButtonState).toBe("idle");
 		});
-		expect(apiMocks.lookupWorkspaceChangeRequest).not.toHaveBeenCalled();
-		expect(apiMocks.setWorkspaceManualStatus).not.toHaveBeenCalled();
+		expect(apiMocks.refreshWorkspaceChangeRequest).not.toHaveBeenCalled();
 	});
 
 	it("pushes directly without creating an action session", async () => {
@@ -304,7 +291,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
-					workspaceManualStatus: null,
 					changeRequest: null,
 					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: {
@@ -376,7 +362,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
-					workspaceManualStatus: null,
 					changeRequest: null,
 					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: {
@@ -425,7 +410,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
-					workspaceManualStatus: null,
 					changeRequest: null,
 					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
 					workspaceGitActionStatus: EMPTY_GIT_ACTION_STATUS,
@@ -471,7 +455,6 @@ describe("useWorkspaceCommitLifecycle", () => {
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
 					selectedRepoId: "repo-1",
-					workspaceManualStatus: null,
 					changeRequest: {
 						number: 53,
 						title: "Fix overflow",

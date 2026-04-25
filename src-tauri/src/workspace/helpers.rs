@@ -7,8 +7,7 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
-use crate::models::workspaces::WorkspaceRecord;
-use crate::workspace_derived_status::DerivedStatus;
+use crate::{git_ops, models::workspaces::WorkspaceRecord, workspace_status::WorkspaceStatus};
 
 // ---- Display / naming helpers ----
 
@@ -56,25 +55,29 @@ pub fn non_empty(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|inner| !inner.trim().is_empty())
 }
 
-// ---- Sidebar sorting helpers ----
+pub fn next_available_branch_name(repo_root: &Path, base: &str) -> Result<String> {
+    if git_ops::verify_branch_exists(repo_root, base).is_err() {
+        return Ok(base.to_string());
+    }
 
-/// Effective status for sidebar grouping — manual override wins over derived.
-pub fn effective_status(
-    manual_status: Option<DerivedStatus>,
-    derived_status: DerivedStatus,
-) -> DerivedStatus {
-    manual_status.unwrap_or(derived_status)
+    for version in 1..=999 {
+        let candidate = format!("{base}-v{version}");
+        if git_ops::verify_branch_exists(repo_root, &candidate).is_err() {
+            return Ok(candidate);
+        }
+    }
+
+    bail!("No available branch name found for {base} after 999 attempts")
 }
 
-pub fn group_id_from_status(
-    manual_status: Option<DerivedStatus>,
-    derived_status: DerivedStatus,
-) -> &'static str {
-    effective_status(manual_status, derived_status).group_id()
+// ---- Sidebar sorting helpers ----
+
+pub fn group_id_from_status(status: WorkspaceStatus) -> &'static str {
+    status.group_id()
 }
 
 pub fn sidebar_sort_rank(record: &WorkspaceRecord) -> usize {
-    effective_status(record.manual_status, record.derived_status).sort_rank()
+    record.status.sort_rank()
 }
 
 // ---- Repo icon helpers ----
@@ -527,6 +530,20 @@ pub fn is_default_branch_name(
     branch == branch_name_for_directory(directory_name, settings)
 }
 
+pub fn is_auto_generated_branch_name(
+    branch: &str,
+    directory_name: &str,
+    settings: &crate::settings::BranchPrefixSettings,
+) -> bool {
+    let base = branch_name_for_directory(directory_name, settings);
+    branch == base
+        || branch.strip_prefix(&base).is_some_and(|suffix| {
+            suffix.strip_prefix("-v").is_some_and(|version| {
+                !version.is_empty() && version.chars().all(|c| c.is_ascii_digit())
+            })
+        })
+}
+
 /// Read the GitHub login from the stored identity metadata.
 fn resolve_github_login() -> Result<Option<String>> {
     let raw = crate::settings::load_setting_value("github_identity_meta")?;
@@ -620,28 +637,43 @@ mod tests {
 
     #[test]
     fn group_id_maps_statuses_correctly() {
-        assert_eq!(group_id_from_status(None, DerivedStatus::Done), "done");
-        assert_eq!(group_id_from_status(None, DerivedStatus::Review), "review");
+        assert_eq!(group_id_from_status(WorkspaceStatus::Done), "done");
+        assert_eq!(group_id_from_status(WorkspaceStatus::Review), "review");
         assert_eq!(
-            group_id_from_status(None, DerivedStatus::InProgress),
+            group_id_from_status(WorkspaceStatus::InProgress),
             "progress"
         );
-        assert_eq!(
-            group_id_from_status(None, DerivedStatus::Backlog),
-            "backlog"
-        );
-        assert_eq!(
-            group_id_from_status(None, DerivedStatus::Canceled),
-            "canceled"
-        );
+        assert_eq!(group_id_from_status(WorkspaceStatus::Backlog), "backlog");
+        assert_eq!(group_id_from_status(WorkspaceStatus::Canceled), "canceled");
     }
 
     #[test]
-    fn group_id_prefers_manual_status() {
-        assert_eq!(
-            group_id_from_status(Some(DerivedStatus::Done), DerivedStatus::InProgress),
-            "done"
-        );
+    fn auto_generated_branch_name_accepts_version_suffixes() {
+        let settings = crate::settings::BranchPrefixSettings {
+            branch_prefix_type: Some("custom".to_string()),
+            branch_prefix_custom: Some("user/".to_string()),
+        };
+
+        assert!(is_auto_generated_branch_name(
+            "user/vega",
+            "vega",
+            &settings
+        ));
+        assert!(is_auto_generated_branch_name(
+            "user/vega-v1",
+            "vega",
+            &settings
+        ));
+        assert!(is_auto_generated_branch_name(
+            "user/vega-v12",
+            "vega",
+            &settings
+        ));
+        assert!(!is_auto_generated_branch_name(
+            "user/vega-feature",
+            "vega",
+            &settings
+        ));
     }
 
     #[test]

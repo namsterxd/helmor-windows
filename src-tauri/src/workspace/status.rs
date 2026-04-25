@@ -1,7 +1,6 @@
-//! Workspace derived-status enum — drives the kanban lanes (Done / In
-//! Review / In Progress / Backlog / Canceled) in the sidebar. Stored in
-//! `workspaces.derived_status` and optionally overridden by
-//! `workspaces.manual_status`.
+//! Workspace status enum — drives the kanban lanes (Done / In Review /
+//! In Progress / Backlog / Canceled) in the sidebar. Stored in
+//! `workspaces.status`.
 //!
 //! Historical data may carry `"in-review"` or `"cancelled"` (British) — the
 //! parser canonicalises both on read. Writers always emit the canonical
@@ -15,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum DerivedStatus {
+pub enum WorkspaceStatus {
     #[default]
     InProgress,
     Done,
@@ -24,7 +23,7 @@ pub enum DerivedStatus {
     Canceled,
 }
 
-impl DerivedStatus {
+impl WorkspaceStatus {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::InProgress => "in-progress",
@@ -59,25 +58,25 @@ impl DerivedStatus {
     }
 }
 
-impl fmt::Display for DerivedStatus {
+impl fmt::Display for WorkspaceStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
 #[derive(Debug)]
-pub struct UnknownDerivedStatus(pub String);
+pub struct UnknownWorkspaceStatus(pub String);
 
-impl fmt::Display for UnknownDerivedStatus {
+impl fmt::Display for UnknownWorkspaceStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "unknown workspace derived_status: {:?}", self.0)
+        write!(f, "unknown workspace status: {:?}", self.0)
     }
 }
 
-impl std::error::Error for UnknownDerivedStatus {}
+impl std::error::Error for UnknownWorkspaceStatus {}
 
-impl FromStr for DerivedStatus {
-    type Err = UnknownDerivedStatus;
+impl FromStr for WorkspaceStatus {
+    type Err = UnknownWorkspaceStatus;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
@@ -86,20 +85,20 @@ impl FromStr for DerivedStatus {
             "review" | "in-review" => Ok(Self::Review),
             "backlog" => Ok(Self::Backlog),
             "canceled" | "cancelled" => Ok(Self::Canceled),
-            _ => Err(UnknownDerivedStatus(s.to_string())),
+            _ => Err(UnknownWorkspaceStatus(s.to_string())),
         }
     }
 }
 
-impl FromSql for DerivedStatus {
+impl FromSql for WorkspaceStatus {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let s = value.as_str()?;
         s.parse()
-            .map_err(|e: UnknownDerivedStatus| FromSqlError::Other(Box::new(e)))
+            .map_err(|e: UnknownWorkspaceStatus| FromSqlError::Other(Box::new(e)))
     }
 }
 
-impl ToSql for DerivedStatus {
+impl ToSql for WorkspaceStatus {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Borrowed(ValueRef::Text(
             self.as_str().as_bytes(),
@@ -114,56 +113,56 @@ mod tests {
     #[test]
     fn legacy_spellings_canonicalise() {
         assert_eq!(
-            DerivedStatus::from_str("in-review").unwrap(),
-            DerivedStatus::Review
+            WorkspaceStatus::from_str("in-review").unwrap(),
+            WorkspaceStatus::Review
         );
         assert_eq!(
-            DerivedStatus::from_str("cancelled").unwrap(),
-            DerivedStatus::Canceled
+            WorkspaceStatus::from_str("cancelled").unwrap(),
+            WorkspaceStatus::Canceled
         );
         assert_eq!(
-            DerivedStatus::from_str("CANCELED").unwrap(),
-            DerivedStatus::Canceled
+            WorkspaceStatus::from_str("CANCELED").unwrap(),
+            WorkspaceStatus::Canceled
         );
         assert_eq!(
-            DerivedStatus::from_str(" done ").unwrap(),
-            DerivedStatus::Done
+            WorkspaceStatus::from_str(" done ").unwrap(),
+            WorkspaceStatus::Done
         );
     }
 
     #[test]
     fn round_trips_canonical_form() {
         for s in [
-            DerivedStatus::InProgress,
-            DerivedStatus::Done,
-            DerivedStatus::Review,
-            DerivedStatus::Backlog,
-            DerivedStatus::Canceled,
+            WorkspaceStatus::InProgress,
+            WorkspaceStatus::Done,
+            WorkspaceStatus::Review,
+            WorkspaceStatus::Backlog,
+            WorkspaceStatus::Canceled,
         ] {
-            assert_eq!(DerivedStatus::from_str(s.as_str()).unwrap(), s);
+            assert_eq!(WorkspaceStatus::from_str(s.as_str()).unwrap(), s);
         }
     }
 
     #[test]
     fn json_serializes_to_kebab_case_literals() {
         assert_eq!(
-            serde_json::to_string(&DerivedStatus::InProgress).unwrap(),
+            serde_json::to_string(&WorkspaceStatus::InProgress).unwrap(),
             "\"in-progress\""
         );
         assert_eq!(
-            serde_json::to_string(&DerivedStatus::Done).unwrap(),
+            serde_json::to_string(&WorkspaceStatus::Done).unwrap(),
             "\"done\""
         );
         assert_eq!(
-            serde_json::to_string(&DerivedStatus::Review).unwrap(),
+            serde_json::to_string(&WorkspaceStatus::Review).unwrap(),
             "\"review\""
         );
         assert_eq!(
-            serde_json::to_string(&DerivedStatus::Backlog).unwrap(),
+            serde_json::to_string(&WorkspaceStatus::Backlog).unwrap(),
             "\"backlog\""
         );
         assert_eq!(
-            serde_json::to_string(&DerivedStatus::Canceled).unwrap(),
+            serde_json::to_string(&WorkspaceStatus::Canceled).unwrap(),
             "\"canceled\""
         );
     }
@@ -171,10 +170,10 @@ mod tests {
     #[test]
     fn group_id_differs_from_stored_str() {
         // Only deviation from `as_str` is InProgress → "progress".
-        assert_eq!(DerivedStatus::InProgress.group_id(), "progress");
+        assert_eq!(WorkspaceStatus::InProgress.group_id(), "progress");
         assert_ne!(
-            DerivedStatus::InProgress.as_str(),
-            DerivedStatus::InProgress.group_id()
+            WorkspaceStatus::InProgress.as_str(),
+            WorkspaceStatus::InProgress.group_id()
         );
     }
 }

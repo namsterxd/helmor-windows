@@ -372,6 +372,53 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add forge_provider column")?;
     }
 
+    if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "pr_sync_state")
+    {
+        connection
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN pr_sync_state TEXT DEFAULT 'none'")
+            .context("Failed to add pr_sync_state column")?;
+    }
+
+    let had_workspace_status =
+        has_table(connection, "workspaces") && has_column(connection, "workspaces", "status");
+    if has_table(connection, "workspaces") && !had_workspace_status {
+        connection
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN status TEXT DEFAULT 'in-progress'")
+            .context("Failed to add workspace status column")?;
+    }
+    if has_table(connection, "workspaces") {
+        let legacy_status_expr = if has_column(connection, "workspaces", "manual_status")
+            && has_column(connection, "workspaces", "derived_status")
+        {
+            "COALESCE(NULLIF(manual_status, ''), NULLIF(derived_status, ''), 'in-progress')"
+        } else if has_column(connection, "workspaces", "derived_status") {
+            "COALESCE(NULLIF(derived_status, ''), 'in-progress')"
+        } else {
+            "'in-progress'"
+        };
+        connection
+            .execute_batch(&format!(
+                "UPDATE workspaces SET status = {legacy_status_expr} WHERE {}",
+                if had_workspace_status {
+                    "status IS NULL OR status = ''"
+                } else {
+                    "1 = 1"
+                }
+            ))
+            .context("Failed to backfill workspace status")?;
+
+        if has_column(connection, "workspaces", "manual_status") {
+            connection
+                .execute_batch("ALTER TABLE workspaces DROP COLUMN manual_status")
+                .context("Failed to drop workspace manual_status column")?;
+        }
+        if has_column(connection, "workspaces", "derived_status") {
+            connection
+                .execute_batch("ALTER TABLE workspaces DROP COLUMN derived_status")
+                .context("Failed to drop workspace derived_status column")?;
+        }
+    }
+
     drop_dead_schema(connection)?;
 
     // Migration: remap legacy "opus-1m" model ID — the CLI no longer accepts it.
@@ -431,13 +478,13 @@ CREATE TABLE IF NOT EXISTS workspaces (
     active_session_id TEXT,
     branch TEXT,
     state TEXT DEFAULT 'active',
-    derived_status TEXT DEFAULT 'in-progress',
-    manual_status TEXT,
+    status TEXT DEFAULT 'in-progress',
     unread INTEGER DEFAULT 0,
     initialization_parent_branch TEXT,
     pinned_at TEXT,
     intended_target_branch TEXT,
     pr_title TEXT,
+    pr_sync_state TEXT DEFAULT 'none',
     archive_commit TEXT,
     linked_directory_paths TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),

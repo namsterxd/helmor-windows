@@ -72,7 +72,7 @@ fn query_target_returns_none_for_archived_workspace() {
     )
     .unwrap();
     conn.execute(
-		"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, intended_target_branch)
+		"INSERT INTO workspaces (id, repository_id, directory_name, state, status, intended_target_branch)
 		 VALUES ('w1', 'r1', 'ws-dir', 'archived', 'done', 'develop')",
 		rusqlite::params![],
 	)
@@ -131,7 +131,7 @@ fn resolve_target_ref_uses_configured_target_branch() {
 	)
 	.unwrap();
     conn.execute(
-		"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, intended_target_branch)
+		"INSERT INTO workspaces (id, repository_id, directory_name, state, status, intended_target_branch)
 		 VALUES ('w1', 'r1', 'merge-base-ws', 'ready', 'in-progress', 'custom/target')",
 		[],
 	)

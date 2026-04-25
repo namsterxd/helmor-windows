@@ -179,7 +179,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 				return [];
 			case "list_workspace_candidate_directories":
 				return [];
-			case "lookup_workspace_change_request":
+			case "refresh_workspace_change_request":
 				return null;
 			case "get_workspace_forge":
 				return {

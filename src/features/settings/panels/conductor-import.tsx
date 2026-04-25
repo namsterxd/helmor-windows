@@ -35,9 +35,9 @@ function humanize(directoryName: string): string {
 
 function statusLabel(ws: ConductorWorkspace): string {
 	if (ws.state === "archived") return "Archived";
-	if (ws.derivedStatus === "done") return "Done";
-	if (ws.derivedStatus === "in-progress") return "In progress";
-	return ws.derivedStatus ?? ws.state;
+	if (ws.status === "done") return "Done";
+	if (ws.status === "in-progress") return "In progress";
+	return ws.status ?? ws.state;
 }
 
 function SkeletonRow() {

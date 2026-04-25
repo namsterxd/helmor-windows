@@ -1788,7 +1788,7 @@ working_directory: /tmp/helmor
         ) {
             conn.execute(
                 "INSERT INTO workspaces (id, repository_id, directory_name, state,
-                 derived_status, linked_directory_paths) VALUES (?1, 'r-1', 'ws', 'ready',
+                 status, linked_directory_paths) VALUES (?1, 'r-1', 'ws', 'ready',
                  'in-progress', ?2)",
                 rusqlite::params![ws_id, linked],
             )
@@ -1881,7 +1881,7 @@ working_directory: /tmp/helmor
             )
             .unwrap();
             conn.execute(
-                "INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status)
+                "INSERT INTO workspaces (id, repository_id, directory_name, state, status)
                  VALUES ('w-1', 'r-1', 'd', 'ready', 'in-progress')",
                 [],
             )

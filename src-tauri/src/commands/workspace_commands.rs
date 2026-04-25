@@ -1,8 +1,7 @@
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    db, git_watcher, workspace_derived_status::DerivedStatus, workspace_state::WorkspaceState,
-    workspaces,
+    db, git_watcher, workspace_state::WorkspaceState, workspace_status::WorkspaceStatus, workspaces,
 };
 
 use super::common::{run_blocking, CmdResult};
@@ -115,11 +114,8 @@ pub async fn unpin_workspace(workspace_id: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn set_workspace_manual_status(
-    workspace_id: String,
-    status: Option<DerivedStatus>,
-) -> CmdResult<()> {
-    run_blocking(move || workspaces::set_workspace_manual_status(&workspace_id, status)).await
+pub async fn set_workspace_status(workspace_id: String, status: WorkspaceStatus) -> CmdResult<()> {
+    run_blocking(move || workspaces::set_workspace_status(&workspace_id, status)).await
 }
 
 /// `/add-dir` feature: list the extra directories the user has linked to
@@ -233,6 +229,20 @@ pub async fn push_workspace_to_remote(
     let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
     run_blocking(move || workspaces::push_workspace_to_remote(&workspace_id)).await
+}
+
+#[tauri::command]
+pub async fn continue_workspace_from_target_branch(
+    app: AppHandle,
+    workspace_id: String,
+) -> CmdResult<workspaces::ContinueWorkspaceResponse> {
+    let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    let result =
+        run_blocking(move || workspaces::continue_workspace_from_target_branch(&workspace_id))
+            .await?;
+    git_watcher::notify_workspace_changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]

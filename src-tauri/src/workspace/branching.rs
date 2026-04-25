@@ -13,7 +13,10 @@ use crate::{
     error::{coded, ErrorCode},
     git_ops, helpers,
     models::workspaces::{self as workspace_models, WorkspaceRecord},
+    settings,
+    workspace_pr_sync::PrSyncState,
     workspace_state,
+    workspace_status::WorkspaceStatus,
 };
 
 struct RepoContext {
@@ -342,6 +345,14 @@ pub struct PushWorkspaceToRemoteResponse {
     pub head_commit: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinueWorkspaceResponse {
+    pub branch: String,
+    pub target_branch: String,
+    pub start_point: String,
+}
+
 pub fn prefetch_remote_refs(
     workspace_id: Option<&str>,
     repo_id: Option<&str>,
@@ -528,6 +539,148 @@ pub fn push_workspace_to_remote(workspace_id: &str) -> Result<PushWorkspaceToRem
         target_ref: push_result.target_ref,
         head_commit,
     })
+}
+
+pub fn continue_workspace_from_target_branch(
+    workspace_id: &str,
+) -> Result<ContinueWorkspaceResponse> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+    if !record.state.is_operational() {
+        bail!(
+            "Cannot continue workspace: workspace is {} (archived or mid-creation)",
+            record.state
+        );
+    }
+
+    let repo_root = helpers::non_empty(&record.root_path)
+        .map(PathBuf::from)
+        .with_context(|| format!("Workspace {workspace_id} is missing repo root_path"))?;
+    let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+    if !workspace_dir.is_dir() {
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
+            "Workspace directory is missing for {workspace_id}"
+        );
+    }
+
+    let target_branch = record
+        .intended_target_branch
+        .clone()
+        .or(record.default_branch.clone())
+        .unwrap_or_else(|| "main".to_string());
+    let remote = record
+        .remote
+        .clone()
+        .unwrap_or_else(|| "origin".to_string());
+    let start_point = if git_ops::verify_remote_ref_exists(&workspace_dir, &remote, &target_branch)?
+    {
+        format!("{remote}/{target_branch}")
+    } else if git_ops::verify_branch_exists(&repo_root, &target_branch).is_ok() {
+        target_branch.clone()
+    } else {
+        bail!("Target branch {target_branch} was not found");
+    };
+
+    let branch_settings = settings::load_branch_prefix_settings()?;
+    let base_branch = helpers::branch_name_for_directory(&record.directory_name, &branch_settings);
+    let branch = helpers::next_available_branch_name(&repo_root, &base_branch)?;
+    let workspace_dir_arg = workspace_dir.display().to_string();
+    let old_branch = git_ops::current_branch_name(&workspace_dir)
+        .context("Failed to resolve current workspace branch")?;
+
+    git_ops::run_git(
+        [
+            "-C",
+            workspace_dir_arg.as_str(),
+            "switch",
+            "-c",
+            &branch,
+            &start_point,
+        ],
+        None,
+    )
+    .context(
+        "Continue could not move your local changes onto the target branch. \
+         Commit, stash, or discard the conflicting changes, then try again.",
+    )?;
+    let _ = git_ops::run_git(
+        [
+            "-C",
+            workspace_dir_arg.as_str(),
+            "branch",
+            "--unset-upstream",
+            &branch,
+        ],
+        None,
+    );
+
+    let persist_result = (|| -> Result<()> {
+        let connection = db::write_conn()?;
+        let updated_rows = connection
+            .execute(
+                r#"
+                UPDATE workspaces
+                SET branch = ?2,
+                    status = ?3,
+                    initialization_parent_branch = ?4,
+                    intended_target_branch = ?4,
+                    pr_sync_state = ?5,
+                    updated_at = datetime('now')
+                WHERE id = ?1
+                "#,
+                rusqlite::params![
+                    workspace_id,
+                    branch,
+                    WorkspaceStatus::InProgress,
+                    target_branch,
+                    PrSyncState::None,
+                ],
+            )
+            .context("Failed to persist continued workspace branch")?;
+        if updated_rows != 1 {
+            bail!("Continue workspace update affected {updated_rows} rows for {workspace_id}");
+        }
+        Ok(())
+    })();
+    if let Err(error) = persist_result {
+        rollback_continue_branch(&workspace_dir_arg, &old_branch, &branch, workspace_id);
+        return Err(error);
+    }
+
+    Ok(ContinueWorkspaceResponse {
+        branch,
+        target_branch,
+        start_point,
+    })
+}
+
+fn rollback_continue_branch(
+    workspace_dir_arg: &str,
+    old_branch: &str,
+    new_branch: &str,
+    workspace_id: &str,
+) {
+    if let Err(error) = git_ops::run_git(["-C", workspace_dir_arg, "switch", old_branch], None) {
+        tracing::warn!(
+            workspace_id,
+            branch = %new_branch,
+            error = %error,
+            "Failed to roll back workspace branch after continue persistence failure"
+        );
+        return;
+    }
+    if let Err(error) =
+        git_ops::run_git(["-C", workspace_dir_arg, "branch", "-D", new_branch], None)
+    {
+        tracing::warn!(
+            workspace_id,
+            branch = %new_branch,
+            error = %error,
+            "Failed to delete continued branch after rollback"
+        );
+    }
 }
 
 pub(crate) fn clear_prefetch_rate_limit(workspace_id: &str) {

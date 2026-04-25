@@ -39,10 +39,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type {
-	DerivedStatus,
 	RepositoryCreateOption,
 	WorkspaceGroup,
 	WorkspaceRow,
+	WorkspaceStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { WorkspaceAvatar } from "./avatar";
@@ -116,7 +116,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onDeleteWorkspace,
 	onOpenInFinder,
 	onTogglePin,
-	onSetManualStatus,
+	onSetWorkspaceStatus,
 	archivingWorkspaceIds,
 	markingUnreadWorkspaceId,
 	restoringWorkspaceId,
@@ -147,10 +147,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onOpenInFinder?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
-	onSetManualStatus?: (
-		workspaceId: string,
-		status: DerivedStatus | null,
-	) => void;
+	onSetWorkspaceStatus?: (workspaceId: string, status: WorkspaceStatus) => void;
 	archivingWorkspaceIds?: Set<string>;
 	markingUnreadWorkspaceId?: string | null;
 	restoringWorkspaceId?: string | null;
@@ -436,7 +433,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						onMarkWorkspaceUnread={onMarkWorkspaceUnread}
 						onOpenInFinder={onOpenInFinder}
 						onTogglePin={onTogglePin}
-						onSetManualStatus={onSetManualStatus}
+						onSetWorkspaceStatus={onSetWorkspaceStatus}
 						archivingWorkspaceIds={archivingWorkspaceIds}
 						markingUnreadWorkspaceId={markingUnreadWorkspaceId}
 						restoringWorkspaceId={restoringWorkspaceId}
@@ -466,7 +463,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			onRestoreWorkspace,
 			onDeleteWorkspace,
 			onTogglePin,
-			onSetManualStatus,
+			onSetWorkspaceStatus,
 			archivingWorkspaceIds,
 			markingUnreadWorkspaceId,
 			restoringWorkspaceId,

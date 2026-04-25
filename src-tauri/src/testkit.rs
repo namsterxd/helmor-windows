@@ -155,7 +155,7 @@ pub(crate) struct WorkspaceFixture<'a> {
 
 pub(crate) fn insert_workspace(conn: &Connection, ws: &WorkspaceFixture) {
     conn.execute(
-        "INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, branch, intended_target_branch)
+        "INSERT INTO workspaces (id, repository_id, directory_name, state, status, branch, intended_target_branch)
          VALUES (?1, ?2, ?3, ?4, 'in-progress', ?5, ?6)",
         rusqlite::params![
             ws.id,

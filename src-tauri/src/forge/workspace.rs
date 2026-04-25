@@ -70,7 +70,7 @@ pub fn get_workspace_forge(workspace_id: &str) -> Result<ForgeDetection> {
     Ok(detection)
 }
 
-pub fn lookup_workspace_change_request(workspace_id: &str) -> Result<Option<ChangeRequestInfo>> {
+pub fn refresh_workspace_change_request(workspace_id: &str) -> Result<Option<ChangeRequestInfo>> {
     let Some((detection, backend)) = resolve_backend(workspace_id, "lookup_change_request")? else {
         return Ok(None);
     };

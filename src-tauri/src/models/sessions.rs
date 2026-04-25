@@ -674,7 +674,7 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status) VALUES ('w1', 'r1', 'test-dir', 'active', 'in-progress')",
+            "INSERT INTO workspaces (id, repository_id, directory_name, state, status) VALUES ('w1', 'r1', 'test-dir', 'active', 'in-progress')",
             [],
         ).unwrap();
         conn.execute(

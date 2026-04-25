@@ -37,7 +37,7 @@ export function BrandIcon({
 			width={size}
 			height={size}
 			fill="currentColor"
-			className={cn("shrink-0", className)}
+			className={cn("block shrink-0 overflow-visible", className)}
 			{...accessibilityProps}
 		>
 			<path d={icon.path} />

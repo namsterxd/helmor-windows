@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WorkspaceDetail } from "./lib/api";
 
 const apiMocks = vi.hoisted(() => ({
 	createSession: vi.fn(),
@@ -22,7 +23,7 @@ const apiMocks = vi.hoisted(() => ({
 	getCodexRateLimits: vi.fn(),
 	loadRepoScripts: vi.fn(),
 	getWorkspaceForge: vi.fn(),
-	lookupWorkspaceChangeRequest: vi.fn(),
+	refreshWorkspaceChangeRequest: vi.fn(),
 	loadWorkspaceForgeActionStatus: vi.fn(),
 	stopAgentStream: vi.fn(),
 	requestQuit: vi.fn(),
@@ -85,7 +86,7 @@ vi.mock("./lib/api", async (importOriginal) => {
 		getCodexRateLimits: apiMocks.getCodexRateLimits,
 		loadRepoScripts: apiMocks.loadRepoScripts,
 		getWorkspaceForge: apiMocks.getWorkspaceForge,
-		lookupWorkspaceChangeRequest: apiMocks.lookupWorkspaceChangeRequest,
+		refreshWorkspaceChangeRequest: apiMocks.refreshWorkspaceChangeRequest,
 		loadWorkspaceForgeActionStatus: apiMocks.loadWorkspaceForgeActionStatus,
 		requestQuit: apiMocks.requestQuit,
 		stopAgentStream: apiMocks.stopAgentStream,
@@ -227,7 +228,9 @@ function closeSessionFixture(sessionId: string): WorkspaceFixtureId | null {
 	return null;
 }
 
-function createWorkspaceDetail(workspaceId: WorkspaceFixtureId) {
+function createWorkspaceDetail(
+	workspaceId: WorkspaceFixtureId,
+): WorkspaceDetail {
 	const sessions = runtimeSessionFixtures[workspaceId];
 	const primarySession =
 		sessions.find((session) => session.active) ?? sessions[0];
@@ -243,8 +246,7 @@ function createWorkspaceDetail(workspaceId: WorkspaceFixtureId) {
 		hasUnread: false,
 		workspaceUnread: 0,
 		unreadSessionCount: 0,
-		derivedStatus: archived ? "archived" : "progress",
-		manualStatus: null,
+		status: archived ? "done" : "in-progress",
 		activeSessionId: primarySession?.id ?? null,
 		activeSessionTitle: primarySession?.title ?? null,
 		activeSessionAgentType: "claude",
@@ -408,7 +410,7 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.getCodexRateLimits.mockReset();
 		apiMocks.loadRepoScripts.mockReset();
 		apiMocks.getWorkspaceForge.mockReset();
-		apiMocks.lookupWorkspaceChangeRequest.mockReset();
+		apiMocks.refreshWorkspaceChangeRequest.mockReset();
 		apiMocks.loadWorkspaceForgeActionStatus.mockReset();
 		apiMocks.stopAgentStream.mockReset();
 		eventApiMocks.listen.mockClear();
@@ -490,8 +492,7 @@ describe("App global navigation shortcuts", () => {
 				hasUnread: false,
 				workspaceUnread: 0,
 				unreadSessionCount: 0,
-				derivedStatus: "archived",
-				manualStatus: null,
+				status: "done",
 				branch: "archive/main",
 				activeSessionId: "session-archived-1",
 				activeSessionTitle: "Archived session 1",
@@ -512,8 +513,7 @@ describe("App global navigation shortcuts", () => {
 				hasUnread: false,
 				workspaceUnread: 0,
 				unreadSessionCount: 0,
-				derivedStatus: "archived",
-				manualStatus: null,
+				status: "done",
 				branch: "archive/main",
 				activeSessionId: "session-archived-2",
 				activeSessionTitle: "Archived session 2",
@@ -538,7 +538,7 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.getCodexRateLimits.mockResolvedValue(null);
 		apiMocks.loadRepoScripts.mockResolvedValue(EMPTY_REPO_SCRIPTS);
 		apiMocks.getWorkspaceForge.mockResolvedValue(UNKNOWN_FORGE_DETECTION);
-		apiMocks.lookupWorkspaceChangeRequest.mockResolvedValue(null);
+		apiMocks.refreshWorkspaceChangeRequest.mockResolvedValue(null);
 		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
 			UNAVAILABLE_FORGE_ACTION_STATUS,
 		);

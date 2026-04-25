@@ -34,8 +34,7 @@ export function createOptimisticCreatingWorkspaceDetail(
 		hasUnread: false,
 		workspaceUnread: 0,
 		unreadSessionCount: 0,
-		derivedStatus: row.derivedStatus ?? "in-progress",
-		manualStatus: row.manualStatus ?? null,
+		status: row.status ?? "in-progress",
 		activeSessionId: initialSessionId,
 		activeSessionTitle: initialSessionId ? "Untitled" : null,
 		activeSessionAgentType: null,
@@ -134,20 +133,19 @@ export function findWorkspaceRowById(
 }
 
 /**
- * Map a workspace's status (manual takes precedence over derived) to the
- * sidebar group id it belongs in. Mirrors `list_workspace_groups` in the
+ * Map a workspace's status to the sidebar group id it belongs in.
+ * Mirrors `list_workspace_groups` in the
  * Rust backend: pinned rows go to the `pinned` group regardless of status,
  * otherwise status decides. Matching the backend here means optimistic UI
  * placement lands in the same group the next query invalidation will put
  * the row into — no cross-group flicker when real data arrives.
  */
 export function workspaceGroupIdFromStatus(
-	manualStatus: string | null | undefined,
-	derivedStatus: string | null | undefined,
+	status: string | null | undefined,
 	pinnedAt?: string | null | undefined,
 ): "pinned" | "done" | "review" | "progress" | "backlog" | "canceled" {
 	if (pinnedAt) return "pinned";
-	const raw = (manualStatus ?? derivedStatus ?? "").trim().toLowerCase();
+	const raw = (status ?? "").trim().toLowerCase();
 	switch (raw) {
 		case "done":
 			return "done";
@@ -193,13 +191,11 @@ export type WorkspaceBranchTone =
 
 export function getWorkspaceBranchTone({
 	workspaceState,
-	manualStatus,
-	derivedStatus,
+	status,
 	changeRequest,
 }: {
 	workspaceState?: string | null;
-	manualStatus?: string | null;
-	derivedStatus?: string | null;
+	status?: string | null;
 	changeRequest?: Pick<ChangeRequestInfo, "state" | "isMerged"> | null;
 }): WorkspaceBranchTone {
 	if ((workspaceState ?? "").trim().toLowerCase() === "archived") {
@@ -220,7 +216,7 @@ export function getWorkspaceBranchTone({
 		}
 	}
 
-	const raw = (manualStatus ?? derivedStatus ?? "").trim().toLowerCase();
+	const raw = (status ?? "").trim().toLowerCase();
 	switch (raw) {
 		case "done":
 			return "merged";
@@ -327,8 +323,7 @@ export function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
 		hasUnread: summary.hasUnread,
 		workspaceUnread: summary.workspaceUnread,
 		unreadSessionCount: summary.unreadSessionCount,
-		derivedStatus: summary.derivedStatus,
-		manualStatus: summary.manualStatus ?? null,
+		status: summary.status,
 		branch: summary.branch ?? null,
 		activeSessionId: summary.activeSessionId ?? null,
 		activeSessionTitle: summary.activeSessionTitle ?? null,
@@ -423,8 +418,7 @@ export function rowToWorkspaceSummary(
 		hasUnread: row.hasUnread ?? false,
 		workspaceUnread: row.workspaceUnread ?? 0,
 		unreadSessionCount: row.unreadSessionCount ?? 0,
-		derivedStatus: row.derivedStatus ?? "in-progress",
-		manualStatus: row.manualStatus ?? null,
+		status: row.status ?? "in-progress",
 		branch: row.branch ?? null,
 		activeSessionId: row.activeSessionId ?? null,
 		activeSessionTitle: row.activeSessionTitle ?? null,

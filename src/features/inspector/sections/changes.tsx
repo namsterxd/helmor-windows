@@ -27,6 +27,7 @@ import type {
 } from "@/features/commit/button";
 import {
 	type ChangeRequestInfo,
+	continueWorkspaceFromTargetBranch,
 	discardWorkspaceFile,
 	type ForgeDetection,
 	stageWorkspaceFile,
@@ -87,6 +88,7 @@ export function ChangesSection({
 	const [changesOpen, setChangesOpen] = useState(true);
 	const [stagedOpen, setStagedOpen] = useState(true);
 	const [branchDiffOpen, setBranchDiffOpen] = useState(true);
+	const [isContinuingWorkspace, setIsContinuingWorkspace] = useState(false);
 	const forgeQuery = useQuery({
 		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
 		enabled: workspaceId !== null,
@@ -289,6 +291,44 @@ export function ChangesSection({
 		await onCommitAction(commitButtonMode);
 	}, [commitButtonMode, onCommitAction]);
 
+	const handleContinueWorkspace = useCallback(async () => {
+		if (!workspaceId || isContinuingWorkspace) return;
+		setIsContinuingWorkspace(true);
+		try {
+			const result = await continueWorkspaceFromTargetBranch(workspaceId);
+			pushToast(`Workspace moved to ${result.branch}.`, "Continued", "default");
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceGroups,
+				}),
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
+				}),
+			]);
+			invalidateChanges();
+		} catch (error) {
+			surfaceChangeError("continue workspace", error);
+		} finally {
+			setIsContinuingWorkspace(false);
+		}
+	}, [
+		invalidateChanges,
+		isContinuingWorkspace,
+		pushToast,
+		queryClient,
+		surfaceChangeError,
+		workspaceId,
+	]);
+
 	// Drive the header's shimmer bar off the shared forge query cache. Both
 	// queries dedupe by key, so this reads the same fetching state the
 	// App-level useQuery instances own.
@@ -322,10 +362,12 @@ export function ChangesSection({
 				workspaceId={workspaceId}
 				hasChanges={hasChanges}
 				isRefreshing={isForgeRefreshing}
+				isContinuingWorkspace={isContinuingWorkspace}
 				onChangeRequestClick={
 					changeRequest ? () => void openUrl(changeRequest.url) : undefined
 				}
 				onCommit={handleCommitButtonClick}
+				onContinueWorkspace={handleContinueWorkspace}
 			/>
 
 			<ScrollArea

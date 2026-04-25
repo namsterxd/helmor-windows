@@ -41,7 +41,7 @@ const apiMocks = vi.hoisted(() => {
 		pinWorkspace: vi.fn(),
 		prepareArchiveWorkspace: vi.fn(),
 		restoreWorkspace: vi.fn(),
-		setWorkspaceManualStatus: vi.fn(),
+		setWorkspaceStatus: vi.fn(),
 		startArchiveWorkspace: vi.fn(),
 		unpinWorkspace: vi.fn(),
 		validateRestoreWorkspace: vi.fn(),
@@ -93,7 +93,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		pinWorkspace: apiMocks.pinWorkspace,
 		prepareArchiveWorkspace: apiMocks.prepareArchiveWorkspace,
 		restoreWorkspace: apiMocks.restoreWorkspace,
-		setWorkspaceManualStatus: apiMocks.setWorkspaceManualStatus,
+		setWorkspaceStatus: apiMocks.setWorkspaceStatus,
 		startArchiveWorkspace: apiMocks.startArchiveWorkspace,
 		unpinWorkspace: apiMocks.unpinWorkspace,
 		validateRestoreWorkspace: apiMocks.validateRestoreWorkspace,
@@ -112,8 +112,7 @@ const workspaceGroups: WorkspaceGroup[] = [
 				repoName: "helmor",
 				repoInitials: "HE",
 				state: "ready",
-				manualStatus: null,
-				derivedStatus: "in-progress",
+				status: "in-progress",
 				hasUnread: false,
 				workspaceUnread: 0,
 				unreadSessionCount: 0,
@@ -133,8 +132,7 @@ const workspaceGroups: WorkspaceGroup[] = [
 				repoName: "helmor",
 				repoInitials: "HE",
 				state: "ready",
-				manualStatus: null,
-				derivedStatus: "in-progress",
+				status: "in-progress",
 				hasUnread: false,
 				workspaceUnread: 0,
 				unreadSessionCount: 0,
@@ -163,8 +161,7 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		hasUnread: false,
 		workspaceUnread: 0,
 		unreadSessionCount: 0,
-		derivedStatus: "in-progress",
-		manualStatus: null,
+		status: "in-progress",
 		branch: `feature/${id}`,
 		activeSessionId: null,
 		activeSessionTitle: null,
@@ -195,8 +192,7 @@ function makeWorkspaceDetail(id: string): WorkspaceDetail {
 		hasUnread: false,
 		workspaceUnread: 0,
 		unreadSessionCount: 0,
-		derivedStatus: "in-progress",
-		manualStatus: null,
+		status: "in-progress",
 		activeSessionId: null,
 		activeSessionTitle: null,
 		activeSessionAgentType: null,
@@ -629,7 +625,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		});
 		const deferred = new Promise<void>(() => {});
 
-		apiMocks.setWorkspaceManualStatus.mockReturnValue(deferred);
+		apiMocks.setWorkspaceStatus.mockReturnValue(deferred);
 
 		const { result } = renderHook(
 			() =>
@@ -649,13 +645,10 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		});
 
 		act(() => {
-			void result.current.handleSetManualStatus("ws-1", "done");
+			void result.current.handleSetWorkspaceStatus("ws-1", "done");
 		});
 
-		expect(apiMocks.setWorkspaceManualStatus).toHaveBeenCalledWith(
-			"ws-1",
-			"done",
-		);
+		expect(apiMocks.setWorkspaceStatus).toHaveBeenCalledWith("ws-1", "done");
 		expect(result.current.groups[0]?.rows.map((row) => row.id)).toEqual([
 			"ws-1",
 			"ws-2",

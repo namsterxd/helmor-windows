@@ -5,7 +5,6 @@ import {
 	type AddRepositoryResponse,
 	addRepositoryFromLocalPath,
 	cloneRepositoryFromUrl,
-	type DerivedStatus,
 	finalizeWorkspaceFromRepo,
 	listenArchiveExecutionFailed,
 	listenArchiveExecutionSucceeded,
@@ -17,7 +16,7 @@ import {
 	prepareWorkspaceFromRepo,
 	type RepositoryCreateOption,
 	restoreWorkspace,
-	setWorkspaceManualStatus,
+	setWorkspaceStatus,
 	startArchiveWorkspace,
 	unpinWorkspace,
 	validateRestoreWorkspace,
@@ -25,6 +24,7 @@ import {
 	type WorkspaceRow,
 	type WorkspaceSessionSummary,
 	type WorkspaceState,
+	type WorkspaceStatus,
 } from "@/lib/api";
 import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
@@ -606,8 +606,7 @@ export function useWorkspacesSidebarController({
 				};
 
 				const targetGroupId = workspaceGroupIdFromStatus(
-					updatedRow.manualStatus,
-					updatedRow.derivedStatus,
+					updatedRow.status,
 					updatedRow.pinnedAt,
 				);
 
@@ -637,10 +636,10 @@ export function useWorkspacesSidebarController({
 		[invalidateWorkspaceSummary, pushWorkspaceToast, queryClient],
 	);
 
-	const handleSetManualStatus = useCallback(
-		async (workspaceId: string, status: DerivedStatus | null) => {
+	const handleSetWorkspaceStatus = useCallback(
+		async (workspaceId: string, status: WorkspaceStatus) => {
 			try {
-				await setWorkspaceManualStatus(workspaceId, status);
+				await setWorkspaceStatus(workspaceId, status);
 				flushSidebarLists();
 			} catch (error) {
 				pushWorkspaceToast(
@@ -1366,8 +1365,7 @@ export function useWorkspacesSidebarController({
 				state: "ready",
 			});
 			const targetGroupId = workspaceGroupIdFromStatus(
-				archivedSummary.manualStatus,
-				archivedSummary.derivedStatus,
+				archivedSummary.status,
 				archivedSummary.pinnedAt,
 			);
 			// Sorted insert by createdAt DESC so the row lands where the server
@@ -1491,7 +1489,7 @@ export function useWorkspacesSidebarController({
 		handleOpenCloneDialog,
 		handleRestoreWorkspace,
 		handleSelectWorkspace,
-		handleSetManualStatus,
+		handleSetWorkspaceStatus,
 		handleTogglePin,
 		isCloneDialogOpen,
 		prefetchWorkspace,
@@ -1522,8 +1520,7 @@ function createPreparedWorkspaceRow(
 		hasUnread: false,
 		workspaceUnread: 0,
 		unreadSessionCount: 0,
-		derivedStatus: "in-progress",
-		manualStatus: null,
+		status: "in-progress",
 		branch: prepared.branch,
 		activeSessionId: prepared.initialSessionId,
 		activeSessionTitle: "Untitled",

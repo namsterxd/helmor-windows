@@ -33,10 +33,25 @@ pub async fn open_forge_cli_auth_terminal(
 }
 
 #[tauri::command]
-pub async fn lookup_workspace_change_request(
+pub async fn refresh_workspace_change_request(
     workspace_id: String,
+    app: tauri::AppHandle,
 ) -> CmdResult<Option<ChangeRequestInfo>> {
-    run_blocking(move || forge::lookup_workspace_change_request(&workspace_id)).await
+    let lookup_workspace_id = workspace_id.clone();
+    let (result, workspace_status_changed) = run_blocking(move || {
+        let result = forge::refresh_workspace_change_request(&lookup_workspace_id)?;
+        let changed =
+            crate::workspaces::sync_workspace_pr_state(&lookup_workspace_id, result.as_ref())?;
+        Ok::<_, anyhow::Error>((result, changed))
+    })
+    .await?;
+    if workspace_status_changed {
+        ui_sync::publish(
+            &app,
+            UiMutationEvent::WorkspaceChangeRequestChanged { workspace_id },
+        );
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -69,15 +84,39 @@ pub async fn get_workspace_forge_check_insert_text(
 #[tauri::command]
 pub async fn merge_workspace_change_request(
     workspace_id: String,
+    app: tauri::AppHandle,
 ) -> CmdResult<Option<ChangeRequestInfo>> {
-    run_blocking(move || forge::merge_workspace_change_request(&workspace_id)).await
+    run_change_request_action(workspace_id, app, forge::merge_workspace_change_request).await
 }
 
 #[tauri::command]
 pub async fn close_workspace_change_request(
     workspace_id: String,
+    app: tauri::AppHandle,
 ) -> CmdResult<Option<ChangeRequestInfo>> {
-    run_blocking(move || forge::close_workspace_change_request(&workspace_id)).await
+    run_change_request_action(workspace_id, app, forge::close_workspace_change_request).await
+}
+
+async fn run_change_request_action(
+    workspace_id: String,
+    app: tauri::AppHandle,
+    action: fn(&str) -> anyhow::Result<Option<ChangeRequestInfo>>,
+) -> CmdResult<Option<ChangeRequestInfo>> {
+    let sync_workspace_id = workspace_id.clone();
+    let (result, workspace_status_changed) = run_blocking(move || {
+        let result = action(&sync_workspace_id)?;
+        let changed =
+            crate::workspaces::sync_workspace_pr_state(&sync_workspace_id, result.as_ref())?;
+        Ok::<_, anyhow::Error>((result, changed))
+    })
+    .await?;
+    if workspace_status_changed {
+        ui_sync::publish(
+            &app,
+            UiMutationEvent::WorkspaceChangeRequestChanged { workspace_id },
+        );
+    }
+    Ok(result)
 }
 
 fn should_publish_workspace_forge_changed(remote_state: RemoteState) -> bool {

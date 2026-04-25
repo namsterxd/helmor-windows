@@ -125,7 +125,7 @@ function makeWorkspace(id: string): WorkspaceDetail {
 		hasUnread: false,
 		workspaceUnread: 0,
 		unreadSessionCount: 0,
-		derivedStatus: "in-progress",
+		status: "in-progress",
 		sessionCount: 2,
 		messageCount: 0,
 	};

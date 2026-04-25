@@ -108,7 +108,7 @@ pub async fn generate_session_title(
             .as_ref()
             .is_some_and(|(_, _, _, directory_name, branch)| {
                 branch.as_deref().is_some_and(|current_branch| {
-                    crate::helpers::is_default_branch_name(
+                    crate::helpers::is_auto_generated_branch_name(
                         current_branch,
                         directory_name,
                         &branch_settings,
@@ -305,7 +305,7 @@ pub async fn generate_session_title(
             };
 
             if !old_branch.as_deref().is_some_and(|b| {
-                crate::helpers::is_default_branch_name(b, &directory_name, &branch_settings)
+                crate::helpers::is_auto_generated_branch_name(b, &directory_name, &branch_settings)
             }) {
                 tracing::debug!(
                     workspace_id = %workspace_id,

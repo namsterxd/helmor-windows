@@ -46,7 +46,7 @@ export const WorkspacesSidebarContainer = memo(
 			handleOpenCloneDialog,
 			handleRestoreWorkspace,
 			handleSelectWorkspace,
-			handleSetManualStatus,
+			handleSetWorkspaceStatus,
 			handleTogglePin,
 			isCloneDialogOpen,
 			prefetchWorkspace,
@@ -93,8 +93,8 @@ export const WorkspacesSidebarContainer = memo(
 				onTogglePin={(workspaceId, pinned) => {
 					void handleTogglePin(workspaceId, pinned);
 				}}
-				onSetManualStatus={(workspaceId, status) => {
-					void handleSetManualStatus(workspaceId, status);
+				onSetWorkspaceStatus={(workspaceId, status) => {
+					void handleSetWorkspaceStatus(workspaceId, status);
 				}}
 			/>
 		);

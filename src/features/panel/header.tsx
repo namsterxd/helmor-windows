@@ -99,8 +99,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 }: WorkspacePanelHeaderProps) {
 	const branchTone = getWorkspaceBranchTone({
 		workspaceState: workspace?.state,
-		manualStatus: workspace?.manualStatus,
-		derivedStatus: workspace?.derivedStatus,
+		status: workspace?.status,
 		changeRequest,
 	});
 	const [showHistory, setShowHistory] = useState(false);
@@ -342,7 +341,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 				className="flex h-9 items-center justify-between gap-3 px-[18px]"
 				data-tauri-drag-region
 			>
-				<div className="flex min-w-0 items-center gap-2 text-[12.5px]">
+				<div className="relative z-0 flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[12.5px]">
 					{headerLeading}
 					<span className="group/branch relative inline-flex items-center gap-1 overflow-hidden px-1 py-0.5 font-medium text-foreground">
 						<GitBranch
@@ -522,7 +521,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 					) : null}
 				</div>
 				{headerActions ? (
-					<div className="flex shrink-0 items-center gap-1">
+					<div className="relative z-10 flex shrink-0 items-center gap-1 bg-background pl-1">
 						{headerActions}
 					</div>
 				) : null}
@@ -839,7 +838,7 @@ function BranchPicker({
 				type="button"
 				variant="ghost"
 				size="xs"
-				className="h-6 max-w-[180px] gap-1 rounded-md px-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+				className="h-6 min-w-0 max-w-[180px] gap-1 rounded-md px-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground"
 			>
 				<span className="truncate">
 					{displayRemote}/{currentBranch}

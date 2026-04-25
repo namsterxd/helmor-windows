@@ -69,7 +69,7 @@ fn seed_workspace_session(
 ) {
     conn.execute(
         "INSERT INTO workspaces (id, repository_id, directory_name, state,
-         derived_status, linked_directory_paths)
+         status, linked_directory_paths)
          VALUES (?1, 'r-1', 'example', 'ready', 'in-progress', ?2)",
         rusqlite::params![ws_id, linked],
     )

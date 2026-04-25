@@ -275,7 +275,7 @@ impl CreateTestHarness {
                 INSERT INTO workspaces (
                   id, repository_id, directory_name, active_session_id, branch,
                   state, initialization_parent_branch,
-                  intended_target_branch, derived_status, unread
+                  intended_target_branch, status, unread
                 ) VALUES (?1, ?2, ?3, NULL, ?4, 'ready', 'main', 'main', 'in-progress', 0)
                 "#,
                 (
@@ -703,7 +703,7 @@ fn create_archived_fixture_db(
         .unwrap();
     connection
         .execute(
-            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, branch, active_session_id, archive_commit) VALUES (?1, 'repo-1', ?2, 'archived', 'in-progress', ?3, ?4, ?5)"#,
+            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, status, branch, active_session_id, archive_commit) VALUES (?1, 'repo-1', ?2, 'archived', 'in-progress', ?3, ?4, ?5)"#,
             [workspace_id, directory_name, branch, session_id, archive_commit],
         )
         .unwrap();
@@ -733,7 +733,7 @@ fn create_ready_fixture_db(
         .unwrap();
     connection
         .execute(
-            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, branch, active_session_id) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', ?3, ?4)"#,
+            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, status, branch, active_session_id) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', ?3, ?4)"#,
             (workspace_id, directory_name, branch, session_id),
         )
         .unwrap();
@@ -786,7 +786,7 @@ fn create_branch_switch_fixture_db(
     connection
         .execute(
             r#"INSERT INTO workspaces (
-                id, repository_id, directory_name, state, derived_status,
+                id, repository_id, directory_name, state, status,
                 branch, initialization_parent_branch, intended_target_branch
               ) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', ?3, 'main', 'main')"#,
             (workspace_id, directory_name, branch),

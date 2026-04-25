@@ -11,16 +11,14 @@ import {
 	type ChangeRequestInfo,
 	closeWorkspaceChangeRequest,
 	createSession,
-	type DerivedStatus,
 	type ForgeActionStatus,
 	type ForgeDetection,
 	hideSession,
 	loadAutoCloseActionKinds,
 	loadRepoPreferences,
-	lookupWorkspaceChangeRequest,
 	mergeWorkspaceChangeRequest,
 	pushWorkspaceToRemote,
-	setWorkspaceManualStatus,
+	refreshWorkspaceChangeRequest,
 	type WorkspaceDetail,
 	type WorkspaceGitActionStatus,
 } from "@/lib/api";
@@ -95,7 +93,6 @@ export function useWorkspaceCommitLifecycle({
 	selectedWorkspaceIdRef,
 	selectedRepoId,
 	selectedWorkspaceTargetBranch,
-	workspaceManualStatus,
 	changeRequest,
 	forgeDetection,
 	forgeActionStatus,
@@ -112,7 +109,6 @@ export function useWorkspaceCommitLifecycle({
 	selectedWorkspaceIdRef: MutableRefObject<string | null>;
 	selectedRepoId: string | null;
 	selectedWorkspaceTargetBranch?: string | null;
-	workspaceManualStatus: DerivedStatus | null;
 	changeRequest?: ChangeRequestInfo | null;
 	forgeDetection?: ForgeDetection | null;
 	forgeActionStatus?: ForgeActionStatus | null;
@@ -213,9 +209,6 @@ export function useWorkspaceCommitLifecycle({
 								isMerged: mode === "merge",
 							}
 						: null;
-				const optimisticStatus = mode === "merge" ? "done" : "canceled";
-				const previousStatus = workspaceManualStatus;
-
 				setCommitLifecycle({
 					workspaceId,
 					trackedSessionId: null,
@@ -226,11 +219,6 @@ export function useWorkspaceCommitLifecycle({
 				queryClient.setQueryData(
 					helmorQueryKeys.workspaceChangeRequest(workspaceId),
 					optimisticChangeRequest,
-				);
-				void setWorkspaceManualStatus(workspaceId, optimisticStatus).then(() =>
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceGroups,
-					}),
 				);
 
 				void (async () => {
@@ -253,12 +241,6 @@ export function useWorkspaceCommitLifecycle({
 						queryClient.setQueryData(
 							helmorQueryKeys.workspaceChangeRequest(workspaceId),
 							cachedChangeRequest,
-						);
-						void setWorkspaceManualStatus(workspaceId, previousStatus).then(
-							() =>
-								queryClient.invalidateQueries({
-									queryKey: helmorQueryKeys.workspaceGroups,
-								}),
 						);
 						setCommitLifecycle((prev) =>
 							prev
@@ -356,7 +338,6 @@ export function useWorkspaceCommitLifecycle({
 			selectedRepoId,
 			selectedWorkspaceTargetBranch,
 			selectedWorkspaceIdRef,
-			workspaceManualStatus,
 		],
 	);
 
@@ -458,13 +439,13 @@ export function useWorkspaceCommitLifecycle({
 		void (async () => {
 			try {
 				console.log(
-					"[commitButton] calling lookupWorkspaceChangeRequest",
+					"[commitButton] calling refreshWorkspaceChangeRequest",
 					workspaceId,
 				);
 				const currentChangeRequest =
-					await lookupWorkspaceChangeRequest(workspaceId);
+					await refreshWorkspaceChangeRequest(workspaceId);
 				console.log(
-					"[commitButton] lookupWorkspaceChangeRequest result",
+					"[commitButton] refreshWorkspaceChangeRequest result",
 					currentChangeRequest,
 				);
 				setCommitLifecycle((prev) => {
@@ -518,13 +499,6 @@ export function useWorkspaceCommitLifecycle({
 
 			void (async () => {
 				try {
-					if (mode === "create-pr") {
-						await setWorkspaceManualStatus(workspaceId, "review");
-						await queryClient.invalidateQueries({
-							queryKey: helmorQueryKeys.workspaceGroups,
-						});
-					}
-
 					if (!trackedSessionId) return;
 					const optedIn = await loadAutoCloseActionKinds();
 					if (!optedIn.includes(mode)) return;

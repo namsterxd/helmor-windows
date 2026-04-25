@@ -450,6 +450,275 @@ fn push_workspace_to_remote_allows_uncommitted_changes() {
 }
 
 #[test]
+fn continue_workspace_detaches_from_old_pr_branch() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = BranchSwitchTestHarness::new();
+    let workspace_dir = harness.workspace_dir();
+    let old_branch = git_ops::current_branch_name(&workspace_dir).unwrap();
+    git_ops::run_git(
+        [
+            "-C",
+            workspace_dir.to_str().unwrap(),
+            "push",
+            "--set-upstream",
+            "origin",
+            "HEAD:refs/heads/test/switch-branch",
+        ],
+        None,
+    )
+    .unwrap();
+    let old_upstream = git_ops::run_git(
+        [
+            "-C",
+            workspace_dir.to_str().unwrap(),
+            "rev-parse",
+            "--abbrev-ref",
+            &format!("{old_branch}@{{upstream}}"),
+        ],
+        None,
+    )
+    .unwrap();
+
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET status = 'done', pr_sync_state = 'merged' WHERE id = ?1",
+            [&harness.workspace_id],
+        )
+        .unwrap();
+
+    let result = workspaces::continue_workspace_from_target_branch(&harness.workspace_id).unwrap();
+
+    assert_eq!(result.branch, "branch-switch-ws");
+    assert_eq!(
+        git_ops::current_branch_name(&workspace_dir).unwrap(),
+        result.branch
+    );
+    assert_eq!(
+        harness.workspace_head(),
+        harness.workspace_remote_ref_sha("main")
+    );
+    assert!(
+        git_ops::run_git(
+            [
+                "-C",
+                workspace_dir.to_str().unwrap(),
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{old_branch}"),
+            ],
+            None,
+        )
+        .is_ok(),
+        "old PR branch should remain as a local branch"
+    );
+    assert_eq!(
+        git_ops::run_git(
+            [
+                "-C",
+                workspace_dir.to_str().unwrap(),
+                "rev-parse",
+                "--abbrev-ref",
+                &format!("{old_branch}@{{upstream}}"),
+            ],
+            None,
+        )
+        .unwrap(),
+        old_upstream
+    );
+
+    let (stored_branch, status, pr_sync_state): (String, String, String) = connection
+        .query_row(
+            "SELECT branch, status, pr_sync_state FROM workspaces WHERE id = ?1",
+            [&harness.workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(stored_branch, result.branch);
+    assert_eq!(status, "in-progress");
+    assert_eq!(pr_sync_state, "none");
+}
+
+#[test]
+fn continue_workspace_carries_uncommitted_changes() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = BranchSwitchTestHarness::new();
+    let workspace_dir = harness.workspace_dir();
+    harness.dirty_tracked_file();
+    harness.add_untracked_file();
+
+    let result = workspaces::continue_workspace_from_target_branch(&harness.workspace_id).unwrap();
+
+    assert_eq!(result.branch, "branch-switch-ws");
+    assert_eq!(
+        git_ops::current_branch_name(&workspace_dir).unwrap(),
+        result.branch
+    );
+    assert_eq!(
+        fs::read_to_string(workspace_dir.join("README.md")).unwrap(),
+        "user edits"
+    );
+    assert_eq!(
+        fs::read_to_string(workspace_dir.join("scratch.txt")).unwrap(),
+        "scratchpad"
+    );
+    let status = git_ops::run_git(
+        [
+            "-C",
+            workspace_dir.to_str().unwrap(),
+            "status",
+            "--porcelain",
+        ],
+        None,
+    )
+    .unwrap();
+    assert!(status.contains("M README.md"), "{status}");
+    assert!(status.contains("?? scratch.txt"), "{status}");
+}
+
+#[test]
+fn continue_workspace_reports_conflicting_local_changes() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = BranchSwitchTestHarness::new();
+    let workspace_dir = harness.workspace_dir();
+    let old_branch = git_ops::current_branch_name(&workspace_dir).unwrap();
+    git_ops::run_git(
+        [
+            "-C",
+            harness.source_repo.to_str().unwrap(),
+            "checkout",
+            "-b",
+            "conflict-target",
+            "origin/main",
+        ],
+        None,
+    )
+    .unwrap();
+    fs::write(harness.source_repo.join("README.md"), "target edits").unwrap();
+    git_ops::run_git(
+        [
+            "-C",
+            harness.source_repo.to_str().unwrap(),
+            "add",
+            "README.md",
+        ],
+        None,
+    )
+    .unwrap();
+    git_ops::run_git(
+        [
+            "-C",
+            harness.source_repo.to_str().unwrap(),
+            "commit",
+            "-m",
+            "target edits",
+        ],
+        None,
+    )
+    .unwrap();
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET intended_target_branch = 'conflict-target' WHERE id = ?1",
+            [&harness.workspace_id],
+        )
+        .unwrap();
+    harness.dirty_tracked_file();
+
+    let error = workspaces::continue_workspace_from_target_branch(&harness.workspace_id)
+        .expect_err("conflicting local edits should block continue");
+
+    assert!(
+        error
+            .to_string()
+            .contains("could not move your local changes onto the target branch"),
+        "{error:?}"
+    );
+    assert_eq!(
+        git_ops::current_branch_name(&workspace_dir).unwrap(),
+        old_branch
+    );
+}
+
+#[test]
+fn continue_workspace_uses_version_suffix_when_default_branch_taken() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = BranchSwitchTestHarness::new();
+    git_ops::run_git(
+        [
+            "-C",
+            harness.source_repo.to_str().unwrap(),
+            "branch",
+            "branch-switch-ws",
+            "origin/main",
+        ],
+        None,
+    )
+    .unwrap();
+
+    let result = workspaces::continue_workspace_from_target_branch(&harness.workspace_id).unwrap();
+
+    assert_eq!(result.branch, "branch-switch-ws-v1");
+}
+
+#[test]
+fn continue_workspace_rolls_back_branch_when_db_update_fails() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = BranchSwitchTestHarness::new();
+    let workspace_dir = harness.workspace_dir();
+    let old_branch = git_ops::current_branch_name(&workspace_dir).unwrap();
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+    connection
+        .execute_batch(
+            r#"
+            CREATE TRIGGER fail_continue_update
+            BEFORE UPDATE OF branch ON workspaces
+            WHEN NEW.id = 'branch-switch-1'
+            BEGIN
+                SELECT RAISE(FAIL, 'continue update failed');
+            END;
+            "#,
+        )
+        .unwrap();
+
+    let error = workspaces::continue_workspace_from_target_branch(&harness.workspace_id)
+        .expect_err("DB failure should fail continue");
+
+    assert!(
+        error.to_string().contains("persist continued workspace"),
+        "{error:?}"
+    );
+    assert_eq!(
+        git_ops::current_branch_name(&workspace_dir).unwrap(),
+        old_branch
+    );
+    assert!(
+        git_ops::run_git(
+            [
+                "-C",
+                workspace_dir.to_str().unwrap(),
+                "rev-parse",
+                "--verify",
+                "refs/heads/branch-switch-ws",
+            ],
+            None,
+        )
+        .is_err(),
+        "continued branch should be removed after rollback"
+    );
+}
+
+#[test]
 fn push_workspace_to_remote_preserves_existing_different_upstream() {
     let _guard = TEST_LOCK
         .lock()
