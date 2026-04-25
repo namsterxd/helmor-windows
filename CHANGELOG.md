@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.0
+
+### Minor Changes
+
+- [#242](https://github.com/dohooo/helmor/pull/242) [`04c6bb2`](https://github.com/dohooo/helmor/commit/04c6bb23441ef886b19cab107f996cc70fbaa2ff) Thanks [@natllian](https://github.com/natllian)! - Add a Usage Stats indicator next to the composer:
+
+  - Show live 5h and 7d rate-limit windows for the active Claude or Codex account, with a hover popover for the full breakdown (per-model windows, Designs, Daily Routines, plan, credits balance).
+  - Pull data directly from each provider's OAuth usage endpoint so usage stays visible even when the agent hasn't run yet, and Codex still surfaces plan and credit balance after the rate limit is exhausted.
+  - Turn the Usage Stats indicator and the context-usage ring on by default for new users.
+
+- [#240](https://github.com/dohooo/helmor/pull/240) [`0a458af`](https://github.com/dohooo/helmor/commit/0a458af3ace29a3674cebafb49b995fd5a678e56) Thanks [@natllian](https://github.com/natllian)! - Improve workspace PR lifecycle handling:
+  - Move workspaces to review or done only when their PR lifecycle changes, so manual status moves stay in place until the next PR transition.
+  - Add Continue for merged PR workspaces to detach from the old PR branch and start fresh from the target branch.
+  - Polish the Git header controls so PR, Continue, merge status, and editor actions stay readable in narrow layouts.
+
+### Patch Changes
+
+- [#239](https://github.com/dohooo/helmor/pull/239) [`7522fc5`](https://github.com/dohooo/helmor/commit/7522fc523e6b88d95a08a6b0e872b8f43b54fce0) Thanks [@natllian](https://github.com/natllian)! - Keep GitHub CLI connection status stable when a transient auth check fails, so connected workspaces no longer briefly fall back to Connect before recovering.
+
 ## 0.7.0
 
 ### Minor Changes
