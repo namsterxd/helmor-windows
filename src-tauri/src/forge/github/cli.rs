@@ -11,6 +11,7 @@ const GITHUB_HOST: &str = "github.com";
 const GITHUB_REPOS_ENDPOINT: &str =
     "/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
 const GITHUB_CLI_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
+const GITHUB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(30);
 
 static SYSTEM_GH_STATUS_CACHE: LazyLock<Mutex<Option<CachedGithubCliStatus>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -91,6 +92,7 @@ trait GhCommandRunner {
 struct CachedGithubCliStatus {
     cached_at: Instant,
     status: GithubCliStatus,
+    downgrade_observed_at: Option<Instant>,
 }
 
 pub fn get_github_cli_status() -> Result<GithubCliStatus> {
@@ -387,9 +389,13 @@ fn load_cached_status(
         }
     }
 
-    let status = loader()?;
+    let now = Instant::now();
+    let loaded = loader()?;
+    let downgrade_observed_at = downgrade_observed_at(cache_guard.as_ref(), &loaded, now);
+    let status = stabilize_loaded_status(cache_guard.as_ref(), loaded, now);
     *cache_guard = Some(CachedGithubCliStatus {
-        cached_at: Instant::now(),
+        cached_at: now,
+        downgrade_observed_at,
         status: status.clone(),
     });
     Ok(status)
@@ -405,9 +411,56 @@ fn refresh_cached_status(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *cache_guard = Some(CachedGithubCliStatus {
         cached_at: Instant::now(),
+        downgrade_observed_at: None,
         status: status.clone(),
     });
     Ok(status)
+}
+
+fn stabilize_loaded_status(
+    cached: Option<&CachedGithubCliStatus>,
+    loaded: GithubCliStatus,
+    now: Instant,
+) -> GithubCliStatus {
+    let Some(cached) = cached else {
+        return loaded;
+    };
+    if !github_cli_is_ready(&cached.status)
+        || github_cli_is_ready(&loaded)
+        || !should_debounce_ready_downgrade(&loaded)
+    {
+        return loaded;
+    }
+    let observed_at = cached.downgrade_observed_at.unwrap_or(now);
+    if now.duration_since(observed_at) <= GITHUB_CLI_READY_DOWNGRADE_GRACE {
+        tracing::warn!(
+            previous_status = ?cached.status,
+            loaded_status = ?loaded,
+            "Ignoring transient GitHub CLI status downgrade"
+        );
+        return cached.status.clone();
+    }
+    loaded
+}
+
+fn should_debounce_ready_downgrade(status: &GithubCliStatus) -> bool {
+    matches!(
+        status,
+        GithubCliStatus::Unauthenticated { .. } | GithubCliStatus::Error { .. }
+    )
+}
+
+fn downgrade_observed_at(
+    cached: Option<&CachedGithubCliStatus>,
+    status: &GithubCliStatus,
+    now: Instant,
+) -> Option<Instant> {
+    let cached = cached?;
+    if github_cli_is_ready(&cached.status) && should_debounce_ready_downgrade(status) {
+        Some(cached.downgrade_observed_at.unwrap_or(now))
+    } else {
+        None
+    }
 }
 
 struct SystemGhRunner;
@@ -757,6 +810,7 @@ mod tests {
                 host: "github.com".to_string(),
                 message: "missing".to_string(),
             },
+            downgrade_observed_at: None,
         }));
         let calls = Cell::new(0);
 
@@ -786,5 +840,87 @@ mod tests {
             .unwrap(),
             refreshed
         );
+    }
+
+    #[test]
+    fn load_cached_status_debounces_ready_downgrade() {
+        let cache = Mutex::new(Some(CachedGithubCliStatus {
+            cached_at: Instant::now() - Duration::from_secs(10),
+            status: GithubCliStatus::Ready {
+                host: "github.com".to_string(),
+                login: "octo".to_string(),
+                version: "gh version 2.0.0".to_string(),
+                message: "GitHub CLI ready as octo.".to_string(),
+            },
+            downgrade_observed_at: None,
+        }));
+
+        let loaded = load_cached_status(&cache, Duration::from_secs(1), || {
+            Ok(GithubCliStatus::Unauthenticated {
+                host: "github.com".to_string(),
+                version: Some("gh version 2.0.0".to_string()),
+                message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            })
+        })
+        .unwrap();
+
+        assert!(matches!(loaded, GithubCliStatus::Ready { .. }));
+        let cached = cache.lock().unwrap();
+        assert!(cached.as_ref().unwrap().downgrade_observed_at.is_some());
+    }
+
+    #[test]
+    fn load_cached_status_accepts_missing_downgrade_immediately() {
+        let cache = Mutex::new(Some(CachedGithubCliStatus {
+            cached_at: Instant::now() - Duration::from_secs(10),
+            status: GithubCliStatus::Ready {
+                host: "github.com".to_string(),
+                login: "octo".to_string(),
+                version: "gh version 2.0.0".to_string(),
+                message: "GitHub CLI ready as octo.".to_string(),
+            },
+            downgrade_observed_at: None,
+        }));
+
+        let loaded = load_cached_status(&cache, Duration::from_secs(1), || {
+            Ok(GithubCliStatus::Unavailable {
+                host: "github.com".to_string(),
+                message: "GitHub CLI is not installed on this machine.".to_string(),
+            })
+        })
+        .unwrap();
+
+        assert!(matches!(loaded, GithubCliStatus::Unavailable { .. }));
+        let cached = cache.lock().unwrap();
+        assert!(cached.as_ref().unwrap().downgrade_observed_at.is_none());
+    }
+
+    #[test]
+    fn load_cached_status_accepts_persistent_ready_downgrade() {
+        let cache = Mutex::new(Some(CachedGithubCliStatus {
+            cached_at: Instant::now() - Duration::from_secs(10),
+            status: GithubCliStatus::Ready {
+                host: "github.com".to_string(),
+                login: "octo".to_string(),
+                version: "gh version 2.0.0".to_string(),
+                message: "GitHub CLI ready as octo.".to_string(),
+            },
+            downgrade_observed_at: Some(
+                Instant::now() - GITHUB_CLI_READY_DOWNGRADE_GRACE - Duration::from_secs(1),
+            ),
+        }));
+
+        let loaded = load_cached_status(&cache, Duration::from_secs(1), || {
+            Ok(GithubCliStatus::Unauthenticated {
+                host: "github.com".to_string(),
+                version: Some("gh version 2.0.0".to_string()),
+                message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            })
+        })
+        .unwrap();
+
+        assert!(matches!(loaded, GithubCliStatus::Unauthenticated { .. }));
+        let cached = cache.lock().unwrap();
+        assert!(cached.as_ref().unwrap().downgrade_observed_at.is_some());
     }
 }

@@ -9,6 +9,7 @@
 //! through [`read_conn`] / [`write_conn`] or the closure helpers
 //! [`read`] / [`write_transaction`].
 use std::collections::HashMap;
+use std::panic::Location;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
@@ -180,6 +181,7 @@ const SLOW_BORROW_WARN_MS: u128 = 100;
 
 /// Borrow a read connection from the read pool. WAL lets multiple readers
 /// proceed concurrently and never block the writer.
+#[track_caller]
 pub fn read_conn() -> Result<PooledConn> {
     with_bundle(|bundle| {
         let start = std::time::Instant::now();
@@ -189,9 +191,12 @@ pub fn read_conn() -> Result<PooledConn> {
             .map_err(|e| anyhow!("Failed to borrow read connection: {e}"))?;
         let elapsed_ms = start.elapsed().as_millis();
         if elapsed_ms >= SLOW_BORROW_WARN_MS {
+            let caller = Location::caller();
             tracing::warn!(
                 elapsed_ms,
                 pool_state = ?bundle.read.state(),
+                caller_file = caller.file(),
+                caller_line = caller.line(),
                 "db: slow read_conn borrow"
             );
         }
@@ -202,22 +207,29 @@ pub fn read_conn() -> Result<PooledConn> {
 /// Borrow the writer connection. Pool `max_size = 1`, so callers serialize
 /// at the pool layer — no SQLITE_BUSY from intra-process contention.
 /// Hold for as short as possible; long-held writes starve all other writers.
+#[track_caller]
 pub fn write_conn() -> Result<PooledConn> {
     with_bundle(|bundle| {
         let start = std::time::Instant::now();
         let conn = bundle.write.get().map_err(|e| {
+            let caller = Location::caller();
             tracing::error!(
                 elapsed_ms = start.elapsed().as_millis(),
                 pool_state = ?bundle.write.state(),
+                caller_file = caller.file(),
+                caller_line = caller.line(),
                 "db: write_conn borrow failed (pool timeout? holder stuck?): {e}"
             );
             anyhow!("Failed to borrow write connection: {e}")
         })?;
         let elapsed_ms = start.elapsed().as_millis();
         if elapsed_ms >= SLOW_BORROW_WARN_MS {
+            let caller = Location::caller();
             tracing::warn!(
                 elapsed_ms,
                 pool_state = ?bundle.write.state(),
+                caller_file = caller.file(),
+                caller_line = caller.line(),
                 "db: slow write_conn borrow — another writer held the pool"
             );
         }
