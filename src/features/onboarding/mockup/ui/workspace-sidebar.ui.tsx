@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
-import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 
 /**
- * Pure-UI shell for the workspace sidebar — the outer flex column, the
- * traffic-light-safe top strip, and the "Workspaces" title row. The scrolling
- * body is left to the caller (real container provides a virtualizer; mockup
- * provides a plain static list) since it owns the ref / scroll behavior.
+ * Frozen snapshot of the workspace sidebar shell (outer flex column +
+ * traffic-light-safe strip + "Workspaces" title row). Mockup-private —
+ * the production sidebar lives in `features/navigation/index.tsx` and
+ * is independent.
  *
- * Used by:
- * - the real `WorkspacesSidebar`
- * - the onboarding mockup
+ * Note: the real production sidebar uses `<TrafficLightSpacer />` which
+ * detects platform and only reserves space on macOS. The mockup hardcodes
+ * a fixed 94px spacer so the preview looks the same for every viewer.
  */
 export function WorkspaceSidebarShellUI({
 	headerActions,
@@ -24,8 +23,8 @@ export function WorkspaceSidebarShellUI({
 				data-slot="window-safe-top"
 				className="flex h-9 shrink-0 items-center pr-3"
 			>
-				<TrafficLightSpacer side="left" width={94} />
-				<div data-tauri-drag-region className="h-full flex-1" />
+				<div className="h-full shrink-0" style={{ width: "94px" }} />
+				<div className="h-full flex-1" />
 			</div>
 
 			<div className="flex items-center justify-between px-3">

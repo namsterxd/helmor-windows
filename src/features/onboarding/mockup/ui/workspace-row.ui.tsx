@@ -16,24 +16,25 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { WorkspaceBranchTone } from "@/lib/workspace-helpers";
-import { WorkspaceAvatar } from "./avatar";
-import { branchToneClasses } from "./shared";
+import {
+	branchToneClasses,
+	WorkspaceAvatarUI,
+	type WorkspaceBranchTone,
+} from "./shared";
 
 /**
- * Pure-UI row body for a workspace entry in the navigation sidebar.
+ * Frozen snapshot of the workspace sidebar row visual, copied from the
+ * production `features/navigation/workspace-row.ui.tsx` at the time the
+ * onboarding mockup was last hand-synced. Only consumed by the mockup —
+ * change here without changing the real container, and vice versa.
  *
- * Knows nothing about data fetching, virtualization, or the run-script store —
- * the parent decides what to display and forwards primitive flags via props.
- *
- * Used by:
+ * Original commentary preserved for context:
  * - the real `WorkspaceRowItem` container, which wraps this in a ContextMenu
  *   and feeds it live workspace state
  * - the onboarding mockup, which feeds it static mock data
  */
 export type WorkspaceRowUIProps = {
 	displayTitle: string;
-	repoIconSrc?: string | null;
 	repoInitials?: string | null;
 	repoName?: string | null;
 	hasUnread?: boolean;
@@ -41,7 +42,6 @@ export type WorkspaceRowUIProps = {
 	selected?: boolean;
 	isSending?: boolean;
 	isInteractionRequired?: boolean;
-	isRunScriptRunning?: boolean;
 	branchTone: WorkspaceBranchTone;
 	dataWorkspaceRowId?: string;
 	rowRef?: (element: HTMLDivElement | null) => void;
@@ -73,7 +73,6 @@ const rowVariants = cva(
 
 export function WorkspaceRowUI({
 	displayTitle,
-	repoIconSrc,
 	repoInitials,
 	repoName,
 	hasUnread = false,
@@ -81,7 +80,6 @@ export function WorkspaceRowUI({
 	selected = false,
 	isSending = false,
 	isInteractionRequired = false,
-	isRunScriptRunning = false,
 	branchTone,
 	dataWorkspaceRowId,
 	rowRef,
@@ -131,14 +129,12 @@ export function WorkspaceRowUI({
 			)}
 		>
 			<div className="flex min-w-0 flex-1 items-center gap-2">
-				<WorkspaceAvatar
-					repoIconSrc={repoIconSrc}
+				<WorkspaceAvatarUI
 					repoInitials={repoInitials}
 					repoName={repoName}
 					title={displayTitle}
 					badgeClassName={showStatusDot ? statusDotClassName : null}
 					badgeAriaLabel={statusDotLabel ?? undefined}
-					isRunning={isRunScriptRunning}
 				/>
 				{/* Fade is on an inner wrapper so the avatar's overflowing badge isn't clipped by mask-image. */}
 				<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">

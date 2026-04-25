@@ -1,11 +1,15 @@
-import type { ActionStatusKind, GroupTone, WorkspaceStatus } from "@/lib/api";
-import type { InspectorFileItem } from "@/lib/editor-session";
-import type { WorkspaceBranchTone } from "@/lib/workspace-helpers";
+import type {
+	ActionStatusKind,
+	GroupTone,
+	InspectorFileStatus,
+	WorkspaceBranchTone,
+} from "./ui/shared";
 
 /**
- * Mock data fed into the real Helmor pure-UI primitives by the onboarding
- * preview. Keep these types narrowed to exactly what the .ui.tsx components
- * read so the mockup can't accidentally drift from production prop shapes.
+ * Mock data fed into the mockup-private `.ui.tsx` primitives. Types come
+ * from `./ui/shared` (mockup-private string literals), NOT from
+ * `@/lib/api` — that's how we keep the onboarding preview from breaking
+ * when production types evolve.
  */
 
 export type MockWorkspaceRow = {
@@ -18,7 +22,7 @@ export type MockWorkspaceRow = {
 	isSending?: boolean;
 	isSelected?: boolean;
 	state?: "active" | "archived";
-	status?: WorkspaceStatus;
+	status?: "backlog" | "in-progress" | "review" | "done" | "canceled";
 };
 
 export type MockWorkspaceGroup = {
@@ -50,7 +54,7 @@ export type MockMessage =
 export type MockChangeItem = {
 	name: string;
 	path: string;
-	status: InspectorFileItem["status"];
+	status: InspectorFileStatus;
 	insertions?: number;
 	deletions?: number;
 };

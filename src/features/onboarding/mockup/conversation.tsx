@@ -7,25 +7,22 @@ import {
 	Zap,
 } from "lucide-react";
 import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
+import { cn } from "@/lib/utils";
+import { type MockMessage, type MockSession, mockConversation } from "./data";
+import { AssistantTextUI } from "./ui/assistant-text.ui";
 import {
 	ComposerInputPlaceholderUI,
 	ComposerShellUI,
 	ComposerSubmitButtonUI,
-} from "@/features/composer/composer-shell.ui";
+} from "./ui/composer-shell.ui";
 import {
 	AgentPickerButtonUI,
 	ConversationHeaderUI,
-} from "@/features/panel/conversation-header.ui";
-import { AssistantTextUI } from "@/features/panel/message-components/assistant-text.ui";
-import { ToolCallRowUI } from "@/features/panel/message-components/tool-call-row.ui";
-import { UserMessageBubbleUI } from "@/features/panel/message-components/user-message-bubble.ui";
-import { WorkingIndicatorUI } from "@/features/panel/message-components/working-indicator.ui";
-import {
-	SessionTabsRowUI,
-	SessionTabUI,
-} from "@/features/panel/session-tab.ui";
-import { cn } from "@/lib/utils";
-import { type MockMessage, type MockSession, mockConversation } from "./data";
+} from "./ui/conversation-header.ui";
+import { SessionTabsRowUI, SessionTabUI } from "./ui/session-tab.ui";
+import { ToolCallRowUI } from "./ui/tool-call-row.ui";
+import { UserMessageBubbleUI } from "./ui/user-message-bubble.ui";
+import { WorkingIndicatorUI } from "./ui/working-indicator.ui";
 
 function ProviderIcon({ provider }: { provider: MockSession["provider"] }) {
 	const Icon = provider === "codex" ? OpenAIIcon : ClaudeIcon;

@@ -1,5 +1,13 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Folder, FolderPlus, Globe, LoaderCircle, Plus } from "lucide-react";
+import {
+	Archive,
+	ChevronRight,
+	Folder,
+	FolderPlus,
+	Globe,
+	LoaderCircle,
+	Plus,
+} from "lucide-react";
 import {
 	memo,
 	useCallback,
@@ -9,6 +17,8 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	CommandEmpty,
@@ -43,9 +53,11 @@ import {
 	writeStoredSectionOpenState,
 } from "./open-state";
 import { WorkspaceRowItem } from "./row-item";
-import { ARCHIVED_SECTION_ID, findSelectedSectionId } from "./shared";
-import { WorkspaceGroupHeaderUI } from "./workspace-group-header.ui";
-import { WorkspaceSidebarShellUI } from "./workspace-sidebar.ui";
+import {
+	ARCHIVED_SECTION_ID,
+	findSelectedSectionId,
+	GroupIcon,
+} from "./shared";
 
 // ---------------------------------------------------------------------------
 // Virtual list item types
@@ -358,17 +370,50 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						? (sectionOpenState[item.groupId] ?? false)
 						: (sectionOpenState[item.groupId] ?? true);
 				const isArchived = item.groupId === ARCHIVED_SECTION_ID;
+				const isEmptyGroup = item.group.rows.length === 0;
 
 				return (
-					<WorkspaceGroupHeaderUI
-						label={item.group.label}
-						count={item.group.rows.length}
-						tone={item.group.tone}
-						isOpen={isOpen}
-						canCollapse={item.canCollapse}
-						isArchivedSection={isArchived}
-						onToggle={() => toggleSection(item.groupId)}
-					/>
+					<button
+						type="button"
+						className={cn(
+							"group/trigger flex w-full select-none items-center justify-between rounded-lg px-2 text-[13px] font-semibold tracking-[-0.01em] text-foreground hover:bg-accent/60",
+							"py-1",
+							item.canCollapse ? "cursor-pointer" : "cursor-default",
+						)}
+						data-empty-group={isEmptyGroup ? "true" : "false"}
+						disabled={!item.canCollapse}
+						onClick={() => toggleSection(item.groupId)}
+					>
+						<span className="flex items-center gap-2">
+							{isArchived ? (
+								<Archive
+									className="size-[14px] shrink-0 text-[var(--workspace-sidebar-status-backlog)]"
+									strokeWidth={1.9}
+								/>
+							) : (
+								<GroupIcon tone={item.group.tone} />
+							)}
+							<span>{item.group.label}</span>
+						</span>
+
+						{item.group.rows.length > 0 ? (
+							<span className="relative flex h-5 min-w-5 items-center justify-center">
+								<Badge
+									variant="secondary"
+									className="h-4 min-w-[16px] justify-center rounded-full px-1 text-[9.5px] leading-none transition-opacity group-hover/trigger:opacity-0"
+								>
+									{item.group.rows.length}
+								</Badge>
+								<ChevronRight
+									className={cn(
+										"absolute left-1/2 top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-all group-hover/trigger:opacity-100",
+										isOpen && "rotate-90",
+									)}
+									strokeWidth={2}
+								/>
+							</span>
+						) : null}
+					</button>
 				);
 			}
 
@@ -426,147 +471,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 		],
 	);
 
-	const headerActions = (
-		<>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button
-						type="button"
-						aria-label="Add repository"
-						variant="ghost"
-						size="icon-xs"
-						disabled={addRepositoryBusy || createBusy || workspaceActionsBusy}
-						className={cn(
-							"text-muted-foreground",
-							addRepositoryBusy || createBusy || workspaceActionsBusy
-								? "cursor-not-allowed opacity-60"
-								: undefined,
-						)}
-					>
-						{addRepositoryBusy ? (
-							<LoaderCircle className="size-4 animate-spin" strokeWidth={2.1} />
-						) : (
-							<FolderPlus className="size-4" strokeWidth={2} />
-						)}
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="min-w-40">
-					<DropdownMenuItem
-						onSelect={() => {
-							setIsRepoPickerOpen(false);
-							onAddRepository?.();
-						}}
-					>
-						<Folder strokeWidth={2} />
-						<span>Open project</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						onSelect={() => {
-							setIsRepoPickerOpen(false);
-							onOpenCloneDialog?.();
-						}}
-					>
-						<Globe strokeWidth={2} />
-						<span>Clone from URL</span>
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-
-			<Popover open={isRepoPickerOpen} onOpenChange={setIsRepoPickerOpen}>
-				<PopoverAnchor asChild>
-					<span className="inline-flex">
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									type="button"
-									aria-label="New workspace"
-									aria-expanded={isRepoPickerOpen}
-									aria-haspopup="dialog"
-									variant="ghost"
-									size="icon-xs"
-									disabled={
-										addRepositoryBusy || createBusy || workspaceActionsBusy
-									}
-									onClick={() => {
-										if (
-											addRepositoryBusy ||
-											createBusy ||
-											workspaceActionsBusy
-										) {
-											return;
-										}
-
-										setIsRepoPickerOpen((open) => !open);
-									}}
-								>
-									{createBusy ? (
-										<LoaderCircle
-											className="size-4 animate-spin"
-											strokeWidth={2.1}
-										/>
-									) : (
-										<Plus className="size-4" strokeWidth={2.4} />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent
-								side="top"
-								sideOffset={8}
-								className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
-							>
-								<span>Add workspace</span>
-							</TooltipContent>
-						</Tooltip>
-					</span>
-				</PopoverAnchor>
-				<CommandPopoverContent
-					align="end"
-					sideOffset={8}
-					className="w-fit min-w-[220px] max-w-[min(90vw,28rem)]"
-				>
-					<CommandList className="max-h-64">
-						<CommandEmpty>No repositories found.</CommandEmpty>
-						{repositories.map((repository) => (
-							<CommandItem
-								key={repository.id}
-								value={`${repository.name} ${repository.defaultBranch ?? ""}`}
-								onSelect={() => {
-									setIsRepoPickerOpen(false);
-									onCreateWorkspace?.(repository.id);
-								}}
-								className="rounded-lg [&>svg:last-child]:hidden"
-							>
-								<div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-									<div className="flex min-w-0 items-center gap-2">
-										<WorkspaceAvatar
-											repoIconSrc={repository.repoIconSrc}
-											repoInitials={repository.repoInitials}
-											repoName={repository.name}
-											title={repository.name}
-											className="size-5 rounded-md"
-											fallbackClassName="text-[8px]"
-										/>
-										<span className="truncate font-medium">
-											{repository.name}
-										</span>
-									</div>
-									{repository.defaultBranch ? (
-										<span className="shrink-0 text-right whitespace-nowrap text-xs text-muted-foreground">
-											{repository.remote ?? "origin"}/
-											{repository.defaultBranch.toLowerCase()}
-										</span>
-									) : null}
-								</div>
-							</CommandItem>
-						))}
-					</CommandList>
-				</CommandPopoverContent>
-			</Popover>
-		</>
-	);
-
 	return (
-		<WorkspaceSidebarShellUI headerActions={headerActions}>
+		<div className="flex h-full min-h-0 flex-col overflow-hidden">
 			<CloneFromUrlDialog
 				open={isCloneDialogOpen ?? false}
 				onOpenChange={(nextOpen) => onCloneDialogOpenChange?.(nextOpen)}
@@ -578,6 +484,163 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					await onSubmitClone(args);
 				}}
 			/>
+			<div
+				data-slot="window-safe-top"
+				className="flex h-9 shrink-0 items-center pr-3"
+			>
+				<TrafficLightSpacer side="left" width={94} />
+				<div data-tauri-drag-region className="h-full flex-1" />
+			</div>
+
+			<div className="flex items-center justify-between px-3">
+				<h2 className="text-[14px] font-medium tracking-[-0.01em] text-muted-foreground">
+					Workspaces
+				</h2>
+
+				<div className="flex items-center gap-1 text-muted-foreground">
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button
+								type="button"
+								aria-label="Add repository"
+								variant="ghost"
+								size="icon-xs"
+								disabled={
+									addRepositoryBusy || createBusy || workspaceActionsBusy
+								}
+								className={cn(
+									"text-muted-foreground",
+									addRepositoryBusy || createBusy || workspaceActionsBusy
+										? "cursor-not-allowed opacity-60"
+										: undefined,
+								)}
+							>
+								{addRepositoryBusy ? (
+									<LoaderCircle
+										className="size-4 animate-spin"
+										strokeWidth={2.1}
+									/>
+								) : (
+									<FolderPlus className="size-4" strokeWidth={2} />
+								)}
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end" className="min-w-40">
+							<DropdownMenuItem
+								onSelect={() => {
+									setIsRepoPickerOpen(false);
+									onAddRepository?.();
+								}}
+							>
+								<Folder strokeWidth={2} />
+								<span>Open project</span>
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() => {
+									setIsRepoPickerOpen(false);
+									onOpenCloneDialog?.();
+								}}
+							>
+								<Globe strokeWidth={2} />
+								<span>Clone from URL</span>
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+
+					<Popover open={isRepoPickerOpen} onOpenChange={setIsRepoPickerOpen}>
+						<PopoverAnchor asChild>
+							<span className="inline-flex">
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Button
+											type="button"
+											aria-label="New workspace"
+											aria-expanded={isRepoPickerOpen}
+											aria-haspopup="dialog"
+											variant="ghost"
+											size="icon-xs"
+											disabled={
+												addRepositoryBusy || createBusy || workspaceActionsBusy
+											}
+											onClick={() => {
+												if (
+													addRepositoryBusy ||
+													createBusy ||
+													workspaceActionsBusy
+												) {
+													return;
+												}
+
+												setIsRepoPickerOpen((open) => !open);
+											}}
+										>
+											{createBusy ? (
+												<LoaderCircle
+													className="size-4 animate-spin"
+													strokeWidth={2.1}
+												/>
+											) : (
+												<Plus className="size-4" strokeWidth={2.4} />
+											)}
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent
+										side="top"
+										sideOffset={8}
+										className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
+									>
+										<span>Add workspace</span>
+									</TooltipContent>
+								</Tooltip>
+							</span>
+						</PopoverAnchor>
+						<CommandPopoverContent
+							align="end"
+							sideOffset={8}
+							className="w-fit min-w-[220px] max-w-[min(90vw,28rem)]"
+						>
+							<CommandList className="max-h-64">
+								<CommandEmpty>No repositories found.</CommandEmpty>
+								{repositories.map((repository) => (
+									<CommandItem
+										key={repository.id}
+										value={`${repository.name} ${repository.defaultBranch ?? ""}`}
+										onSelect={() => {
+											setIsRepoPickerOpen(false);
+											onCreateWorkspace?.(repository.id);
+										}}
+										className="rounded-lg [&>svg:last-child]:hidden"
+									>
+										<div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+											<div className="flex min-w-0 items-center gap-2">
+												<WorkspaceAvatar
+													repoIconSrc={repository.repoIconSrc}
+													repoInitials={repository.repoInitials}
+													repoName={repository.name}
+													title={repository.name}
+													className="size-5 rounded-md"
+													fallbackClassName="text-[8px]"
+												/>
+												<span className="truncate font-medium">
+													{repository.name}
+												</span>
+											</div>
+											{repository.defaultBranch ? (
+												<span className="shrink-0 text-right whitespace-nowrap text-xs text-muted-foreground">
+													{repository.remote ?? "origin"}/
+													{repository.defaultBranch.toLowerCase()}
+												</span>
+											) : null}
+										</div>
+									</CommandItem>
+								))}
+							</CommandList>
+						</CommandPopoverContent>
+					</Popover>
+				</div>
+			</div>
+
+			{/* Virtualized workspace list */}
 			<div
 				ref={scrollContainerRef}
 				data-slot="workspace-groups-scroll"
@@ -607,6 +670,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					))}
 				</div>
 			</div>
-		</WorkspaceSidebarShellUI>
+		</div>
 	);
 });

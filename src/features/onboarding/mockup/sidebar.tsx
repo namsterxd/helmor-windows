@@ -1,10 +1,10 @@
 import { FolderPlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { humanizeBranch } from "@/features/navigation/shared";
-import { WorkspaceGroupHeaderUI } from "@/features/navigation/workspace-group-header.ui";
-import { WorkspaceRowUI } from "@/features/navigation/workspace-row.ui";
-import { WorkspaceSidebarShellUI } from "@/features/navigation/workspace-sidebar.ui";
 import { mockSidebar } from "./data";
+import { humanizeBranch } from "./ui/shared";
+import { WorkspaceGroupHeaderUI } from "./ui/workspace-group-header.ui";
+import { WorkspaceRowUI } from "./ui/workspace-row.ui";
+import { WorkspaceSidebarShellUI } from "./ui/workspace-sidebar.ui";
 
 /**
  * Onboarding mock sidebar — renders the real `WorkspaceSidebarShellUI` /

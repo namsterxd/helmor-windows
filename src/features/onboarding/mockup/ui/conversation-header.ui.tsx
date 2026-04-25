@@ -2,9 +2,8 @@ import { ArrowRight, ChevronDown, GitBranch } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { HyperText } from "@/components/ui/hyper-text";
-import { branchToneClasses } from "@/features/navigation/shared";
 import { cn } from "@/lib/utils";
-import type { WorkspaceBranchTone } from "@/lib/workspace-helpers";
+import { branchToneClasses, type WorkspaceBranchTone } from "./shared";
 
 /**
  * Pure-UI strip rendering the workspace branch indicator + arrow + target

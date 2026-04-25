@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { INSPECTOR_SECTION_HEADER_CLASS } from "./layout";
+import { INSPECTOR_SECTION_HEADER_CLASS } from "./shared";
 
 const INSPECTOR_TAB_BUTTON_CLASS =
 	"relative inline-flex h-full cursor-pointer items-center justify-center gap-1.5 px-0 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-0";

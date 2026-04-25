@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import {
 	INSPECTOR_SECTION_HEADER_CLASS,
 	INSPECTOR_SECTION_TITLE_CLASS,
-} from "./layout";
+} from "./shared";
 
 /**
  * Pure-UI inspector section — the title bar plus body slot.

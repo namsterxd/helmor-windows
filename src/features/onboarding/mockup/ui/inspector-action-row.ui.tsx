@@ -1,6 +1,6 @@
 import { CheckIcon } from "lucide-react";
-import type { ActionStatusKind } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { ActionStatusKind } from "./shared";
 
 /**
  * Pure-UI status indicator (success / running / failure / pending) used

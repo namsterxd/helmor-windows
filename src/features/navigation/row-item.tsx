@@ -1,12 +1,18 @@
+import { cva } from "class-variance-authority";
 import {
 	Archive,
 	Circle,
 	FolderOpen,
+	GitBranch,
+	LoaderCircle,
 	Pin,
 	PinOff,
 	RotateCcw,
+	Trash2,
 } from "lucide-react";
 import { memo, useEffect, useState } from "react";
+import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
+import { Button } from "@/components/ui/button";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -17,15 +23,42 @@ import {
 	ContextMenuSubTrigger,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { HyperText } from "@/components/ui/hyper-text";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
 	getScriptState,
 	subscribeStatus,
 } from "@/features/inspector/script-store";
 import type { WorkspaceRow, WorkspaceStatus } from "@/lib/api";
 import { recordSidebarRowRender } from "@/lib/dev-render-debug";
+import { cn } from "@/lib/utils";
 import { getWorkspaceBranchTone } from "@/lib/workspace-helpers";
-import { GroupIcon, humanizeBranch, STATUS_OPTIONS } from "./shared";
-import { WorkspaceRowHoverActionsUI, WorkspaceRowUI } from "./workspace-row.ui";
+import { WorkspaceAvatar } from "./avatar";
+import {
+	branchToneClasses,
+	GroupIcon,
+	humanizeBranch,
+	STATUS_OPTIONS,
+} from "./shared";
+
+const rowVariants = cva(
+	"group/row relative flex h-7.5 select-none items-center gap-2 rounded-md px-2.5 text-[13px] cursor-pointer",
+	{
+		variants: {
+			active: {
+				true: "workspace-row-selected text-foreground",
+				false: "text-foreground/80 hover:bg-accent/60",
+			},
+		},
+		defaultVariants: {
+			active: false,
+		},
+	},
+);
 
 export type WorkspaceRowItemProps = {
 	row: WorkspaceRow;
@@ -110,63 +143,187 @@ export const WorkspaceRowItem = memo(
 		// instead of leaving a visible gap.
 		const hasTwoActions =
 			hasActionHandler && isRestoreAction && Boolean(onDeleteWorkspace);
+		const rowFadeStyle = hasTwoActions
+			? ({
+					"--row-fade-transparent": "2.6rem",
+					"--row-fade-solid": "3.4rem",
+				} as React.CSSProperties)
+			: undefined;
+		const actionIcon = isBusy ? (
+			<LoaderCircle className="size-3.5 animate-spin" strokeWidth={2.1} />
+		) : isRestoreAction ? (
+			<RotateCcw className="size-3.5" strokeWidth={2.1} />
+		) : (
+			<Archive className="size-3.5" strokeWidth={1.9} />
+		);
 		const isPinned = Boolean(row.pinnedAt);
 		const effectiveStatus = row.status ?? "in-progress";
 		const branchTone = getWorkspaceBranchTone({
 			workspaceState: row.state,
 			status: row.status,
 		});
+		const statusDotLabel = isInteractionRequired
+			? "Interaction required"
+			: row.hasUnread
+				? "Unread"
+				: null;
+		const statusDotClassName = isInteractionRequired
+			? "bg-yellow-500"
+			: "bg-chart-2";
+		const showStatusDot = statusDotLabel !== null;
 		const displayTitle = row.branch ? humanizeBranch(row.branch) : row.title;
 
 		const rowBody = (
-			<WorkspaceRowUI
-				displayTitle={displayTitle}
-				repoIconSrc={row.repoIconSrc}
-				repoInitials={row.repoInitials ?? row.avatar ?? null}
-				repoName={row.repoName}
-				hasUnread={row.hasUnread}
-				isArchived={row.state === "archived"}
-				selected={selected}
-				isSending={isSending}
-				isInteractionRequired={isInteractionRequired}
-				isRunScriptRunning={isRunScriptRunning}
-				branchTone={branchTone}
-				dataWorkspaceRowId={row.id}
-				rowRef={rowRef}
-				onMouseEnter={() => onPrefetch?.(row.id)}
-				onFocus={() => onPrefetch?.(row.id)}
-				onClick={() => onSelect?.(row.id)}
+			<div
+				ref={rowRef}
+				role="button"
+				tabIndex={0}
+				aria-label={displayTitle}
+				data-workspace-row-id={row.id}
+				data-has-unread={row.hasUnread ? "true" : "false"}
+				data-busy={isBusy ? "true" : undefined}
+				style={rowFadeStyle}
+				onMouseEnter={() => {
+					onPrefetch?.(row.id);
+				}}
+				onFocus={() => {
+					onPrefetch?.(row.id);
+				}}
+				onClick={() => {
+					onSelect?.(row.id);
+				}}
 				onKeyDown={(event) => {
 					if (event.key === "Enter" || event.key === " ") {
 						event.preventDefault();
 						onSelect?.(row.id);
 					}
 				}}
-				hasTwoActions={hasTwoActions}
-				isBusy={isBusy}
-				hoverActions={
-					hasActionHandler ? (
-						<WorkspaceRowHoverActionsUI
-							actionLabel={actionLabel}
-							isRestoreAction={isRestoreAction}
-							isBusy={isBusy}
-							disabled={Boolean(workspaceActionsDisabled)}
-							onPrimaryAction={() => {
-								if (isRestoreAction) {
-									onRestoreWorkspace?.(row.id);
-								} else {
-									onArchiveWorkspace?.(row.id);
-								}
-							}}
-							onDelete={
-								isRestoreAction && onDeleteWorkspace
-									? () => onDeleteWorkspace(row.id)
-									: undefined
-							}
-						/>
-					) : null
-				}
-			/>
+				className={cn(
+					rowVariants({ active: selected }),
+					"w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
+					!selected && row.state === "archived" && "opacity-50",
+				)}
+			>
+				<div className="flex min-w-0 flex-1 items-center gap-2">
+					<WorkspaceAvatar
+						repoIconSrc={row.repoIconSrc}
+						repoInitials={row.repoInitials ?? row.avatar ?? null}
+						repoName={row.repoName}
+						title={displayTitle}
+						badgeClassName={showStatusDot ? statusDotClassName : null}
+						badgeAriaLabel={statusDotLabel ?? undefined}
+						isRunning={isRunScriptRunning}
+					/>
+					{/* Fade is on an inner wrapper so the avatar's overflowing badge isn't clipped by mask-image. */}
+					<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">
+						{isSending && !isInteractionRequired ? (
+							<HelmorThinkingIndicator size={13} />
+						) : (
+							<GitBranch
+								className={cn(
+									"size-[13px] shrink-0",
+									branchToneClasses[branchTone],
+								)}
+								strokeWidth={1.9}
+							/>
+						)}
+						<span
+							className={cn(
+								// leading-tight (1.25) instead of leading-none so descenders
+								// (g/j/p/q/y) aren't clipped by truncate's overflow:hidden
+								// when the page is zoomed out (Cmd+-).
+								"truncate leading-tight",
+								selected
+									? row.hasUnread
+										? "font-semibold text-foreground"
+										: "font-medium text-foreground"
+									: row.hasUnread
+										? "font-semibold text-foreground"
+										: "font-medium",
+							)}
+						>
+							<HyperText text={displayTitle} className="inline" />
+						</span>
+					</div>
+				</div>
+
+				{hasActionHandler ? (
+					<span
+						className={cn(
+							"pointer-events-none absolute inset-y-0 right-0 flex items-center gap-0.5 pr-2.5",
+							"opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100",
+							isBusy && "pointer-events-auto opacity-100",
+						)}
+					>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									aria-label={actionLabel}
+									disabled={Boolean(workspaceActionsDisabled || isBusy)}
+									onClick={(event) => {
+										event.stopPropagation();
+										if (workspaceActionsDisabled || isBusy) return;
+										if (isRestoreAction) {
+											onRestoreWorkspace?.(row.id);
+										} else {
+											onArchiveWorkspace?.(row.id);
+										}
+									}}
+									variant="ghost"
+									size="icon-xs"
+									className={cn(
+										"size-5 rounded-md p-0 text-muted-foreground",
+										workspaceActionsDisabled
+											? "cursor-not-allowed opacity-60"
+											: "cursor-pointer hover:text-foreground",
+									)}
+								>
+									{actionIcon}
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent
+								side="top"
+								sideOffset={8}
+								className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
+							>
+								<span>{actionLabel}</span>
+							</TooltipContent>
+						</Tooltip>
+						{isRestoreAction && onDeleteWorkspace ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										aria-label="Delete permanently"
+										disabled={Boolean(workspaceActionsDisabled || isBusy)}
+										onClick={(event) => {
+											event.stopPropagation();
+											if (workspaceActionsDisabled || isBusy) return;
+											onDeleteWorkspace(row.id);
+										}}
+										variant="ghost"
+										size="icon-xs"
+										className={cn(
+											"size-5 rounded-md p-0 text-muted-foreground",
+											workspaceActionsDisabled
+												? "cursor-not-allowed opacity-60"
+												: "cursor-pointer hover:text-destructive",
+										)}
+									>
+										<Trash2 className="size-3.5" strokeWidth={2.1} />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent
+									side="top"
+									sideOffset={8}
+									className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
+								>
+									<span>Delete permanently</span>
+								</TooltipContent>
+							</Tooltip>
+						) : null}
+					</span>
+				) : null}
+			</div>
 		);
 
 		return (

@@ -1,8 +1,7 @@
 import { Archive, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import type { GroupTone } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { GroupIcon } from "./shared";
+import { GroupIcon, type GroupTone } from "./shared";
 
 /**
  * Pure-UI button for a workspace group header in the sidebar

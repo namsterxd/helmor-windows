@@ -6,19 +6,19 @@ import {
 	GitPullRequestArrow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { mockInspector } from "./data";
 import {
 	InspectorActionGroupTitleUI,
 	InspectorActionRowUI,
-} from "@/features/inspector/inspector-action-row.ui";
-import { InspectorChangeRowUI } from "@/features/inspector/inspector-change-row.ui";
-import { InspectorFolderHeaderUI } from "@/features/inspector/inspector-folder-header.ui";
-import { InspectorSectionUI } from "@/features/inspector/inspector-section.ui";
-import { InspectorShellUI } from "@/features/inspector/inspector-shell.ui";
+} from "./ui/inspector-action-row.ui";
+import { InspectorChangeRowUI } from "./ui/inspector-change-row.ui";
+import { InspectorFolderHeaderUI } from "./ui/inspector-folder-header.ui";
+import { InspectorSectionUI } from "./ui/inspector-section.ui";
+import { InspectorShellUI } from "./ui/inspector-shell.ui";
 import {
 	InspectorTabsEmptyStateUI,
 	InspectorTabsHeaderUI,
-} from "@/features/inspector/inspector-tabs-section.ui";
-import { mockInspector } from "./data";
+} from "./ui/inspector-tabs-section.ui";
 
 /**
  * Onboarding mock inspector — composes the real `.ui.tsx` primitives

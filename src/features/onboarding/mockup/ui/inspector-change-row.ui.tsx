@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import type { InspectorFileItem } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
+import type { InspectorFileStatus } from "./shared";
 
-const STATUS_COLORS: Record<InspectorFileItem["status"], string> = {
+const STATUS_COLORS: Record<InspectorFileStatus, string> = {
 	M: "text-yellow-500",
 	A: "text-green-500",
 	D: "text-red-500",
@@ -17,7 +17,7 @@ const STATUS_COLORS: Record<InspectorFileItem["status"], string> = {
 export type InspectorChangeRowUIProps = {
 	name: string;
 	path: string;
-	status: InspectorFileItem["status"];
+	status: InspectorFileStatus;
 	icon: ReactNode;
 	active?: boolean;
 	insertions?: number | null;
