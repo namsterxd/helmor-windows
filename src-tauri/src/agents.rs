@@ -186,10 +186,8 @@ struct ExchangeContext {
 }
 
 #[tauri::command]
-pub async fn list_agent_model_sections(
-    sidecar: tauri::State<'_, crate::sidecar::ManagedSidecar>,
-) -> CmdResult<Vec<AgentModelSection>> {
-    Ok(queries::fetch_agent_model_sections(&sidecar))
+pub async fn list_agent_model_sections() -> CmdResult<Vec<AgentModelSection>> {
+    Ok(queries::fetch_agent_model_sections())
 }
 
 #[tauri::command]

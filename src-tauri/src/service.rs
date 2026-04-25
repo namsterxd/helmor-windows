@@ -594,16 +594,8 @@ pub fn is_app_running() -> bool {
     crate::ui_sync::is_listener_running()
 }
 
-/// Spawn a standalone sidecar, ask it for the combined model catalog (Claude
-/// + Codex), and tear it down. Blocks until the sidecar replies or times out.
-///
-/// Used by `helmor models list` when the GUI isn't hosting a sidecar we can
-/// share.
 pub fn fetch_model_sections() -> Vec<crate::agents::AgentModelSection> {
-    let sidecar = crate::sidecar::ManagedSidecar::new();
-    let sections = crate::agents::fetch_agent_model_sections(&sidecar);
-    sidecar.shutdown(Duration::from_millis(500), Duration::from_secs(2));
-    sections
+    crate::agents::fetch_agent_model_sections()
 }
 
 #[cfg(test)]

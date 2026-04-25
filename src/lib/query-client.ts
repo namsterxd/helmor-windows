@@ -32,11 +32,6 @@ import {
 	loadWorkspaceSessions,
 	refreshWorkspaceChangeRequest,
 } from "./api";
-import {
-	hasUsableAgentModelSections,
-	readCachedAgentModelSections,
-	writeCachedAgentModelSections,
-} from "./model-catalog-cache";
 
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
@@ -183,22 +178,12 @@ export function repositoriesQueryOptions() {
 }
 
 export function agentModelSectionsQueryOptions() {
-	const cached = readCachedAgentModelSections();
 	return queryOptions({
 		queryKey: helmorQueryKeys.agentModelSections,
-		queryFn: async () => {
-			const fresh = await loadAgentModelSections();
-			if (hasUsableAgentModelSections(fresh)) {
-				writeCachedAgentModelSections(fresh);
-				return fresh;
-			}
-			return cached ?? fresh;
-		},
-		initialData: cached,
-		initialDataUpdatedAt: cached ? Date.now() : undefined,
+		queryFn: loadAgentModelSections,
 		staleTime: Infinity,
 		refetchOnWindowFocus: false,
-		retry: 2,
+		retry: false,
 	});
 }
 

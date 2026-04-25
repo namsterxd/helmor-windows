@@ -22,13 +22,6 @@ process.env.HELMOR_LOG_DIR = resolve(tmpdir(), "helmor-sidecar-test-logs");
 // ---------------------------------------------------------------------------
 
 type MockQueryResult = AsyncIterable<unknown> & {
-	supportedModels?: () => Promise<
-		Array<{
-			value: string;
-			displayName?: string;
-			supportedEffortLevels?: string[];
-		}>
-	>;
 	supportedCommands?: () => Promise<
 		Array<{
 			name: string;
@@ -158,18 +151,15 @@ function emptyAsyncIterable(): AsyncIterable<unknown> {
 
 function makeMockQuery({
 	stream = [],
-	supportedModels,
 	supportedCommands,
 	close,
 }: {
 	stream?: readonly unknown[];
-	supportedModels?: MockQueryResult["supportedModels"];
 	supportedCommands?: MockQueryResult["supportedCommands"];
 	close?: () => void;
 } = {}): MockQueryResult {
 	const iterable = asyncIterableFrom(stream);
 	return {
-		supportedModels,
 		supportedCommands,
 		close: close ?? (() => undefined),
 		[Symbol.asyncIterator]: () => iterable[Symbol.asyncIterator](),
@@ -467,43 +457,18 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(meta.maxTokens).toBe(200_000);
 	});
 
-	test("supportsFastMode comes from the overrides table, not the SDK", async () => {
-		mockQueryImpl = () =>
-			makeMockQuery({
-				supportedModels: async () => [
-					{
-						value: "default",
-						displayName: "Default",
-						supportedEffortLevels: ["low", "medium", "high", "max"],
-					},
-					{
-						value: "claude-opus-4-7",
-						displayName: "Claude Opus 4.7",
-						supportedEffortLevels: ["low", "medium", "high", "max"],
-					},
-					{
-						value: "claude-sonnet-4-7",
-						displayName: "Claude Sonnet 4.7",
-						supportedEffortLevels: ["low", "medium", "high"],
-					},
-				],
-			});
-
+	test("supportsFastMode comes from the hardcoded catalog", async () => {
 		const models = await manager.listModels();
 		const bySupports = Object.fromEntries(
 			models.map((m) => [m.id, m.supportsFastMode]),
 		);
 
-		// SDK-supplied models (not in the override table) carry no flag.
 		expect(bySupports.default).toBeUndefined();
-		expect(bySupports["claude-opus-4-7"]).toBeUndefined();
-		expect(bySupports["claude-sonnet-4-7"]).toBeUndefined();
-
-		// The override adds claude-opus-4-6[1m] with the flag set.
+		expect(bySupports.sonnet).toBeUndefined();
 		expect(bySupports["claude-opus-4-6[1m]"]).toBe(true);
 	});
 
-	test("ignores fastMode for models not in the override table", async () => {
+	test("ignores fastMode for models not in the hardcoded catalog", async () => {
 		mockQueryImpl = () => makeMockQuery();
 
 		await manager.sendMessage(
@@ -1369,31 +1334,12 @@ describe("Claude fixture diversity guards", () => {
 });
 
 describe("ClaudeSessionManager.listModels", () => {
-	test("returns formatted Claude model metadata", async () => {
+	test("returns hardcoded Claude model metadata without opening an SDK query", async () => {
 		const manager = new ClaudeSessionManager();
 		lastQueryArgs = null;
-		mockQueryImpl = () =>
-			makeMockQuery({
-				supportedModels: async () => [
-					{
-						value: "default",
-						displayName: "Default",
-						supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
-					},
-					{
-						value: "sonnet",
-						displayName: "Sonnet (1M context)",
-						supportedEffortLevels: ["low", "medium", "high"],
-					},
-					{ value: "haiku", displayName: "Haiku" },
-				],
-			});
 
 		const models = await manager.listModels();
 
-		// Order follows sortClaudeModels: opus family first (default pinned to
-		// top via Infinity, then opus-4-6[1m] injected by the override), then
-		// sonnet, then haiku. supportsFastMode only appears on override entries.
 		expect(models).toEqual([
 			{
 				id: "default",
@@ -1410,9 +1356,9 @@ describe("ClaudeSessionManager.listModels", () => {
 			},
 			{
 				id: "sonnet",
-				label: "Sonnet 1M",
+				label: "Sonnet",
 				cliModel: "sonnet",
-				effortLevels: ["low", "medium", "high"],
+				effortLevels: ["low", "medium", "high", "max"],
 			},
 			{
 				id: "haiku",
@@ -1421,25 +1367,7 @@ describe("ClaudeSessionManager.listModels", () => {
 				effortLevels: [],
 			},
 		]);
-		expect(lastQueryArgs).toMatchObject({
-			options: {
-				settingSources: ["user", "project", "local"],
-			},
-		});
-	});
-
-	test("propagates supportedModels failures", async () => {
-		const manager = new ClaudeSessionManager();
-		mockQueryImpl = () =>
-			makeMockQuery({
-				supportedModels: async () => {
-					throw new Error("supportedModels exploded");
-				},
-			});
-
-		await expect(manager.listModels()).rejects.toThrow(
-			"supportedModels exploded",
-		);
+		expect(lastQueryArgs).toBeNull();
 	});
 });
 

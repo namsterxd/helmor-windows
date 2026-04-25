@@ -256,11 +256,6 @@ function MainApp() {
 					queryClient.removeQueries({
 						queryKey: helmorQueryKeys.archivedWorkspaces,
 					});
-					// Cache restored — silently refresh model list from sidecar
-					// so stale persisted data gets updated without a loading flash.
-					void queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.agentModelSections,
-					});
 				}}
 			>
 				<AppShell

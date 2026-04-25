@@ -30,25 +30,6 @@ class MockCodexAppServer {
 		serverState.requests.push({ method, params });
 
 		if (method === "initialize") return {};
-		if (method === "model/list") {
-			return {
-				data: [
-					{
-						id: "gpt-5.4",
-						model: "gpt-5.4",
-						displayName: "GPT-5.4",
-						supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
-					},
-					{
-						id: "custom-nofast",
-						model: "custom-nofast",
-						displayName: "Custom No Fast",
-						supportedReasoningEfforts: ["low", "medium"],
-						supportsFastMode: false,
-					},
-				],
-			};
-		}
 		if (method === "thread/start") {
 			return { thread: { id: "thread-1" } };
 		}
@@ -111,21 +92,29 @@ describe("CodexAppServerManager", () => {
 		emitter = createSidecarEmitter(() => {});
 	});
 
-	test("surfaces fast mode support in model list", async () => {
+	test("returns the hardcoded model list", async () => {
 		const manager = new CodexAppServerManager();
 
 		const models = await manager.listModels();
 
-		expect(models).toEqual([
-			expect.objectContaining({
-				id: "gpt-5.4",
-				supportsFastMode: true,
-			}),
-			expect.objectContaining({
-				id: "custom-nofast",
-				supportsFastMode: false,
-			}),
-		]);
+		expect(models).toHaveLength(6);
+		expect(models).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "gpt-5.5",
+					supportsFastMode: true,
+				}),
+				expect.objectContaining({
+					id: "gpt-5.4",
+					supportsFastMode: true,
+				}),
+				expect.objectContaining({
+					id: "gpt-5.4-mini",
+					supportsFastMode: true,
+				}),
+			]),
+		);
+		expect(serverState.requests).toEqual([]);
 	});
 
 	test("forwards service tier when fast mode is enabled for a codex model", async () => {

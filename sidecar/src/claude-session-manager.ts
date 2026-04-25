@@ -17,26 +17,21 @@ import {
 	type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isAbortError, isQueryClosedTransient } from "./abort.js";
-import {
-	applyClaudeModelOverrides,
-	claudeModelSupportsFastMode,
-} from "./claude-model-overrides.js";
 import { buildClaudeRichMeta, buildClaudeStoredMeta } from "./context-usage.js";
 import type { SidecarEmitter } from "./emitter.js";
 import { readImageWithResize } from "./image-resize.js";
 import { parseImageRefs } from "./images.js";
 import { prependLinkedDirectoriesContext } from "./linked-directories-context.js";
 import { errorDetails, logger } from "./logger.js";
-import { sortClaudeModels } from "./model-sort.js";
+import { listProviderModels, modelSupportsFastMode } from "./model-catalog.js";
 import { createPushable, type Pushable } from "./pushable-iterable.js";
-import {
-	formatModelLabel,
-	type GetContextUsageParams,
-	type ListSlashCommandsParams,
-	type ProviderModelInfo,
-	type SendMessageParams,
-	type SessionManager,
-	type SlashCommandInfo,
+import type {
+	GetContextUsageParams,
+	ListSlashCommandsParams,
+	ProviderModelInfo,
+	SendMessageParams,
+	SessionManager,
+	SlashCommandInfo,
 } from "./session-manager.js";
 import {
 	buildTitlePrompt,
@@ -53,15 +48,6 @@ import {
  * spinner never resolves.
  */
 const SLASH_COMMANDS_TIMEOUT_MS = 20_000;
-
-/**
- * `supportedModels()` resolves noticeably slower than `supportedCommands()`
- * on cold Claude Code startups because the SDK waits for the full
- * initialization payload, including model metadata. In production logs we
- * routinely see 8.5s-10.5s responses, so reusing the slash-command timeout
- * makes model loading flap and the Claude model section render empty.
- */
-const MODEL_LIST_TIMEOUT_MS = 15_000;
 
 /**
  * Hover popover fires this as an ad-hoc RPC. 30s is generous — the
@@ -448,7 +434,7 @@ export class ClaudeSessionManager implements SessionManager {
 		}
 
 		const effectiveFastMode =
-			fastMode === true && claudeModelSupportsFastMode(model);
+			fastMode === true && modelSupportsFastMode("claude", model);
 		const additionalDirectoryEnv =
 			additionalDirectories.length > 0
 				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
@@ -948,87 +934,7 @@ export class ClaudeSessionManager implements SessionManager {
 	}
 
 	async listModels(): Promise<readonly ProviderModelInfo[]> {
-		const abortController = new AbortController();
-		let resolveDone: () => void = () => undefined;
-		const donePromise = new Promise<void>((resolve) => {
-			resolveDone = resolve;
-		});
-		const promptIter: AsyncIterable<SDKUserMessage> =
-			(async function* (): AsyncGenerator<never> {
-				await donePromise;
-				yield* [];
-			})();
-
-		const q = query({
-			prompt: promptIter,
-			options: {
-				abortController,
-				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
-				...executableOptions(),
-				permissionMode: "bypassPermissions",
-				allowDangerouslySkipPermissions: true,
-				includePartialMessages: false,
-				settingSources: ["user", "project", "local"],
-			},
-		});
-
-		const drain = (async () => {
-			try {
-				for await (const _ of q) {
-					void _;
-				}
-			} catch (err) {
-				if (!isAbortError(err)) {
-					logger.error("Claude listModels drain failed", errorDetails(err));
-				}
-			}
-		})();
-
-		let timedOut = false;
-		const timeout = setTimeout(() => {
-			timedOut = true;
-			abortController.abort();
-		}, MODEL_LIST_TIMEOUT_MS);
-
-		try {
-			const models = await q.supportedModels();
-			logger.info("Claude supportedModels", {
-				count: models.length,
-				ids: models.map((m) => m.value).join(", "),
-			});
-			// Pass `supportedEffortLevels` through as-is. Empty / missing means
-			// the model doesn't expose effort selection — the composer drops the
-			// effort picker entirely for that model, mirroring Claude Code.
-			const mapped: ProviderModelInfo[] = models.map((m) => ({
-				id: m.value,
-				label: formatModelLabel(m.value, m.displayName || m.value),
-				cliModel: m.value,
-				effortLevels: m.supportedEffortLevels ?? [],
-			}));
-			return sortClaudeModels(applyClaudeModelOverrides(mapped));
-		} catch (err) {
-			if (timedOut) {
-				throw new Error(
-					`listModels timed out after ${MODEL_LIST_TIMEOUT_MS}ms — claude-code initialization is slower than the current timeout`,
-				);
-			}
-			logger.error("Claude listModels failed", errorDetails(err));
-			throw err;
-		} finally {
-			clearTimeout(timeout);
-			resolveDone();
-			try {
-				abortController.abort();
-			} catch {
-				/* noop */
-			}
-			try {
-				q.close();
-			} catch {
-				/* noop */
-			}
-			await drain.catch(() => {});
-		}
+		return listProviderModels("claude");
 	}
 
 	/**
