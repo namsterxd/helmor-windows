@@ -13,7 +13,6 @@ const GITLAB_FORGE: ForgeDetection = {
 		cliName: "glab",
 		changeRequestName: "MR",
 		changeRequestFullName: "merge request",
-		installAction: "Install glab",
 		connectAction: "Connect GitLab",
 	},
 	cli: null,

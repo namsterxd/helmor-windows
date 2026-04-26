@@ -28,6 +28,8 @@ dist-ssr
 *.sw?
 # Sidecar compiled binary
 sidecar/dist/
+# Bundled forge CLI download cache (gh / glab archives + extracted dirs)
+sidecar/.bundle-cache/
 helmor.db
 *.bun-build
 autoresearch-results.tsv

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
 	type CommitButtonState,
+	getCommitButtonLabel,
 	WorkspaceCommitButton,
 	type WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
@@ -121,7 +122,6 @@ export function GitSectionHeader({
 
 	const cliStatus = forgeDetection?.cli ?? null;
 	const cliNeedsAttention =
-		cliStatus?.status === "missing" ||
 		cliStatus?.status === "unauthenticated" ||
 		forgeRemoteState === "unauthenticated";
 	const showForgeOnboarding = cliNeedsAttention && forgeDetection !== null;
@@ -341,7 +341,13 @@ export function GitSectionHeader({
 										side="bottom"
 										className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 									>
-										<span>{changeRequestName}</span>
+										<span>
+											{getCommitButtonLabel(
+												commitButtonMode,
+												"idle",
+												changeRequestName,
+											)}
+										</span>
 										<InlineShortcutDisplay
 											hotkey={commitShortcut}
 											className="text-background/60"

@@ -241,7 +241,6 @@ export type ForgeLabels = {
 	cliName: string;
 	changeRequestName: string;
 	changeRequestFullName: string;
-	installAction: string;
 	connectAction: string;
 };
 
@@ -254,14 +253,6 @@ export type ForgeCliStatus =
 			login: string;
 			version: string;
 			message: string;
-	  }
-	| {
-			status: "missing";
-			provider: ForgeProvider;
-			host: string;
-			cliName: string;
-			message: string;
-			installCommand?: string | null;
 	  }
 	| {
 			status: "unauthenticated";
@@ -593,16 +584,6 @@ export async function getForgeCliStatus(
 		throw new Error(
 			describeInvokeError(error, "Unable to load forge CLI state."),
 		);
-	}
-}
-
-export async function installForgeCli(
-	provider: ForgeProvider,
-): Promise<ForgeCliStatus> {
-	try {
-		return await invoke<ForgeCliStatus>("install_forge_cli", { provider });
-	} catch (error) {
-		throw new Error(describeInvokeError(error, "Unable to install forge CLI."));
 	}
 }
 

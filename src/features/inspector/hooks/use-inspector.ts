@@ -17,7 +17,7 @@ import {
 	TABS_ANIMATION_MS,
 	TABS_EASING,
 } from "../layout";
-import { startScript } from "../script-store";
+import { getScriptState, startScript, stopScript } from "../script-store";
 
 const DEFAULT_CHANGES_RATIO = 0.6;
 const DEFAULT_ACTIONS_RATIO = 0.4;
@@ -77,14 +77,20 @@ export function useWorkspaceInspectorSidebar({
 	const repoScripts: RepoScripts | null = repoScriptsQuery.data ?? null;
 	const scriptsLoaded = repoScriptsQuery.isFetched;
 
-	// Listen for Cmd+R "run script" shortcut event. Runs the script via the
-	// module-level script-store without touching tab visibility — the user
-	// can open the Run tab later to see output; it's replayed from buffer.
+	// Listen for Cmd+R "run script" shortcut event. Toggles run/stop:
+	// idle/exited → start; running → stop. Tab visibility is unchanged —
+	// the user can open the Run tab later to see output; it's replayed
+	// from buffer.
 	useEffect(() => {
 		const handler = () => {
 			if (!repoId || !workspaceId) return;
 			if (!repoScripts?.runScript?.trim()) return;
-			startScript(repoId, "run", workspaceId);
+			const state = getScriptState(workspaceId, "run");
+			if (state?.status === "running") {
+				stopScript(repoId, "run", workspaceId);
+			} else {
+				startScript(repoId, "run", workspaceId);
+			}
 		};
 		window.addEventListener("helmor:run-script", handler);
 		return () => window.removeEventListener("helmor:run-script", handler);

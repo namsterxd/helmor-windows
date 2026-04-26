@@ -12,9 +12,9 @@ import {
 import {
 	type ForgeDetection,
 	getWorkspaceForge,
-	installForgeCli,
 	openForgeCliAuthTerminal,
 } from "@/lib/api";
+import { FORGE_AUTH_TOOLTIP_LINES } from "@/lib/forge-auth-copy";
 import { helmorQueryKeys } from "@/lib/query-client";
 
 const CLI_AUTH_POLL_INTERVAL_MS = 2000;
@@ -30,12 +30,9 @@ export function ForgeCliTrigger({
 	authRequired?: boolean;
 }) {
 	const queryClient = useQueryClient();
-	const [installing, setInstalling] = useState(false);
 	const [connecting, setConnecting] = useState(false);
-	const installInFlightRef = useRef(false);
 	const authPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const connectInFlightRef = useRef(false);
-	const cliStatus = detection.cli;
 
 	const clearAuthPoll = useCallback(() => {
 		if (authPollTimerRef.current !== null) {
@@ -126,38 +123,21 @@ export function ForgeCliTrigger({
 	);
 
 	const handleConnect = useCallback(async () => {
-		if (
-			installing ||
-			connecting ||
-			installInFlightRef.current ||
-			connectInFlightRef.current
-		) {
+		if (connecting || connectInFlightRef.current) {
 			return;
 		}
 		connectInFlightRef.current = true;
 		clearAuthPoll();
 		setConnecting(true);
 		try {
-			let nextDetection: ForgeDetection | null = detection;
-			if (cliStatus?.status === "missing") {
-				installInFlightRef.current = true;
-				setInstalling(true);
-				await installForgeCli(detection.provider);
-				nextDetection = await refreshForge();
-				installInFlightRef.current = false;
-				setInstalling(false);
-			}
-			if (nextDetection?.cli?.status === "ready") {
-				await refreshForgeSurfaces(nextDetection);
-				toast.success(`${nextDetection.labels.cliName} connected`);
+			if (detection.cli?.status === "ready") {
+				await refreshForgeSurfaces(detection);
+				toast.success(`${detection.labels.cliName} connected`);
 				setConnecting(false);
 				connectInFlightRef.current = false;
 				return;
 			}
-			await openForgeCliAuthTerminal(
-				nextDetection?.provider ?? detection.provider,
-				nextDetection?.host ?? detection.host,
-			);
+			await openForgeCliAuthTerminal(detection.provider, detection.host);
 			toast(`Complete ${detection.labels.cliName} auth in Terminal`);
 			pollUntilCliReady();
 		} catch (error) {
@@ -166,19 +146,14 @@ export function ForgeCliTrigger({
 					? error.message
 					: `Unable to open ${detection.labels.cliName} auth.`;
 			toast.error(message);
-			setInstalling(false);
 			setConnecting(false);
-			installInFlightRef.current = false;
 			connectInFlightRef.current = false;
 		}
 	}, [
-		cliStatus,
 		clearAuthPoll,
 		connecting,
 		detection,
-		installing,
 		pollUntilCliReady,
-		refreshForge,
 		refreshForgeSurfaces,
 	]);
 
@@ -191,10 +166,10 @@ export function ForgeCliTrigger({
 						size="xs"
 						variant="default"
 						onClick={() => void handleConnect()}
-						disabled={installing || connecting}
+						disabled={connecting}
 						className="gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
 					>
-						{installing || connecting ? (
+						{connecting ? (
 							<Loader2 className="size-3 animate-spin text-current" />
 						) : detection.provider === "gitlab" ? (
 							<GitlabBrandIcon
@@ -225,42 +200,30 @@ function ForgeDetectionTooltipBody({
 	detection: ForgeDetection;
 	authRequired?: boolean;
 }) {
-	const cliName = detection.labels.cliName || "the CLI";
 	const providerName = detection.labels.providerName;
 	const host = detection.host ?? "this host";
-	const changeRequestFullName = detection.labels.changeRequestFullName;
 	const cliStatus = detection.cli;
-	const statusText =
-		cliStatus?.status === "missing" ? (
-			<>
-				Install <code className="rounded bg-background/20 px-1">{cliName}</code>{" "}
-				to create {changeRequestFullName}s, read pipeline status, and merge from
-				Helmor.
-			</>
-		) : cliStatus?.status === "unauthenticated" || authRequired ? (
-			<>
-				Connect <code className="rounded bg-background/20 px-1">{cliName}</code>{" "}
-				to create {changeRequestFullName}s, read pipeline status, and merge from
-				Helmor.
-			</>
-		) : cliStatus?.status === "ready" ? (
-			<>
-				<code className="rounded bg-background/20 px-1">{cliName}</code> is
-				connected as {cliStatus.login}.
-			</>
-		) : (
-			<>
-				<code className="rounded bg-background/20 px-1">{cliName}</code> powers{" "}
-				{changeRequestFullName}s, pipeline status, and merge actions in Helmor.
-			</>
-		);
+	const showConnectCopy =
+		cliStatus?.status === "unauthenticated" ||
+		authRequired === true ||
+		!cliStatus;
 
 	return (
 		<div className="space-y-1.5">
 			<div className="text-[11px] font-medium leading-snug">
 				Detected {providerName} at {host}
 			</div>
-			<div className="text-[10.5px] leading-snug opacity-90">{statusText}</div>
+			{showConnectCopy ? (
+				<div className="space-y-0.5 text-[10.5px] leading-snug opacity-90">
+					{FORGE_AUTH_TOOLTIP_LINES.map((line) => (
+						<div key={line}>{line}</div>
+					))}
+				</div>
+			) : cliStatus?.status === "ready" ? (
+				<div className="text-[10.5px] leading-snug opacity-90">
+					Connected as {cliStatus.login}.
+				</div>
+			) : null}
 			{detection.detectionSignals.length > 0 && (
 				<div className="space-y-0.5 border-t border-background/20 pt-1.5 text-[10.5px] leading-snug opacity-90">
 					<div className="font-medium">Why we think so:</div>

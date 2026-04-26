@@ -72,7 +72,6 @@ function forgeDetection(
 			cliName: "gh",
 			changeRequestName: "PR",
 			changeRequestFullName: "pull request",
-			installAction: "Install gh",
 			connectAction: "Connect GitHub",
 		},
 		cli: null,

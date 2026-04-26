@@ -83,7 +83,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 	},
 	{
 		id: "script.run",
-		title: "Run script",
+		title: "Run / stop script",
 		group: "Actions",
 		defaultHotkey: "Mod+R",
 		scope: "global",

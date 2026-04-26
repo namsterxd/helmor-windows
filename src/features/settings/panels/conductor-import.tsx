@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
+import { SettingsGroup, SettingsRow } from "../components/settings-row";
 
 function humanize(directoryName: string): string {
 	return directoryName
@@ -311,40 +312,46 @@ export function ConductorImportPanel() {
 
 	return (
 		<>
-			<div className="flex items-center gap-2">
-				{selectedRepoId ? (
-					<Button
-						disabled={importing}
-						variant="ghost"
-						size="icon-xs"
-						className="text-muted-foreground hover:text-foreground"
-						onClick={() => {
-							setSelectedRepoId(null);
-							setImportSuccess(null);
-						}}
-					>
-						<ArrowLeft className="size-3.5" strokeWidth={2} />
-					</Button>
-				) : (
-					<FolderInput
-						className="size-3.5 text-muted-foreground"
-						strokeWidth={1.8}
-					/>
-				)}
-				<div className="text-[13px] font-medium leading-snug text-foreground">
-					{selectedRepoId
-						? (selectedRepo?.name ?? "Repository")
-						: "Import from Conductor"}
-				</div>
-			</div>
-			<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-				{selectedRepoId
-					? "Select workspaces to import"
-					: "Import workspaces from a local Conductor installation"}
-			</div>
+			<SettingsGroup>
+				<SettingsRow
+					title={
+						<span className="flex items-center gap-2">
+							{selectedRepoId ? (
+								<Button
+									disabled={importing}
+									variant="ghost"
+									size="icon-xs"
+									className="text-muted-foreground hover:text-foreground"
+									onClick={() => {
+										setSelectedRepoId(null);
+										setImportSuccess(null);
+									}}
+								>
+									<ArrowLeft className="size-3.5" strokeWidth={2} />
+								</Button>
+							) : (
+								<FolderInput
+									className="size-3.5 text-muted-foreground"
+									strokeWidth={1.8}
+								/>
+							)}
+							<span>
+								{selectedRepoId
+									? (selectedRepo?.name ?? "Repository")
+									: "Import from Conductor"}
+							</span>
+						</span>
+					}
+					description={
+						selectedRepoId
+							? "Select workspaces to import"
+							: "Import workspaces from a local Conductor installation"
+					}
+				/>
+			</SettingsGroup>
 
 			{!importing && (
-				<div className="mt-4">
+				<div>
 					<InputGroup className="border-border/40 bg-muted/30 shadow-none">
 						<InputGroupAddon>
 							<Search className="text-muted-foreground/60" strokeWidth={1.9} />

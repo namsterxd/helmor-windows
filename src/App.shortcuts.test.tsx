@@ -388,10 +388,14 @@ function emitTauriEvent(eventName: string) {
 async function renderAppReady(expectedSessionTitle = "Done session 1") {
 	render(<App />);
 
-	await waitFor(() => {
-		expectSelectedWorkspace("Done workspace");
-		expectSelectedSession(expectedSessionTitle);
-	});
+	// 5s — initial App mount runs many queries; the default 1s flakes under load.
+	await waitFor(
+		() => {
+			expectSelectedWorkspace("Done workspace");
+			expectSelectedSession(expectedSessionTitle);
+		},
+		{ timeout: 5000 },
+	);
 }
 
 describe("App global navigation shortcuts", () => {
