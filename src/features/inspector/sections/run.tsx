@@ -11,6 +11,9 @@ import {
 	HoverCardContent,
 	HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import { getShortcut } from "@/features/shortcuts/registry";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { extractPort } from "../detect-urls";
 import { TABS_EASING, TABS_HOVER_TRANSITION_MS, useTabsZoom } from "../layout";
@@ -146,6 +149,8 @@ export function RunTab({
 	const [status, setStatus] = useState<ScriptStatus>("idle");
 	const [hasRun, setHasRun] = useState(false);
 	const { isZoomPresented, isHoverExpanded } = useTabsZoom();
+	const { settings } = useSettings();
+	const runShortcut = getShortcut(settings.shortcuts, "script.run");
 
 	// Notify parent whenever the run-script status transitions so the tab
 	// header can conditionally show controls like the Open-dev-server button.
@@ -274,6 +279,16 @@ export function RunTab({
 									<RotateCcw className="size-3" strokeWidth={2} />
 								)}
 								{status === "running" ? "Stop" : "Rerun"}
+								{runShortcut ? (
+									<InlineShortcutDisplay
+										hotkey={runShortcut}
+										className={
+											status === "running"
+												? "text-destructive-foreground/70"
+												: "text-muted-foreground"
+										}
+									/>
+								) : null}
 							</Button>
 						</div>
 					)}
@@ -304,11 +319,17 @@ export function RunTab({
 					<Button
 						variant="outline"
 						size="sm"
-						className="mt-1 gap-1.5 text-[12px]"
+						className="mt-1 gap-2 text-[12px]"
 						onClick={handleRun}
 					>
 						<Play className="size-3" strokeWidth={2} />
 						Run
+						{runShortcut ? (
+							<InlineShortcutDisplay
+								hotkey={runShortcut}
+								className="text-muted-foreground"
+							/>
+						) : null}
 					</Button>
 				</div>
 			)}

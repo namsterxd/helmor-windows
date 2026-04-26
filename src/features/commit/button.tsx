@@ -100,7 +100,7 @@ const STATIC_STATE_LABELS: Record<
 	},
 };
 
-function getStateLabel(
+export function getCommitButtonLabel(
 	mode: WorkspaceCommitButtonMode,
 	state: CommitButtonState,
 	changeRequestName: string,
@@ -317,7 +317,7 @@ export function WorkspaceCommitButton({
 		mode !== "closed" &&
 		resolvedMenuItems.length > 0;
 	const mainText =
-		mainLabel ?? getStateLabel(mode, currentState, changeRequestName);
+		mainLabel ?? getCommitButtonLabel(mode, currentState, changeRequestName);
 	const mainIcon = getModeIcon(mode);
 	const optionsAriaLabel =
 		mode === "commit-and-push"

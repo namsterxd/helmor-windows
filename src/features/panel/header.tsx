@@ -32,6 +32,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import {
 	type AgentProvider,
 	type ChangeRequestInfo,
@@ -76,6 +77,7 @@ type WorkspacePanelHeaderProps = {
 	onSessionRenamed?: (sessionId: string, title: string) => void;
 	onWorkspaceChanged?: () => void;
 	onRequestCloseSession?: (request: SessionCloseRequest) => void;
+	newSessionShortcut?: string | null;
 };
 
 export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
@@ -96,6 +98,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	onSessionRenamed,
 	onWorkspaceChanged,
 	onRequestCloseSession,
+	newSessionShortcut,
 }: WorkspacePanelHeaderProps) {
 	const branchTone = getWorkspaceBranchTone({
 		workspaceState: workspace?.state,
@@ -668,7 +671,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 												</TooltipTrigger>
 												<TooltipContent
 													side="bottom"
-													sideOffset={8}
+													sideOffset={4}
 													className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
 												>
 													<span>{displaySessionTitle(session)}</span>
@@ -687,15 +690,32 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 					</div>
 				</div>
 
-				<Button
-					aria-label="New session"
-					onClick={handleCreateSession}
-					variant="ghost"
-					size="icon-sm"
-					className="ml-0.5 shrink-0 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-				>
-					<Plus className="size-3.5" strokeWidth={1.8} />
-				</Button>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							aria-label="New session"
+							onClick={handleCreateSession}
+							variant="ghost"
+							size="icon-sm"
+							className="ml-0.5 shrink-0 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+						>
+							<Plus className="size-3.5" strokeWidth={1.8} />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent
+						side="bottom"
+						sideOffset={4}
+						className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+					>
+						<span>New session</span>
+						{newSessionShortcut ? (
+							<InlineShortcutDisplay
+								hotkey={newSessionShortcut}
+								className="text-background/60"
+							/>
+						) : null}
+					</TooltipContent>
+				</Tooltip>
 
 				<DropdownMenu open={showHistory} onOpenChange={handleToggleHistory}>
 					<DropdownMenuTrigger asChild>
@@ -753,7 +773,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 									</TooltipTrigger>
 									<TooltipContent
 										side="left"
-										sideOffset={8}
+										sideOffset={4}
 										className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
 									>
 										<span>{displaySessionTitle(session)}</span>

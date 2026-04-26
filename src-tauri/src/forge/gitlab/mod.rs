@@ -323,10 +323,6 @@ fn ensure_gitlab_cli_ready(host: &str, operation: &str) -> Result<()> {
             tracing::debug!(host, operation, login, "GitLab CLI auth ready");
             Ok(())
         }
-        ForgeCliStatus::Missing { message, .. } => {
-            tracing::warn!(host, operation, message = %message, "GitLab CLI missing");
-            crate::bail_coded!(ErrorCode::ForgeOnboarding, "GitLab CLI missing: {message}");
-        }
         ForgeCliStatus::Unauthenticated { message, .. } => {
             tracing::warn!(
                 host,

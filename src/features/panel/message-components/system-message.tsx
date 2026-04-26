@@ -82,7 +82,7 @@ function PromptSuggestion({ part }: { part: PromptSuggestionPart }) {
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent
-				sideOffset={8}
+				sideOffset={4}
 				className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
 			>
 				<span>Use this prompt</span>

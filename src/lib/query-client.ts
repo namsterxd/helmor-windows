@@ -8,9 +8,12 @@ import {
 	type DetectedEditor,
 	detectInstalledEditors,
 	type ForgeActionStatus,
+	type ForgeCliStatus,
 	type ForgeDetection,
+	type ForgeProvider,
 	getClaudeRateLimits,
 	getCodexRateLimits,
+	getForgeCliStatus,
 	getLiveContextUsage,
 	getSessionContextUsage,
 	getWorkspaceForge,
@@ -32,11 +35,6 @@ import {
 	loadWorkspaceSessions,
 	refreshWorkspaceChangeRequest,
 } from "./api";
-import {
-	hasUsableAgentModelSections,
-	readCachedAgentModelSections,
-	writeCachedAgentModelSections,
-} from "./model-catalog-cache";
 
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
@@ -80,6 +78,8 @@ export const helmorQueryKeys = {
 		["workspaceChangeRequest", workspaceId] as const,
 	workspaceForge: (workspaceId: string) =>
 		["workspaceForge", workspaceId] as const,
+	forgeCliStatus: (provider: ForgeProvider, host: string) =>
+		["forgeCliStatus", provider, host] as const,
 	workspaceGitActionStatus: (workspaceId: string) =>
 		["workspaceGitActionStatus", workspaceId] as const,
 	workspaceForgeActionStatus: (workspaceId: string) =>
@@ -183,22 +183,12 @@ export function repositoriesQueryOptions() {
 }
 
 export function agentModelSectionsQueryOptions() {
-	const cached = readCachedAgentModelSections();
 	return queryOptions({
 		queryKey: helmorQueryKeys.agentModelSections,
-		queryFn: async () => {
-			const fresh = await loadAgentModelSections();
-			if (hasUsableAgentModelSections(fresh)) {
-				writeCachedAgentModelSections(fresh);
-				return fresh;
-			}
-			return cached ?? fresh;
-		},
-		initialData: cached,
-		initialDataUpdatedAt: cached ? Date.now() : undefined,
+		queryFn: loadAgentModelSections,
 		staleTime: Infinity,
 		refetchOnWindowFocus: false,
-		retry: 2,
+		retry: false,
 	});
 }
 
@@ -217,6 +207,19 @@ export function workspaceForgeQueryOptions(workspaceId: string) {
 		staleTime: 30_000,
 		refetchOnWindowFocus: "always",
 		refetchInterval: (query) => workspaceForgeRefetchInterval(query.state.data),
+	});
+}
+
+export function forgeCliStatusQueryOptions(
+	provider: ForgeProvider,
+	host: string,
+) {
+	return queryOptions<ForgeCliStatus>({
+		queryKey: helmorQueryKeys.forgeCliStatus(provider, host),
+		queryFn: () => getForgeCliStatus(provider, host),
+		staleTime: 30_000,
+		refetchOnWindowFocus: "always",
+		refetchInterval: 60_000,
 	});
 }
 
@@ -240,29 +243,26 @@ export function sessionContextUsageQueryOptions(sessionId: string) {
 
 const RATE_LIMITS_STALE_TIME = 2 * 60_000;
 
-// Both rate-limit queries opt out of `refetchOnWindowFocus` so the
-// cadence is purely the 2 min `refetchInterval` plus an explicit
-// hover-triggered refetch from `UsageStatsIndicator`. The Rust command
-// layer additionally enforces a 30 s throttle as a hard ceiling, so a
-// user repeatedly opening the popover can't blow past upstream limits.
+// 2 min interval + window-focus refetch + hover refetch. The Rust
+// command's 30 s throttle is the hard ceiling — extra triggers just
+// hit the cached body, so we can be eager here.
 export function codexRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.codexRateLimits,
 		queryFn: getCodexRateLimits,
 		staleTime: RATE_LIMITS_STALE_TIME,
 		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: true,
 		enabled,
 	});
 }
-
 export function claudeRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.claudeRateLimits,
 		queryFn: getClaudeRateLimits,
 		staleTime: RATE_LIMITS_STALE_TIME,
 		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: true,
 		enabled,
 	});
 }

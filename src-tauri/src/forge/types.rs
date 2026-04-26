@@ -42,7 +42,6 @@ pub struct ForgeLabels {
     pub cli_name: String,
     pub change_request_name: String,
     pub change_request_full_name: String,
-    pub install_action: String,
     pub connect_action: String,
 }
 
@@ -56,13 +55,6 @@ pub enum ForgeCliStatus {
         login: String,
         version: String,
         message: String,
-    },
-    Missing {
-        provider: ForgeProvider,
-        host: String,
-        cli_name: String,
-        message: String,
-        install_command: Option<String>,
     },
     Unauthenticated {
         provider: ForgeProvider,

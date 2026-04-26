@@ -19,14 +19,13 @@ import { resolveGitAccessDirectories } from "./git-access.js";
 import { parseImageRefs } from "./images.js";
 import { prependLinkedDirectoriesContext } from "./linked-directories-context.js";
 import { errorDetails, logger } from "./logger.js";
-import { sortCodexModels } from "./model-sort.js";
-import {
-	formatModelLabel,
-	type ListSlashCommandsParams,
-	type ProviderModelInfo,
-	type SendMessageParams,
-	type SessionManager,
-	type SlashCommandInfo,
+import { listProviderModels, modelSupportsFastMode } from "./model-catalog.js";
+import type {
+	ListSlashCommandsParams,
+	ProviderModelInfo,
+	SendMessageParams,
+	SessionManager,
+	SlashCommandInfo,
 } from "./session-manager.js";
 import {
 	buildTitlePrompt,
@@ -53,12 +52,6 @@ const RECOVERABLE_RESUME_SNIPPETS = [
 	"unknown thread",
 	"does not exist",
 ];
-
-function codexSupportsFastMode(model: string | undefined): boolean {
-	const id = model?.trim().toLowerCase();
-	if (!id) return true;
-	return id.startsWith("gpt-");
-}
 
 function isRecoverableResumeError(err: unknown): boolean {
 	const msg =
@@ -212,7 +205,8 @@ export class CodexAppServerManager implements SessionManager {
 			additionalDirectories,
 		} = params;
 		const workDir = cwd ?? process.cwd();
-		const effectiveFastMode = fastMode === true && codexSupportsFastMode(model);
+		const effectiveFastMode =
+			fastMode === true && modelSupportsFastMode("codex", model);
 		const resolvedAdditionalDirectories = await mergeAdditionalDirectories(
 			workDir,
 			additionalDirectories,
@@ -592,31 +586,7 @@ export class CodexAppServerManager implements SessionManager {
 	// ── listModels ───────────────────────────────────────────────────────
 
 	async listModels(): Promise<readonly ProviderModelInfo[]> {
-		const cwd = process.cwd();
-		const server = new CodexAppServer({
-			binaryPath: CODEX_BIN_PATH,
-			cwd,
-			onNotification: () => {},
-			onRequest: () => {},
-			onExit: () => {},
-			onError: () => {},
-		});
-
-		try {
-			await server.sendRequest("initialize", HELMOR_CLIENT_INFO);
-			server.writeNotification("initialized");
-
-			const result = await server.sendRequest<Record<string, unknown>>(
-				"model/list",
-				{},
-			);
-
-			const models = parseModelListResponse(result);
-			logger.info("Codex model/list", { count: models.length });
-			return models;
-		} finally {
-			server.kill();
-		}
+		return listProviderModels("codex");
 	}
 
 	// ── stopSession / shutdown ───────────────────────────────────────────
@@ -940,67 +910,6 @@ function parseSkillsResponse(result: unknown, cwd: string): SlashCommandInfo[] {
 			},
 		];
 	});
-}
-
-/** Parse the Codex model/list RPC response.
- *  Official format: `{data: [{id, model, displayName, hidden, isDefault,
- *  supportedReasoningEfforts, defaultReasoningEffort, ...}]}` */
-function parseModelListResponse(result: unknown): ProviderModelInfo[] {
-	if (!result || typeof result !== "object") return [];
-	const r = result as Record<string, unknown>;
-	const entries = Array.isArray(r.data)
-		? r.data
-		: Array.isArray(r.models)
-			? r.models
-			: [];
-
-	const models = entries.flatMap((m) => {
-		if (!m || typeof m !== "object") return [];
-		const entry = m as Record<string, unknown>;
-		if (entry.hidden === true) return [];
-
-		const id =
-			typeof entry.id === "string"
-				? entry.id
-				: typeof entry.model === "string"
-					? entry.model
-					: null;
-		if (!id) return [];
-
-		const rawLabel =
-			typeof entry.displayName === "string"
-				? entry.displayName
-				: typeof entry.name === "string"
-					? entry.name
-					: id;
-		const label = formatModelLabel(id, rawLabel);
-
-		const cliModel = typeof entry.model === "string" ? entry.model : id;
-
-		// Each entry is {reasoningEffort: string, description: string}
-		const rawEfforts = Array.isArray(entry.supportedReasoningEfforts)
-			? entry.supportedReasoningEfforts
-			: [];
-		const parsedEfforts = rawEfforts
-			.map((e: unknown) => {
-				if (typeof e === "string") return e;
-				if (e && typeof e === "object")
-					return (e as Record<string, unknown>).reasoningEffort;
-				return null;
-			})
-			.filter((e): e is string => typeof e === "string");
-		const effortLevels =
-			parsedEfforts.length > 0
-				? parsedEfforts
-				: ["low", "medium", "high", "xhigh"];
-		const supportsFastMode =
-			typeof entry.supportsFastMode === "boolean"
-				? entry.supportsFastMode
-				: codexSupportsFastMode(id);
-
-		return [{ id, label, cliModel, effortLevels, supportsFastMode }];
-	});
-	return sortCodexModels(models);
 }
 
 /**

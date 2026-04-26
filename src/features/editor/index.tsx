@@ -8,6 +8,12 @@ import {
 } from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { EditorSessionState } from "@/lib/editor-session";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 
@@ -63,6 +69,8 @@ export function WorkspaceEditorSurface({
 		editorSession.kind === "diff" &&
 		editorSession.originalText !== undefined &&
 		editorSession.modifiedText !== undefined;
+	const closeLabel =
+		editorSession.kind === "diff" ? "Close diff view" : "Close editor view";
 
 	useEffect(() => {
 		if (
@@ -147,6 +155,17 @@ export function WorkspaceEditorSurface({
 			});
 		};
 	}, []);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			onExit();
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [onExit]);
 
 	// useLayoutEffect: run model swap BEFORE browser paint to avoid flicker.
 	// The fast path returns NO cleanup — we keep the editor instance alive across
@@ -364,18 +383,6 @@ export function WorkspaceEditorSurface({
 		editorSession.originalText,
 	]);
 
-	// ESC key to exit
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.preventDefault();
-				onExit();
-			}
-		};
-		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [onExit]);
-
 	return (
 		<section
 			aria-label="Workspace editor surface"
@@ -391,16 +398,30 @@ export function WorkspaceEditorSurface({
 				<div className="min-w-0 flex-1" data-tauri-drag-region />
 
 				<div className="flex shrink-0 items-center pr-2">
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-xs"
-						onClick={onExit}
-						aria-label="Close"
-						className="aspect-square h-full text-muted-foreground hover:bg-transparent hover:text-foreground"
-					>
-						<X className="size-3.5" strokeWidth={1.8} />
-					</Button>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								onClick={onExit}
+								aria-label={closeLabel}
+								className="aspect-square h-full text-muted-foreground hover:bg-transparent hover:text-foreground"
+							>
+								<X className="size-3.5" strokeWidth={1.8} />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent
+							side="bottom"
+							className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+						>
+							<span>{closeLabel}</span>
+							<InlineShortcutDisplay
+								hotkey="Escape"
+								className="text-background/60"
+							/>
+						</TooltipContent>
+					</Tooltip>
 				</div>
 			</div>
 

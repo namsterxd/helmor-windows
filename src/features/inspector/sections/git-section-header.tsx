@@ -3,15 +3,25 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
 	type CommitButtonState,
+	getCommitButtonLabel,
 	WorkspaceCommitButton,
 	type WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
+import { getShortcut } from "@/features/shortcuts/registry";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import type { ShortcutId } from "@/features/shortcuts/types";
 import type {
 	ChangeRequestInfo,
 	ForgeActionStatus,
 	ForgeDetection,
 } from "@/lib/api";
+import { useSettings } from "@/lib/settings";
 import { useMinDisplayDuration } from "@/lib/use-min-display-duration";
 import { cn } from "@/lib/utils";
 import {
@@ -36,6 +46,24 @@ const CONTINUE_ICON_WIDTH_PX =
 	CONTINUE_BUTTON_PADDING_X_PX * 2 + CONTINUE_ICON_SIZE_PX;
 const CONTINUE_COMPACT_THRESHOLD_PX =
 	CONTINUE_ICON_WIDTH_PX + CONTINUE_BUTTON_GAP_PX + 12;
+
+function getShortcutIdForCommitMode(
+	mode: WorkspaceCommitButtonMode,
+): ShortcutId | null {
+	switch (mode) {
+		case "create-pr":
+			return "action.createPr";
+		case "commit-and-push":
+			return "action.commitAndPush";
+		case "fix":
+		case "resolve-conflicts":
+			return "action.fixErrors";
+		case "merge":
+			return "action.mergePr";
+		default:
+			return null;
+	}
+}
 
 export type GitSectionHeaderProps = {
 	commitButtonMode: WorkspaceCommitButtonMode;
@@ -79,8 +107,13 @@ export function GitSectionHeader({
 	isContinuingWorkspace = false,
 	className,
 }: GitSectionHeaderProps) {
+	const { settings } = useSettings();
 	const gitHeaderHighlightClass =
 		getGitSectionHeaderHighlightClass(commitButtonMode);
+	const commitShortcutId = getShortcutIdForCommitMode(commitButtonMode);
+	const commitShortcut = commitShortcutId
+		? getShortcut(settings.shortcuts, commitShortcutId)
+		: null;
 
 	const showShimmer = useMinDisplayDuration(
 		isRefreshing,
@@ -89,7 +122,6 @@ export function GitSectionHeader({
 
 	const cliStatus = forgeDetection?.cli ?? null;
 	const cliNeedsAttention =
-		cliStatus?.status === "missing" ||
 		cliStatus?.status === "unauthenticated" ||
 		forgeRemoteState === "unauthenticated";
 	const showForgeOnboarding = cliNeedsAttention && forgeDetection !== null;
@@ -292,13 +324,37 @@ export function GitSectionHeader({
 							</Button>
 						)}
 						<div ref={commitButtonRef} className="flex shrink-0 items-center">
-							<WorkspaceCommitButton
-								mode={commitButtonMode}
-								state={commitButtonState}
-								changeRequestName={changeRequestName}
-								className="self-center"
-								onCommit={onCommit}
-							/>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex">
+										<WorkspaceCommitButton
+											mode={commitButtonMode}
+											state={commitButtonState}
+											changeRequestName={changeRequestName}
+											className="self-center"
+											onCommit={onCommit}
+										/>
+									</span>
+								</TooltipTrigger>
+								{commitShortcut ? (
+									<TooltipContent
+										side="bottom"
+										className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+									>
+										<span>
+											{getCommitButtonLabel(
+												commitButtonMode,
+												"idle",
+												changeRequestName,
+											)}
+										</span>
+										<InlineShortcutDisplay
+											hotkey={commitShortcut}
+											className="text-background/60"
+										/>
+									</TooltipContent>
+								) : null}
+							</Tooltip>
 						</div>
 					</div>
 				))}

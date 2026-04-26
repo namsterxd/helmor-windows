@@ -35,6 +35,8 @@ import {
 import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
 import { humanizeBranch } from "@/features/navigation/shared";
+import { normalizeShortcutEvent } from "@/features/shortcuts/format";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type {
 	AgentModelSection,
 	CandidateDirectory,
@@ -145,6 +147,8 @@ type WorkspaceComposerProps = {
 	providerSessionId?: string | null;
 	/** Agent provider for this session — gates the Claude-only rich fetch. */
 	agentType?: "claude" | "codex" | null;
+	focusShortcut?: string | null;
+	togglePlanShortcut?: string | null;
 };
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
@@ -217,6 +221,8 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	sessionId = null,
 	providerSessionId = null,
 	agentType = null,
+	focusShortcut = null,
+	togglePlanShortcut = null,
 }: WorkspaceComposerProps) {
 	const instanceIdRef = useRef(
 		`composer-${Math.random().toString(36).slice(2, 10)}`,
@@ -234,6 +240,19 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const composerRootRef = useRef<HTMLDivElement | null>(null);
 	const consumedInsertRequestIdsRef = useRef<Set<string>>(new Set());
 	const [hasContent, setHasContent] = useState(false);
+	const [isInputFocused, setIsInputFocused] = useState(false);
+	useEffect(() => {
+		const handleFocusComposer = () => {
+			if (disabled) return;
+			composerRootRef.current
+				?.querySelector<HTMLElement>("[contenteditable='true']")
+				?.focus();
+		};
+
+		window.addEventListener("helmor:focus-composer", handleFocusComposer);
+		return () =>
+			window.removeEventListener("helmor:focus-composer", handleFocusComposer);
+	}, [disabled]);
 	const selectedModel = useMemo(() => {
 		for (const section of modelSections) {
 			for (const option of section.options) {
@@ -288,6 +307,8 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const sendDisabled = !submitEnabled || sending;
 	const steerDisabled = !submitEnabled || !sending;
 	const submitDisabledForPlugin = !submitEnabled;
+	const showFocusHint =
+		!isInputFocused && !hasContent && !inputDisabled && Boolean(focusShortcut);
 
 	// Lexical initial config — must be a new object per mount for key resets
 	const initialConfig = useRef({
@@ -398,10 +419,23 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 		setHasContent(false);
 	}, [onSubmit, contextKey]);
 
+	const handleComposerKeyDownCapture = useCallback(
+		(event: React.KeyboardEvent<HTMLDivElement>) => {
+			if (!togglePlanShortcut || inputDisabled) return;
+			const hotkey = normalizeShortcutEvent(event.nativeEvent);
+			if (hotkey !== togglePlanShortcut) return;
+			event.preventDefault();
+			event.stopPropagation();
+			onChangePermissionMode(permissionMode === "plan" ? "default" : "plan");
+		},
+		[inputDisabled, onChangePermissionMode, permissionMode, togglePlanShortcut],
+	);
+
 	return (
 		<div
 			ref={composerRootRef}
 			aria-label="Workspace composer"
+			onKeyDownCapture={handleComposerKeyDownCapture}
 			className={cn(
 				"relative flex flex-col rounded-2xl border border-border/40 bg-sidebar shadow-[0_-1px_8px_rgba(0,0,0,0.05),0_0_0_1px_rgba(255,255,255,0.02)]",
 				// Pending-interaction panels fill the shell edge-to-edge and own
@@ -462,14 +496,30 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						/>
 					) : null}
 					<LexicalComposer initialConfig={initialConfig}>
-						<div className="relative">
+						<div
+							className="relative"
+							onFocusCapture={() => setIsInputFocused(true)}
+							onBlurCapture={(event) => {
+								if (
+									event.currentTarget.contains(
+										event.relatedTarget as Node | null,
+									)
+								) {
+									return;
+								}
+								setIsInputFocused(false);
+							}}
+						>
 							<PlainTextPlugin
 								contentEditable={
 									<ContentEditable
 										id="workspace-input"
 										aria-label="Workspace input"
 										aria-multiline
-										className="composer-editor min-h-[64px] max-h-[240px] resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-foreground outline-none"
+										className={cn(
+											"composer-editor min-h-[64px] max-h-[240px] resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-foreground outline-none",
+											showFocusHint && "pr-28",
+										)}
 									/>
 								}
 								placeholder={
@@ -481,6 +531,12 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								}
 								ErrorBoundary={LexicalErrorBoundary}
 							/>
+							{showFocusHint && focusShortcut ? (
+								<div className="pointer-events-none absolute right-0 top-0 hidden h-5 items-center gap-1 text-[13px] leading-5 tracking-[-0.01em] text-muted-foreground/70 sm:flex">
+									<InlineShortcutDisplay hotkey={focusShortcut} />
+									<span>to focus</span>
+								</div>
+							) : null}
 						</div>
 						<HistoryPlugin />
 						<SlashCommandPlugin
@@ -572,7 +628,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										<DropdownMenuContent
 											side="top"
 											align="start"
-											sideOffset={8}
+											sideOffset={4}
 											className="min-w-[17rem]"
 										>
 											{modelSections.map((section, index) => (
@@ -639,7 +695,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 													</span>
 												</ComposerButton>
 											</TooltipTrigger>
-											<TooltipContent side="top" sideOffset={6}>
+											<TooltipContent side="top" sideOffset={4}>
 												<span>Fast mode{fastMode ? " (on)" : ""}</span>
 											</TooltipContent>
 										</Tooltip>
@@ -673,7 +729,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 											<DropdownMenuContent
 												side="top"
 												align="start"
-												sideOffset={8}
+												sideOffset={4}
 												className="min-w-[11rem]"
 											>
 												<DropdownMenuGroup>

@@ -283,7 +283,7 @@ export const WorkspaceRowItem = memo(
 							</TooltipTrigger>
 							<TooltipContent
 								side="top"
-								sideOffset={8}
+								sideOffset={4}
 								className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
 							>
 								<span>{actionLabel}</span>
@@ -314,7 +314,7 @@ export const WorkspaceRowItem = memo(
 								</TooltipTrigger>
 								<TooltipContent
 									side="top"
-									sideOffset={8}
+									sideOffset={4}
 									className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
 								>
 									<span>Delete permanently</span>

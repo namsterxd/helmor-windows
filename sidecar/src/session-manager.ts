@@ -67,36 +67,6 @@ export interface ProviderModelInfo {
 	readonly supportsFastMode?: boolean;
 }
 
-/**
- * Normalize a model display label for the UI.
- * - "default" → "Opus 4.7 1M"
- * - "Sonnet (1M context)" → "Sonnet 1M"
- * - "gpt-5.4" → "GPT-5.4"
- * - "gpt-5.1-codex-mini" → "GPT-5.1-Codex-Mini"
- */
-export function formatModelLabel(id: string, rawLabel: string): string {
-	if (id === "default") return "Opus 4.7 1M";
-
-	let label = rawLabel;
-
-	// "Sonnet (1M context)" → "Sonnet 1M"
-	label = label.replace(/\s*\((\d+[A-Za-z]*)\s+context\)/g, " $1");
-
-	// GPT model IDs used as labels: uppercase "gpt" and capitalize after hyphens
-	if (label.toLowerCase().startsWith("gpt-")) {
-		label = label
-			.split("-")
-			.map((part, i) =>
-				i === 0
-					? part.toUpperCase()
-					: part.charAt(0).toUpperCase() + part.slice(1),
-			)
-			.join("-");
-	}
-
-	return label;
-}
-
 export interface SessionManager {
 	/**
 	 * Stream a single user turn to the underlying provider SDK and forward

@@ -70,7 +70,7 @@ export function AppUpdateButton({ status, className }: AppUpdateButtonProps) {
 			</TooltipTrigger>
 			<TooltipContent
 				side="top"
-				sideOffset={8}
+				sideOffset={4}
 				className="flex h-[22px] items-center gap-1 rounded-md px-1.5 text-[11px] leading-none"
 			>
 				{update.currentVersion} {"->"} {update.version}

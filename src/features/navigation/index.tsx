@@ -38,6 +38,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type {
 	RepositoryCreateOption,
 	WorkspaceGroup,
@@ -100,6 +101,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	selectedWorkspaceId,
 	sendingWorkspaceIds,
 	interactionRequiredWorkspaceIds,
+	newWorkspaceShortcut,
+	addRepositoryShortcut,
 	creatingWorkspaceRepoId,
 	onAddRepository,
 	onOpenCloneDialog,
@@ -128,6 +131,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	selectedWorkspaceId?: string | null;
 	sendingWorkspaceIds?: Set<string>;
 	interactionRequiredWorkspaceIds?: Set<string>;
+	newWorkspaceShortcut?: string | null;
+	addRepositoryShortcut?: string | null;
 	creatingWorkspaceRepoId?: string | null;
 	onAddRepository?: () => void;
 	onOpenCloneDialog?: () => void;
@@ -153,7 +158,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	restoringWorkspaceId?: string | null;
 }) {
 	const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
+	const [isAddRepositoryMenuOpen, setIsAddRepositoryMenuOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const repoCommandListRef = useRef<HTMLDivElement | null>(null);
 	const [sectionOpenState, setSectionOpenState] = useState(() => ({
 		...createInitialSectionOpenState(groups),
 		...readStoredSectionOpenState(),
@@ -349,6 +356,40 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	const addRepositoryBusy = Boolean(addingRepository);
 	const repositories = availableRepositories ?? [];
 
+	useEffect(() => {
+		const handleOpenNewWorkspace = () => {
+			if (addRepositoryBusy || createBusy || workspaceActionsBusy) return;
+			setIsRepoPickerOpen(true);
+		};
+
+		window.addEventListener(
+			"helmor:open-new-workspace",
+			handleOpenNewWorkspace,
+		);
+		return () =>
+			window.removeEventListener(
+				"helmor:open-new-workspace",
+				handleOpenNewWorkspace,
+			);
+	}, [addRepositoryBusy, createBusy, workspaceActionsBusy]);
+
+	useEffect(() => {
+		const handleOpenAddRepository = () => {
+			if (addRepositoryBusy || createBusy || workspaceActionsBusy) return;
+			setIsAddRepositoryMenuOpen(true);
+		};
+
+		window.addEventListener(
+			"helmor:open-add-repository",
+			handleOpenAddRepository,
+		);
+		return () =>
+			window.removeEventListener(
+				"helmor:open-add-repository",
+				handleOpenAddRepository,
+			);
+	}, [addRepositoryBusy, createBusy, workspaceActionsBusy]);
+
 	// ── Toggle section ────────────────────────────────────────────────
 	const toggleSection = useCallback((groupId: string) => {
 		setSectionOpenState((current) => ({
@@ -498,33 +539,53 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				</h2>
 
 				<div className="flex items-center gap-1 text-muted-foreground">
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								type="button"
-								aria-label="Add repository"
-								variant="ghost"
-								size="icon-xs"
-								disabled={
-									addRepositoryBusy || createBusy || workspaceActionsBusy
-								}
-								className={cn(
-									"text-muted-foreground",
-									addRepositoryBusy || createBusy || workspaceActionsBusy
-										? "cursor-not-allowed opacity-60"
-										: undefined,
-								)}
+					<DropdownMenu
+						open={isAddRepositoryMenuOpen}
+						onOpenChange={setIsAddRepositoryMenuOpen}
+					>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<DropdownMenuTrigger asChild>
+									<Button
+										type="button"
+										aria-label="Add repository"
+										variant="ghost"
+										size="icon-xs"
+										disabled={
+											addRepositoryBusy || createBusy || workspaceActionsBusy
+										}
+										className={cn(
+											"text-muted-foreground",
+											addRepositoryBusy || createBusy || workspaceActionsBusy
+												? "cursor-not-allowed opacity-60"
+												: undefined,
+										)}
+									>
+										{addRepositoryBusy ? (
+											<LoaderCircle
+												className="size-4 animate-spin"
+												strokeWidth={2.1}
+											/>
+										) : (
+											<FolderPlus className="size-4" strokeWidth={2} />
+										)}
+									</Button>
+								</DropdownMenuTrigger>
+							</TooltipTrigger>
+							<TooltipContent
+								side="top"
+								sideOffset={4}
+								className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 							>
-								{addRepositoryBusy ? (
-									<LoaderCircle
-										className="size-4 animate-spin"
-										strokeWidth={2.1}
+								<span>Add repository</span>
+								{addRepositoryShortcut ? (
+									<InlineShortcutDisplay
+										hotkey={addRepositoryShortcut}
+										className="text-background/60"
 									/>
-								) : (
-									<FolderPlus className="size-4" strokeWidth={2} />
-								)}
-							</Button>
-						</DropdownMenuTrigger>
+								) : null}
+							</TooltipContent>
+						</Tooltip>
 						<DropdownMenuContent align="end" className="min-w-40">
 							<DropdownMenuItem
 								onSelect={() => {
@@ -586,20 +647,36 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 									</TooltipTrigger>
 									<TooltipContent
 										side="top"
-										sideOffset={8}
-										className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
+										sideOffset={4}
+										className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 									>
-										<span>Add workspace</span>
+										<span>Create new workspace</span>
+										{newWorkspaceShortcut ? (
+											<InlineShortcutDisplay
+												hotkey={newWorkspaceShortcut}
+												className="text-background/60"
+											/>
+										) : null}
 									</TooltipContent>
 								</Tooltip>
 							</span>
 						</PopoverAnchor>
 						<CommandPopoverContent
 							align="end"
-							sideOffset={8}
+							sideOffset={4}
 							className="w-fit min-w-[220px] max-w-[min(90vw,28rem)]"
+							onOpenAutoFocus={(event) => {
+								event.preventDefault();
+								window.requestAnimationFrame(() =>
+									repoCommandListRef.current?.focus(),
+								);
+							}}
 						>
-							<CommandList className="max-h-64">
+							<CommandList
+								ref={repoCommandListRef}
+								tabIndex={0}
+								className="max-h-64 outline-none"
+							>
 								<CommandEmpty>No repositories found.</CommandEmpty>
 								{repositories.map((repository) => (
 									<CommandItem

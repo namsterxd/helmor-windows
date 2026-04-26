@@ -197,7 +197,6 @@ vi.mock("@tauri-apps/api/core", () => ({
 						cliName: "CLI",
 						changeRequestName: "PR",
 						changeRequestFullName: "change request",
-						installAction: "Install CLI",
 						connectAction: "Connect Forge",
 					},
 					cli: null,
@@ -205,21 +204,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 				};
 			case "get_forge_cli_status":
 				return {
-					status: "missing",
+					status: "unauthenticated",
 					provider: "gitlab",
 					host: "gitlab.com",
 					cliName: "glab",
-					message: "GitLab CLI is not installed.",
-					installCommand: "brew install glab",
-				};
-			case "install_forge_cli":
-				return {
-					status: "missing",
-					provider: "gitlab",
-					host: "gitlab.com",
-					cliName: "glab",
-					message: "GitLab CLI is not installed.",
-					installCommand: "brew install glab",
+					message: "Run `glab auth login --hostname gitlab.com`.",
+					loginCommand: "glab auth login --hostname gitlab.com",
 				};
 			case "get_workspace_git_action_status":
 				return {

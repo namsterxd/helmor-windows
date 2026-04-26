@@ -20,11 +20,6 @@ pub async fn get_forge_cli_status(
 }
 
 #[tauri::command]
-pub async fn install_forge_cli(provider: ForgeProvider) -> CmdResult<ForgeCliStatus> {
-    run_blocking(move || forge::install_forge_cli(provider)).await
-}
-
-#[tauri::command]
 pub async fn open_forge_cli_auth_terminal(
     provider: ForgeProvider,
     host: Option<String>,

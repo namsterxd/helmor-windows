@@ -8,6 +8,10 @@ import { ShimmerText } from "@/components/ui/shimmer-text";
 import { ShineBorder } from "@/components/ui/shine-border";
 import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
+import {
+	getShortcut,
+	getShortcutConflicts,
+} from "@/features/shortcuts/registry";
 import type {
 	AgentModelOption,
 	AgentModelSection,
@@ -320,6 +324,18 @@ export const WorkspaceComposerContainer = memo(
 			() => findModelOption(modelSections, selectedModelId),
 			[modelSections, selectedModelId],
 		);
+		const shortcutConflicts = useMemo(
+			() => getShortcutConflicts(settings.shortcuts),
+			[settings.shortcuts],
+		);
+		const focusShortcut = shortcutConflicts.conflictById["composer.focus"]
+			? null
+			: getShortcut(settings.shortcuts, "composer.focus");
+		const togglePlanShortcut = shortcutConflicts.conflictById[
+			"composer.togglePlanMode"
+		]
+			? null
+			: getShortcut(settings.shortcuts, "composer.togglePlanMode");
 		const pendingOverrideActive =
 			pendingPromptForSession?.sessionId === displayedSessionId;
 		const pendingModel = useMemo(
@@ -758,6 +774,8 @@ export const WorkspaceComposerContainer = memo(
 						agentType={
 							effectiveModel?.provider === "codex" ? "codex" : "claude"
 						}
+						focusShortcut={focusShortcut}
+						togglePlanShortcut={togglePlanShortcut}
 						alwaysShowContextUsage={settings.alwaysShowContextUsage}
 						onSubmit={handleComposerSubmit}
 						disabled={composerUnavailable}

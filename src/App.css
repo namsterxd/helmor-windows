@@ -104,6 +104,51 @@ body {
 	animation: conversation-fade-in 70ms ease-out;
 }
 
+.shortcut-recording-pulse::after {
+	position: absolute;
+	inset: -2px;
+	border: 1px solid color-mix(in srgb, var(--primary) 72%, transparent);
+	border-radius: inherit;
+	pointer-events: none;
+	content: "";
+	animation: shortcut-recording-ring 1100ms ease-out infinite;
+}
+
+@keyframes shortcut-recording-ring {
+	0% {
+		opacity: 0.58;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+
+	100% {
+		opacity: 0;
+		transform: translate3d(0, 0, 0) scale(1.2);
+	}
+}
+
+.shortcut-conflict-shake {
+	animation: shortcut-conflict-shake 260ms ease-in-out;
+}
+
+@keyframes shortcut-conflict-shake {
+	0%,
+	100% {
+		transform: translateX(0);
+	}
+
+	25% {
+		transform: translateX(-2px);
+	}
+
+	50% {
+		transform: translateX(2px);
+	}
+
+	75% {
+		transform: translateX(-1px);
+	}
+}
+
 @keyframes conversation-fade-in {
 	from {
 		opacity: 0;

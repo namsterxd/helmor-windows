@@ -1,32 +1,5 @@
-/**
- * Stage Claude Code + Codex CLI binaries into `sidecar/dist/vendor/` so
- * Tauri can bundle them as `bundle.resources` and ship them inside the
- * `.app` payload — no reliance on system-wide `claude` / `codex` installs.
- *
- * Layout produced (macOS host only):
- *
- *   dist/vendor/
- *     claude-code/
- *       cli.js
- *       vendor/ripgrep/<arch>-darwin/rg
- *       vendor/audio-capture/<arch>-darwin/audio-capture.node
- *     codex/
- *       codex
- *     bun/
- *       bun
- *
- * Invariants:
- *   - `cli.js` needs `vendor/` adjacent (Claude Code resolves its own
- *     ripgrep via `path.join(dirname(cli.js), "vendor", "ripgrep", ...)`).
- *   - Only the host-arch subdirs are copied.
- *   - Re-runnable — wipes `dist/vendor/` before copying.
- *
- * Why bundle bun: the Claude Agent SDK spawns `cli.js` through a JS
- * interpreter (bun/node) resolved off PATH. A Finder-launched `.app`
- * inherits a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) that contains
- * neither, so we ship the host's bun and point the SDK's `executable`
- * option at an absolute path inside `Contents/Resources/vendor/bun/`.
- */
+// Stage claude-code + codex + bun + gh + glab into `sidecar/dist/vendor/`
+// for Tauri to ship as bundle resources. macOS host only.
 
 import { execFileSync, execSync } from "node:child_process";
 import {
@@ -45,6 +18,22 @@ import { fileURLToPath } from "node:url";
 const SIDECAR_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NODE_MODULES = join(SIDECAR_ROOT, "node_modules");
 const DIST_VENDOR = join(SIDECAR_ROOT, "dist", "vendor");
+const BUNDLE_CACHE = join(SIDECAR_ROOT, ".bundle-cache");
+
+// Bumping: update version + sha256, wipe sidecar/.bundle-cache. Checksums:
+//   gh:   github.com/cli/cli/releases/download/v$VER/gh_${VER}_checksums.txt
+//   glab: gitlab.com/gitlab-org/cli/-/releases/v$VER/downloads/checksums.txt
+const GH_VERSION = "2.91.0";
+const GH_SHA256 = {
+	arm64: "20446cd714d9fa1b69fbd410deade3731f38fe09a2b980c8488aa388dd320ada",
+	amd64: "8806784f93603fe6d3f95c3583a08df38f175df9ebc123dc8b15f919329980e2",
+} as const;
+
+const GLAB_VERSION = "1.93.0";
+const GLAB_SHA256 = {
+	arm64: "6d6ffa97d430b5e7ff912e64dbac14703acc57967df654be1950ae71858d5b6f",
+	amd64: "79d1a4f933919689c5fb7774feb1dd08f30b9c896dff4283b4a7387689ee0531",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Platform detection — macOS only, arch varies (arm64 / x64)
@@ -59,6 +48,10 @@ interface TargetInfo {
 	codexPkg: string;
 	/** Target triple used as the subdir inside the codex platform package. */
 	codexTriple: string;
+	/** `gh` release uses `arm64` / `amd64`. */
+	ghArch: "arm64" | "amd64";
+	/** `glab` release uses `arm64` / `amd64`. */
+	glabArch: "arm64" | "amd64";
 }
 
 function detectTarget(): TargetInfo {
@@ -75,12 +68,16 @@ function detectTarget(): TargetInfo {
 				ccVendorArch: "arm64-darwin",
 				codexPkg: "@openai/codex-darwin-arm64",
 				codexTriple: "aarch64-apple-darwin",
+				ghArch: "arm64",
+				glabArch: "arm64",
 			};
 		case "x64":
 			return {
 				ccVendorArch: "x64-darwin",
 				codexPkg: "@openai/codex-darwin-x64",
 				codexTriple: "x86_64-apple-darwin",
+				ghArch: "amd64",
+				glabArch: "amd64",
 			};
 		default:
 			throw new Error(`[stage-vendor] Unsupported macOS arch: ${arch}`);
@@ -137,6 +134,121 @@ const ENTITLEMENTS_PLIST = join(
 	"src-tauri",
 	"Entitlements.plist",
 );
+
+// ---------------------------------------------------------------------------
+// Forge CLI download (gh / glab) — pinned, cached at sidecar/.bundle-cache/
+// ---------------------------------------------------------------------------
+
+function ensureCacheDir(): void {
+	mkdirSync(BUNDLE_CACHE, { recursive: true });
+}
+
+function sha256OfFile(path: string): string {
+	const out = execFileSync("shasum", ["-a", "256", path], {
+		encoding: "utf8",
+	});
+	const digest = out.split(/\s+/)[0];
+	if (!digest) throw new Error(`[stage-vendor] empty shasum for ${path}`);
+	return digest;
+}
+
+function downloadAndVerify(
+	url: string,
+	dest: string,
+	expectedSha256: string,
+): void {
+	if (existsSync(dest)) {
+		const actual = sha256OfFile(dest);
+		if (actual === expectedSha256) return;
+		console.warn(
+			`[stage-vendor] cached ${dest} has wrong sha256 (got ${actual}); re-downloading`,
+		);
+		rmSync(dest, { force: true });
+	}
+	console.log(`[stage-vendor] downloading ${url}`);
+	mkdirSync(dirname(dest), { recursive: true });
+	execFileSync("curl", ["-fL", "--retry", "3", "-o", dest, url], {
+		stdio: "inherit",
+	});
+	const actual = sha256OfFile(dest);
+	if (actual !== expectedSha256) {
+		rmSync(dest, { force: true });
+		throw new Error(
+			`[stage-vendor] sha256 mismatch for ${url}\n  expected: ${expectedSha256}\n  actual:   ${actual}`,
+		);
+	}
+}
+
+// Wipe + recreate so a half-failed previous extract can never poison this run.
+function freshExtractDir(path: string): void {
+	rmSync(path, { recursive: true, force: true });
+	mkdirSync(path, { recursive: true });
+}
+
+function stageGhBinary(arch: "arm64" | "amd64"): string {
+	ensureCacheDir();
+	const slug = `gh_${GH_VERSION}_macOS_${arch}`;
+	const archive = join(BUNDLE_CACHE, `${slug}.zip`);
+	const url = `https://github.com/cli/cli/releases/download/v${GH_VERSION}/${slug}.zip`;
+	downloadAndVerify(url, archive, GH_SHA256[arch]);
+
+	// Unzip into a dedicated temp dir, then locate `bin/gh` regardless of
+	// whether the archive carries an internal wrapper directory. We strip
+	// the wrapper after the fact so changes upstream (with or without it)
+	// don't silently leave stale files in BUNDLE_CACHE.
+	const extractDir = join(BUNDLE_CACHE, slug);
+	freshExtractDir(extractDir);
+	execFileSync("unzip", ["-q", "-o", archive, "-d", extractDir], {
+		stdio: "inherit",
+	});
+
+	const binSrc = locateExtractedBin(extractDir, "gh");
+	const binDest = join(DIST_VENDOR, "gh", "gh");
+	copyFile(binSrc, binDest);
+	chmodSync(binDest, 0o755);
+	maybeSignMacBinary(binDest, false);
+	return binDest;
+}
+
+/// Find `bin/<name>` either at the archive root or one wrapper level deep.
+function locateExtractedBin(extractDir: string, name: string): string {
+	const direct = join(extractDir, "bin", name);
+	if (existsSync(direct)) return direct;
+	for (const entry of readdirSync(extractDir)) {
+		const nested = join(extractDir, entry, "bin", name);
+		if (existsSync(nested)) return nested;
+	}
+	throw new Error(
+		`[stage-vendor] could not locate bin/${name} under ${extractDir}`,
+	);
+}
+
+function stageGlabBinary(arch: "arm64" | "amd64"): string {
+	ensureCacheDir();
+	const slug = `glab_${GLAB_VERSION}_darwin_${arch}`;
+	const archive = join(BUNDLE_CACHE, `${slug}.tar.gz`);
+	const url = `https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${slug}.tar.gz`;
+	downloadAndVerify(url, archive, GLAB_SHA256[arch]);
+
+	// glab's tarball has no wrapper dir; bin/glab is at the archive root.
+	const extractDir = join(BUNDLE_CACHE, slug);
+	freshExtractDir(extractDir);
+	execFileSync("tar", ["-xzf", archive, "-C", extractDir], {
+		stdio: "inherit",
+	});
+
+	const binSrc = join(extractDir, "bin", "glab");
+	if (!existsSync(binSrc)) {
+		throw new Error(
+			`[stage-vendor] glab binary missing after extract: ${binSrc}`,
+		);
+	}
+	const binDest = join(DIST_VENDOR, "glab", "glab");
+	copyFile(binSrc, binDest);
+	chmodSync(binDest, 0o755);
+	maybeSignMacBinary(binDest, false);
+	return binDest;
+}
 
 function maybeSignMacBinary(path: string, withEntitlements: boolean): void {
 	const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
@@ -252,8 +364,14 @@ for (const rel of [
 	}
 }
 
+// ----- gh + glab (forge CLIs) -----
+stageGhBinary(target.ghArch);
+stageGlabBinary(target.glabArch);
+
 // ----- Summary -----
 console.log(`[stage-vendor] ✓ staged → ${DIST_VENDOR}`);
 console.log(`  claude-code ${humanSize(ccDest)}`);
 console.log(`  codex       ${humanSize(join(DIST_VENDOR, "codex"))}`);
 console.log(`  bun         ${humanSize(join(DIST_VENDOR, "bun"))}`);
+console.log(`  gh          ${humanSize(join(DIST_VENDOR, "gh"))}`);
+console.log(`  glab        ${humanSize(join(DIST_VENDOR, "glab"))}`);
