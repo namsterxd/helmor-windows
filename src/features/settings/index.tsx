@@ -37,6 +37,8 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ShortcutsSettingsPanel } from "@/features/shortcuts/settings-panel";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import {
 	isConductorAvailable,
 	loadGithubIdentitySession,
@@ -64,6 +66,7 @@ const FALLBACK_EFFORT_LEVELS = ["low", "medium", "high"];
 
 type SettingsSection =
 	| "general"
+	| "shortcuts"
 	| "appearance"
 	| "model"
 	| "git"
@@ -167,6 +170,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 		"general",
 		"appearance",
 		"model",
+		"shortcuts",
 		"git",
 		"experimental",
 		...(conductorEnabled ? (["import"] as const) : []),
@@ -322,6 +326,13 @@ export const SettingsDialog = memo(function SettingsDialog({
 									</SettingsRow>
 									<AppUpdatesPanel />
 								</SettingsGroup>
+							)}
+
+							{activeSection === "shortcuts" && (
+								<ShortcutsSettingsPanel
+									overrides={settings.shortcuts}
+									onChange={(shortcuts) => updateSettings({ shortcuts })}
+								/>
 							)}
 
 							{activeSection === "appearance" && (
@@ -621,7 +632,13 @@ function effortLabel(level: string): string {
 	return level.charAt(0).toUpperCase() + level.slice(1);
 }
 
-export function SettingsButton({ onClick }: { onClick: () => void }) {
+export function SettingsButton({
+	onClick,
+	shortcut,
+}: {
+	onClick: () => void;
+	shortcut?: string | null;
+}) {
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
@@ -636,10 +653,16 @@ export function SettingsButton({ onClick }: { onClick: () => void }) {
 			</TooltipTrigger>
 			<TooltipContent
 				side="top"
-				sideOffset={6}
-				className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
+				sideOffset={4}
+				className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 			>
 				<span className="leading-none">Settings</span>
+				{shortcut ? (
+					<InlineShortcutDisplay
+						hotkey={shortcut}
+						className="text-background/60"
+					/>
+				) : null}
 			</TooltipContent>
 		</Tooltip>
 	);

@@ -44,6 +44,7 @@ type WorkspacePanelProps = {
 	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	headerActions?: ReactNode;
 	headerLeading?: ReactNode;
+	newSessionShortcut?: string | null;
 	missingScriptTypes?: WorkspaceScriptType[];
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
 };
@@ -70,6 +71,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	onRequestCloseSession,
 	headerActions,
 	headerLeading,
+	newSessionShortcut,
 	missingScriptTypes = [],
 	onInitializeScript,
 }: WorkspacePanelProps) {
@@ -127,6 +129,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					onSessionRenamed={onSessionRenamed}
 					onWorkspaceChanged={onWorkspaceChanged}
 					onRequestCloseSession={onRequestCloseSession}
+					newSessionShortcut={newSessionShortcut}
 				/>
 
 				<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -353,12 +353,12 @@ function expectSelectedWorkspace(title: string) {
 }
 
 function pressGlobalShortcut(
-	key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+	key: "h" | "j" | "k" | "l",
 	options?: Parameters<typeof fireEvent.keyDown>[1],
 ) {
 	fireEvent.keyDown(window, {
 		key,
-		metaKey: true,
+		code: `Key${key.toUpperCase()}`,
 		altKey: true,
 		...options,
 	});
@@ -549,10 +549,10 @@ describe("App global navigation shortcuts", () => {
 		cleanup();
 	});
 
-	it("selects the next session on Option+Command+Right", async () => {
+	it("selects the next session on Option+J", async () => {
 		await renderAppReady();
 
-		pressGlobalShortcut("ArrowRight");
+		pressGlobalShortcut("j");
 
 		await waitFor(() => {
 			expectSelectedSession("Done session 2");
@@ -590,13 +590,13 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedSession("Done session 2");
 		});
 
-		pressGlobalShortcut("ArrowRight");
+		pressGlobalShortcut("j");
 
 		await waitFor(() => {
 			expectSelectedSession("Done session 3");
 		});
 
-		pressGlobalShortcut("ArrowRight");
+		pressGlobalShortcut("j");
 
 		await waitFor(() => {
 			expectSelectedSession("Done session 3");
@@ -624,10 +624,35 @@ describe("App global navigation shortcuts", () => {
 		});
 	});
 
-	it("does not wrap session navigation on Option+Command+Left from the first session", async () => {
+	it("opens the new workspace picker on Command+N", async () => {
 		await renderAppReady();
 
-		pressGlobalShortcut("ArrowLeft");
+		fireEvent.keyDown(window, {
+			key: "n",
+			code: "KeyN",
+			metaKey: true,
+		});
+
+		await screen.findByRole("dialog");
+	});
+
+	it("opens the add repository menu on Command+Shift+N", async () => {
+		await renderAppReady();
+
+		fireEvent.keyDown(window, {
+			key: "n",
+			code: "KeyN",
+			metaKey: true,
+			shiftKey: true,
+		});
+
+		await screen.findByRole("menuitem", { name: /Open project/i });
+	});
+
+	it("does not wrap session navigation on Option+K from the first session", async () => {
+		await renderAppReady();
+
+		pressGlobalShortcut("k");
 
 		await waitFor(() => {
 			expectSelectedSession("Done session 1");
@@ -638,10 +663,10 @@ describe("App global navigation shortcuts", () => {
 		);
 	});
 
-	it("selects the next workspace on Option+Command+Down using sidebar order", async () => {
+	it("selects the next workspace on Option+L using sidebar order", async () => {
 		await renderAppReady();
 
-		pressGlobalShortcut("ArrowDown");
+		pressGlobalShortcut("l");
 
 		await waitFor(() => {
 			expectSelectedWorkspace("Review workspace");
@@ -649,10 +674,10 @@ describe("App global navigation shortcuts", () => {
 		});
 	});
 
-	it("does not wrap workspace navigation on Option+Command+Up from the first workspace", async () => {
+	it("does not wrap workspace navigation on Option+H from the first workspace", async () => {
 		await renderAppReady();
 
-		pressGlobalShortcut("ArrowUp");
+		pressGlobalShortcut("h");
 
 		await waitFor(() => {
 			expectSelectedWorkspace("Done workspace");
@@ -672,32 +697,32 @@ describe("App global navigation shortcuts", () => {
 	it("navigates through archived workspaces after the active workspace list even while Archived stays collapsed", async () => {
 		await renderAppReady();
 
-		pressGlobalShortcut("ArrowDown");
+		pressGlobalShortcut("l");
 		await waitFor(() => {
 			expectSelectedSession("Review session 1");
 		});
 
-		pressGlobalShortcut("ArrowDown");
+		pressGlobalShortcut("l");
 		await waitFor(() => {
 			expectSelectedSession("Progress session 1");
 		});
 
-		pressGlobalShortcut("ArrowDown");
+		pressGlobalShortcut("l");
 		await waitFor(() => {
 			expectSelectedSession("Archived session 1");
 		});
 
-		pressGlobalShortcut("ArrowDown");
+		pressGlobalShortcut("l");
 		await waitFor(() => {
 			expectSelectedSession("Archived session 2");
 		});
 
-		pressGlobalShortcut("ArrowUp");
+		pressGlobalShortcut("h");
 		await waitFor(() => {
 			expectSelectedSession("Archived session 1");
 		});
 
-		pressGlobalShortcut("ArrowUp");
+		pressGlobalShortcut("h");
 		await waitFor(() => {
 			expectSelectedSession("Progress session 1");
 		});
@@ -713,8 +738,8 @@ describe("App global navigation shortcuts", () => {
 		expect(composerInput).toHaveFocus();
 
 		fireEvent.keyDown(composerInput, {
-			key: "ArrowRight",
-			metaKey: true,
+			key: "j",
+			code: "KeyJ",
 			altKey: true,
 		});
 
@@ -726,12 +751,15 @@ describe("App global navigation shortcuts", () => {
 			name: "New workspace",
 		});
 		await user.click(newWorkspaceButton);
-		const repositoryPicker = await screen.findByRole("dialog");
+		await screen.findByRole("dialog");
+		const repositoryPicker = await screen.findByRole("listbox", {
+			name: "Suggestions",
+		});
 		expect(repositoryPicker).toHaveFocus();
 
 		fireEvent.keyDown(repositoryPicker, {
-			key: "ArrowDown",
-			metaKey: true,
+			key: "l",
+			code: "KeyL",
 			altKey: true,
 		});
 
@@ -741,27 +769,29 @@ describe("App global navigation shortcuts", () => {
 		});
 	});
 
-	it("only responds to the exact meta+alt shortcut combination", async () => {
+	it("only responds to the exact Option shortcut combination", async () => {
 		await renderAppReady();
 
 		fireEvent.keyDown(window, {
-			key: "ArrowRight",
+			key: "l",
+			code: "KeyL",
 			metaKey: true,
 		});
 		fireEvent.keyDown(window, {
-			key: "ArrowRight",
-			altKey: true,
+			key: "l",
+			code: "KeyL",
 		});
 		fireEvent.keyDown(window, {
-			key: "ArrowDown",
-			metaKey: true,
+			key: "l",
+			code: "KeyL",
 			altKey: true,
 			shiftKey: true,
 		});
 		// Strict OS-aware binding: on macOS ctrlKey is the "wrong" modifier
 		// and must reject the shortcut. Restored original pre-Phase-3 assertion.
 		fireEvent.keyDown(window, {
-			key: "ArrowDown",
+			key: "l",
+			code: "KeyL",
 			metaKey: true,
 			altKey: true,
 			ctrlKey: true,

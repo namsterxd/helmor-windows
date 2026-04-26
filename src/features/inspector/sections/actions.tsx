@@ -19,6 +19,9 @@ import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
+import { getShortcut } from "@/features/shortcuts/registry";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import type { ShortcutId } from "@/features/shortcuts/types";
 import {
 	type ActionProvider,
 	type ActionStatusKind,
@@ -43,6 +46,7 @@ import {
 // for the review/PR rows (MR vs PR wording). Forge onboarding lives in
 // `GitSectionHeader` — see the top-right of the Changes section.
 import { resolveRepoPreferencePrompt } from "@/lib/repo-preferences-prompts";
+import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import {
 	INSPECTOR_SECTION_HEADER_CLASS,
@@ -71,6 +75,26 @@ function loadingActionLabel(label: string): string {
 			return "Committing";
 		default:
 			return "Loading";
+	}
+}
+
+function getShortcutIdForGitAction(
+	action: GitStatusItem["action"],
+): ShortcutId | null {
+	if (!action) return null;
+	if (action.kind === "sync") return "action.pullLatest";
+	switch (action.mode) {
+		case "commit-and-push":
+			return "action.commitAndPush";
+		case "resolve-conflicts":
+		case "fix":
+			return "action.fixErrors";
+		case "merge":
+			return "action.mergePr";
+		case "create-pr":
+			return "action.createPr";
+		default:
+			return null;
 	}
 }
 
@@ -158,6 +182,7 @@ export function ActionsSection({
 	changeRequest,
 }: ActionsSectionProps) {
 	const queryClient = useQueryClient();
+	const { settings } = useSettings();
 	const [syncPending, setSyncPending] = useState(false);
 	const forgeQuery = useQuery({
 		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
@@ -334,6 +359,10 @@ export function ActionsSection({
 						commitButtonState === "busy";
 					const isSyncActionBusy = action?.kind === "sync" && syncPending;
 					const isActionBusy = isCommitActionBusy || isSyncActionBusy;
+					const shortcutId = getShortcutIdForGitAction(action);
+					const shortcut = shortcutId
+						? getShortcut(settings.shortcuts, shortcutId)
+						: null;
 					return (
 						<div
 							key={item.label}
@@ -375,6 +404,12 @@ export function ActionsSection({
 											/>
 										) : null}
 										{isActionBusy ? null : action.label}
+										{!isActionBusy && shortcut ? (
+											<InlineShortcutDisplay
+												hotkey={shortcut}
+												className="opacity-70"
+											/>
+										) : null}
 									</span>
 								</button>
 							)}

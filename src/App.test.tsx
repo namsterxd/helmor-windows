@@ -269,7 +269,7 @@ describe("App", () => {
 			).toBeInTheDocument();
 
 			await user.click(
-				screen.getByRole("button", { name: "Collapse sidebar" }),
+				screen.getByRole("button", { name: "Collapse left sidebar" }),
 			);
 
 			expect(

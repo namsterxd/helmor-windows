@@ -9,6 +9,8 @@ type WorkspacesSidebarContainerProps = {
 	selectedWorkspaceId: string | null;
 	sendingWorkspaceIds?: Set<string>;
 	interactionRequiredWorkspaceIds?: Set<string>;
+	newWorkspaceShortcut?: string | null;
+	addRepositoryShortcut?: string | null;
 	onSelectWorkspace: (workspaceId: string | null) => void;
 	pushWorkspaceToast: (
 		description: string,
@@ -26,6 +28,8 @@ export const WorkspacesSidebarContainer = memo(
 		selectedWorkspaceId,
 		sendingWorkspaceIds,
 		interactionRequiredWorkspaceIds,
+		newWorkspaceShortcut,
+		addRepositoryShortcut,
 		onSelectWorkspace,
 		pushWorkspaceToast,
 	}: WorkspacesSidebarContainerProps) {
@@ -67,6 +71,8 @@ export const WorkspacesSidebarContainer = memo(
 				selectedWorkspaceId={selectedWorkspaceId}
 				sendingWorkspaceIds={sendingWorkspaceIds}
 				interactionRequiredWorkspaceIds={interactionRequiredWorkspaceIds}
+				newWorkspaceShortcut={newWorkspaceShortcut}
+				addRepositoryShortcut={addRepositoryShortcut}
 				creatingWorkspaceRepoId={creatingWorkspaceRepoId}
 				onAddRepository={() => {
 					void handleAddRepository();

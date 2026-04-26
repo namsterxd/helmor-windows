@@ -9,6 +9,8 @@ export type ThemeMode = "system" | "light" | "dark";
  */
 export type FollowUpBehavior = "steer" | "queue";
 
+export type ShortcutOverrides = Record<string, string | null>;
+
 export type AppSettings = {
 	fontSize: number;
 	branchPrefixType: "github" | "custom" | "none";
@@ -28,6 +30,7 @@ export type AppSettings = {
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
 	showUsageStats: boolean;
+	shortcuts: ShortcutOverrides;
 };
 
 /**
@@ -52,6 +55,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	followUpBehavior: "steer",
 	alwaysShowContextUsage: true,
 	showUsageStats: true,
+	shortcuts: {},
 };
 
 export const THEME_STORAGE_KEY = "helmor-theme";
@@ -71,7 +75,25 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	followUpBehavior: "app.follow_up_behavior",
 	alwaysShowContextUsage: "app.always_show_context_usage",
 	showUsageStats: "app.show_usage_stats",
+	shortcuts: "app.shortcuts",
 };
+
+function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
+	if (!raw) return DEFAULT_SETTINGS.shortcuts;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return DEFAULT_SETTINGS.shortcuts;
+		}
+		return Object.fromEntries(
+			Object.entries(parsed).filter(
+				([, value]) => typeof value === "string" || value === null,
+			),
+		) as ShortcutOverrides;
+	} catch {
+		return DEFAULT_SETTINGS.shortcuts;
+	}
+}
 
 export async function loadSettings(): Promise<AppSettings> {
 	try {
@@ -125,6 +147,7 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
 					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
 					: DEFAULT_SETTINGS.showUsageStats,
+			shortcuts: parseShortcutOverrides(raw[SETTINGS_KEY_MAP.shortcuts]),
 		};
 	} catch {
 		return { ...DEFAULT_SETTINGS };
@@ -144,7 +167,12 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 	for (const [key, dbKey] of Object.entries(SETTINGS_KEY_MAP)) {
 		const value = patch[key as keyof Omit<AppSettings, "theme">];
 		if (value !== undefined) {
-			settings[dbKey] = value === null ? "" : String(value);
+			settings[dbKey] =
+				key === "shortcuts"
+					? JSON.stringify(value)
+					: value === null
+						? ""
+						: String(value);
 		}
 	}
 	if (Object.keys(settings).length === 0) return;

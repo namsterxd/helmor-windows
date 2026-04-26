@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { getShortcut } from "@/features/shortcuts/registry";
 import type {
 	AgentModelSection,
 	AgentProvider,
@@ -535,6 +536,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			onRequestCloseSession={onRequestCloseSession}
 			headerActions={headerActions}
 			headerLeading={headerLeading}
+			newSessionShortcut={getShortcut(settings.shortcuts, "session.new")}
 			missingScriptTypes={missingScriptTypes}
 			onInitializeScript={handleInitializeScript}
 			changeRequest={workspaceChangeRequest}
