@@ -27,4 +27,37 @@ impl UiSyncManager {
 
         subscribers.retain(|channel| channel.send(event.clone()).is_ok());
     }
+
+    #[cfg(test)]
+    pub(super) fn subscriber_count(&self) -> usize {
+        self.subscribers.lock().map(|s| s.len()).unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_manager_starts_with_no_subscribers() {
+        let manager = UiSyncManager::new();
+        assert_eq!(manager.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn publish_with_no_subscribers_is_a_noop() {
+        let manager = UiSyncManager::new();
+        manager.publish(UiMutationEvent::WorkspaceListChanged);
+        assert_eq!(manager.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn default_manager_matches_new() {
+        let default_manager = UiSyncManager::default();
+        let new_manager = UiSyncManager::new();
+        assert_eq!(
+            default_manager.subscriber_count(),
+            new_manager.subscriber_count()
+        );
+    }
 }

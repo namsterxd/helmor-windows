@@ -344,4 +344,151 @@ mod tests {
             })
         );
     }
+
+    fn make_messages_table(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE session_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT,
+                content TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                sent_at TEXT
+            );
+            "#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn persist_user_message_stores_user_prompt_payload() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_messages_table(&conn);
+        let ctx = test_exchange_context();
+        persist_user_message(&conn, &ctx, "fix bug X", &[]).unwrap();
+
+        let (role, content, id): (String, String, String) = conn
+            .query_row(
+                "SELECT role, content, id FROM session_messages WHERE session_id = ?1",
+                ["session-1"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        assert_eq!(role, "user");
+        assert_eq!(id, "user-1");
+        let parsed: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["type"], "user_prompt");
+        assert_eq!(parsed["text"], "fix bug X");
+        // `files` array should be omitted when empty.
+        assert!(parsed.get("files").is_none());
+    }
+
+    #[test]
+    fn persist_user_message_includes_files_when_provided() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_messages_table(&conn);
+        let ctx = test_exchange_context();
+        let files = vec!["a.rs".to_string(), "b.rs".to_string()];
+        persist_user_message(&conn, &ctx, "refactor", &files).unwrap();
+
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM session_messages WHERE id = ?1",
+                ["user-1"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            parsed["files"],
+            json!(["a.rs".to_string(), "b.rs".to_string()])
+        );
+    }
+
+    #[test]
+    fn persist_exit_plan_message_includes_provided_optional_fields() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_messages_table(&conn);
+        let ctx = test_exchange_context();
+
+        let tool_input = json!({
+            "plan": "1. step\n2. step",
+            "planFilePath": "/tmp/plan.md",
+            "allowedPrompts": ["yes", "go"],
+        });
+        let (msg_id, _now) = persist_exit_plan_message(
+            &conn,
+            &ctx,
+            "gpt-5.4",
+            "tu_123",
+            "ExitPlanMode",
+            &tool_input,
+        )
+        .unwrap();
+
+        let (role, content): (String, String) = conn
+            .query_row(
+                "SELECT role, content FROM session_messages WHERE id = ?1",
+                [&msg_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(role, "assistant");
+        let parsed: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["type"], "exit_plan_mode");
+        assert_eq!(parsed["toolUseId"], "tu_123");
+        assert_eq!(parsed["toolName"], "ExitPlanMode");
+        assert_eq!(parsed["plan"], "1. step\n2. step");
+        assert_eq!(parsed["planFilePath"], "/tmp/plan.md");
+        assert_eq!(parsed["allowedPrompts"], json!(["yes", "go"]));
+    }
+
+    #[test]
+    fn persist_exit_plan_message_omits_unset_optional_fields() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_messages_table(&conn);
+        let ctx = test_exchange_context();
+
+        // No plan, no path, no allowedPrompts.
+        let tool_input = json!({});
+        let (msg_id, _now) =
+            persist_exit_plan_message(&conn, &ctx, "gpt-5.4", "tu_x", "ExitPlanMode", &tool_input)
+                .unwrap();
+
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM session_messages WHERE id = ?1",
+                [&msg_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&content).unwrap();
+        assert!(parsed.get("plan").is_none());
+        assert!(parsed.get("planFilePath").is_none());
+        assert!(parsed.get("allowedPrompts").is_none());
+    }
+
+    #[test]
+    fn persist_exit_plan_message_ignores_non_array_allowed_prompts() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_messages_table(&conn);
+        let ctx = test_exchange_context();
+
+        let tool_input = json!({ "allowedPrompts": "not-an-array" });
+        let (msg_id, _now) =
+            persist_exit_plan_message(&conn, &ctx, "gpt-5.4", "tu_y", "ExitPlanMode", &tool_input)
+                .unwrap();
+
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM session_messages WHERE id = ?1",
+                [&msg_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&content).unwrap();
+        assert!(parsed.get("allowedPrompts").is_none());
+    }
 }

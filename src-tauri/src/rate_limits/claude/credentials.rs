@@ -113,4 +113,122 @@ mod tests {
             Some("expired-with-scope")
         );
     }
+
+    #[test]
+    fn credential_sort_prefers_valid_with_scope_over_expired_with_scope() {
+        let now = 1_000_000;
+        let mut credentials = vec![
+            ClaudeOAuthCredentials {
+                access_token: "expired-with-scope".to_string(),
+                expires_at: Some(now - 10),
+                scopes: vec!["user:profile".to_string()],
+            },
+            ClaudeOAuthCredentials {
+                access_token: "valid-with-scope".to_string(),
+                expires_at: Some(now + 10_000),
+                scopes: vec!["user:profile".to_string()],
+            },
+            ClaudeOAuthCredentials {
+                access_token: "valid-no-scope".to_string(),
+                expires_at: Some(now + 999_999),
+                scopes: Vec::new(),
+            },
+        ];
+
+        sort_credentials(&mut credentials, now);
+        assert_eq!(
+            credentials.last().map(|c| c.access_token.as_str()),
+            Some("valid-with-scope"),
+            "valid + scope should win over expired + scope and any no-scope"
+        );
+    }
+
+    #[test]
+    fn credential_sort_breaks_tie_by_later_expires_at() {
+        let now = 1_000_000;
+        let mut credentials = vec![
+            ClaudeOAuthCredentials {
+                access_token: "earlier".to_string(),
+                expires_at: Some(now + 5_000_000),
+                scopes: vec!["user:profile".to_string()],
+            },
+            ClaudeOAuthCredentials {
+                access_token: "later".to_string(),
+                expires_at: Some(now + 10_000_000),
+                scopes: vec!["user:profile".to_string()],
+            },
+        ];
+
+        sort_credentials(&mut credentials, now);
+        assert_eq!(
+            credentials.last().map(|c| c.access_token.as_str()),
+            Some("later")
+        );
+    }
+
+    #[test]
+    fn credential_sort_handles_missing_expires_at_as_lowest() {
+        let now = 1_000_000;
+        let mut credentials = vec![
+            ClaudeOAuthCredentials {
+                access_token: "no-expiry".to_string(),
+                expires_at: None,
+                scopes: vec!["user:profile".to_string()],
+            },
+            ClaudeOAuthCredentials {
+                access_token: "with-expiry".to_string(),
+                expires_at: Some(now + 1_000),
+                scopes: vec!["user:profile".to_string()],
+            },
+        ];
+
+        sort_credentials(&mut credentials, now);
+        // With expires_at unwrapped to 0, "no-expiry" sorts before "with-expiry".
+        assert_eq!(
+            credentials.last().map(|c| c.access_token.as_str()),
+            Some("with-expiry")
+        );
+    }
+
+    #[test]
+    fn parses_credentials_with_default_empty_scopes() {
+        let data = br#"{"accessToken":"a","expiresAt":1777109771360}"#;
+        let credentials = parse_credentials(data).unwrap();
+        assert!(credentials.scopes.is_empty());
+        assert!(!credentials.has_required_scope());
+    }
+
+    #[test]
+    fn is_expired_handles_missing_expires_at_as_not_expired() {
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "tok".to_string(),
+            expires_at: None,
+            scopes: vec!["user:profile".to_string()],
+        };
+        assert!(!credentials.is_expired(i64::MAX));
+    }
+
+    #[test]
+    fn is_expired_at_exact_boundary_returns_true() {
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "tok".to_string(),
+            expires_at: Some(1_000_000),
+            scopes: vec!["user:profile".to_string()],
+        };
+        // Boundary is `<=`, so equal counts as expired.
+        assert!(credentials.is_expired(1_000_000));
+    }
+
+    #[test]
+    fn has_required_scope_ignores_other_scopes() {
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "tok".to_string(),
+            expires_at: None,
+            scopes: vec![
+                "org:create_api_key".to_string(),
+                "user:inference".to_string(),
+            ],
+        };
+        assert!(!credentials.has_required_scope());
+    }
 }

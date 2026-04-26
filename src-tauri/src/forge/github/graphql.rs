@@ -1280,6 +1280,143 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_scheme_form() {
+        let parsed = parse_github_remote("ssh://git@github.com/octocat/hello-world.git");
+        assert_eq!(
+            parsed,
+            Some(("octocat".to_string(), "hello-world".to_string()))
+        );
+    }
+
+    #[test]
+    fn handles_trailing_slash_on_remote() {
+        let parsed = parse_github_remote("https://github.com/octocat/hello-world/");
+        assert_eq!(
+            parsed,
+            Some(("octocat".to_string(), "hello-world".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_padded_remote_input() {
+        let parsed = parse_github_remote("  https://github.com/octocat/hello-world.git  ");
+        assert_eq!(
+            parsed,
+            Some(("octocat".to_string(), "hello-world".to_string()))
+        );
+    }
+
+    #[test]
+    fn rejects_other_forges() {
+        assert_eq!(parse_github_remote("https://gitlab.com/foo/bar.git"), None);
+        assert_eq!(parse_github_remote("git@bitbucket.org:foo/bar.git"), None);
+        assert_eq!(parse_github_remote("https://example.com/foo/bar"), None);
+    }
+
+    #[test]
+    fn split_owner_repo_trims_whitespace() {
+        // Inner helper — important because `parse_github_remote` already
+        // strips the prefix but doesn't sanitise inside.
+        assert_eq!(
+            split_owner_repo("  octocat / hello-world  "),
+            Some(("octocat".to_string(), "hello-world".to_string()))
+        );
+    }
+
+    #[test]
+    fn split_owner_repo_rejects_blank_segments() {
+        assert_eq!(split_owner_repo(" / hello-world"), None);
+        assert_eq!(split_owner_repo("octocat / "), None);
+        assert_eq!(split_owner_repo("/"), None);
+    }
+
+    #[test]
+    fn normalize_check_run_status_treats_unknown_completed_as_failure() {
+        // Anything that lands in COMPLETED but isn't a "good" conclusion is
+        // a failure — a key invariant for the action status rollup.
+        assert_eq!(
+            normalize_check_run_status("COMPLETED", None),
+            ActionStatusKind::Failure
+        );
+        assert_eq!(
+            normalize_check_run_status("COMPLETED", Some("CANCELLED")),
+            ActionStatusKind::Failure
+        );
+        assert_eq!(
+            normalize_check_run_status("COMPLETED", Some("TIMED_OUT")),
+            ActionStatusKind::Failure
+        );
+    }
+
+    #[test]
+    fn normalize_check_run_status_unknown_status_falls_back_to_pending() {
+        assert_eq!(
+            normalize_check_run_status("FUTURE_STATE", None),
+            ActionStatusKind::Pending
+        );
+        assert_eq!(
+            normalize_check_run_status("", None),
+            ActionStatusKind::Pending
+        );
+    }
+
+    #[test]
+    fn normalize_check_run_status_completed_neutral_is_success() {
+        // GitHub treats NEUTRAL as a non-failure conclusion (e.g. checks
+        // that opt out of red status). We mirror that.
+        assert_eq!(
+            normalize_check_run_status("COMPLETED", Some("NEUTRAL")),
+            ActionStatusKind::Success
+        );
+    }
+
+    #[test]
+    fn action_status_priority_orders_failure_first() {
+        // Helps the rollup pick the most-attention-grabbing status.
+        let priorities: Vec<u8> = [
+            ActionStatusKind::Failure,
+            ActionStatusKind::Running,
+            ActionStatusKind::Pending,
+            ActionStatusKind::Success,
+        ]
+        .iter()
+        .map(|s| action_status_priority(*s))
+        .collect();
+        assert_eq!(priorities, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn format_duration_returns_none_when_completion_before_start() {
+        // Clock skew between runners can push completed-at before started-at;
+        // we should return None rather than emit a negative string.
+        assert!(
+            format_duration(Some("2026-04-10T00:01:00Z"), Some("2026-04-10T00:00:30Z")).is_none()
+        );
+    }
+
+    #[test]
+    fn format_duration_returns_none_when_either_input_is_invalid() {
+        assert!(format_duration(Some("not-a-date"), Some("2026-04-10T00:00:00Z")).is_none());
+        assert!(format_duration(Some("2026-04-10T00:00:00Z"), Some("garbage")).is_none());
+    }
+
+    #[test]
+    fn infer_provider_falls_back_to_default_when_no_known_match() {
+        let provider = infer_provider(ActionProvider::Gitlab, [Some("custom-runner"), None]);
+        assert_eq!(provider, ActionProvider::Gitlab);
+    }
+
+    #[test]
+    fn infer_provider_vercel_wins_over_github_in_same_input() {
+        // Vercel deployments often live on GitHub — Vercel should still win.
+        let provider = infer_provider(
+            ActionProvider::Unknown,
+            [Some("https://vercel.com/team/app"), Some("github.com/x")],
+        );
+        assert_eq!(provider, ActionProvider::Vercel);
+    }
+
+    #[test]
     fn normalizes_check_run_statuses() {
         assert_eq!(
             normalize_check_run_status("COMPLETED", Some("SUCCESS")),

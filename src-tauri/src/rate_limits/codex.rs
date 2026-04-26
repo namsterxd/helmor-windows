@@ -447,4 +447,80 @@ mod tests {
         assert_eq!(read_back.id_token.as_deref(), Some("new-id"));
         assert_eq!(read_back.account_id.as_deref(), Some("acct"));
     }
+
+    #[test]
+    fn load_credentials_reports_path_when_file_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does-not-exist.json");
+        let err = load_credentials(&path).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("does-not-exist.json"),
+            "error should mention missing path: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("codex"),
+            "error should mention which CLI to log into: {msg}"
+        );
+    }
+
+    #[test]
+    fn load_credentials_rejects_invalid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        std::fs::write(&path, b"not json at all").unwrap();
+        assert!(load_credentials(&path).is_err());
+    }
+
+    #[test]
+    fn parse_credentials_trims_api_key() {
+        let data = br#"{ "OPENAI_API_KEY": "  sk-padded  " }"#;
+        let credentials = parse_credentials(data).unwrap();
+        assert_eq!(credentials.access_token, "sk-padded");
+    }
+
+    #[test]
+    fn parse_credentials_treats_blank_api_key_as_missing_tokens() {
+        let data = br#"{ "OPENAI_API_KEY": "   " }"#;
+        // Blank API key drops through to tokens path; with no tokens object
+        // we expect a clear error.
+        assert!(parse_credentials(data).is_err());
+    }
+
+    #[test]
+    fn persist_overwrites_garbage_root_with_fresh_payload() {
+        // If a previous read produced unparseable bytes the rewrite path
+        // should still drop a valid object in place rather than propagate
+        // the corruption.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        std::fs::write(&path, b"\xff\xfe garbage").unwrap();
+
+        let credentials = CodexCredentials {
+            access_token: "fresh".to_string(),
+            refresh_token: "r".to_string(),
+            id_token: None,
+            account_id: None,
+            last_refresh: Some(now_seconds()),
+        };
+        persist_refreshed_credentials(&path, &credentials).unwrap();
+
+        let read_back = parse_credentials(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(read_back.access_token, "fresh");
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        std::fs::write(&path, b"old").unwrap();
+        atomic_write(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    }
+
+    #[test]
+    fn parse_iso_to_unix_rejects_garbage() {
+        assert!(parse_iso_to_unix("not a date").is_none());
+        assert!(parse_iso_to_unix("").is_none());
+    }
 }

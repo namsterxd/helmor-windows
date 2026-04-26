@@ -73,4 +73,52 @@ mod tests {
         throttle.record_attempt_at(now - 31);
         assert!(throttle.should_fetch());
     }
+
+    #[test]
+    fn record_attempt_overrides_with_latest_value() {
+        let throttle = Throttle::new(30);
+        let now = Utc::now().timestamp();
+        throttle.record_attempt_at(now - 100);
+        // Older attempt timestamp should still leave the window open.
+        assert!(throttle.should_fetch());
+        // A subsequent fresh attempt closes it.
+        throttle.record_attempt_at(now);
+        assert!(!throttle.should_fetch());
+    }
+
+    #[test]
+    fn zero_interval_always_allows_fetch() {
+        let throttle = Throttle::new(0);
+        let now = Utc::now().timestamp();
+        throttle.record_attempt_at(now);
+        assert!(throttle.should_fetch());
+    }
+
+    #[test]
+    fn concurrent_record_attempt_does_not_corrupt_state() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let throttle = Arc::new(Throttle::new(30));
+        let now = Utc::now().timestamp();
+
+        let mut handles = Vec::new();
+        for offset in 0..16 {
+            let throttle = throttle.clone();
+            handles.push(thread::spawn(move || {
+                throttle.record_attempt_at(now - offset);
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // After parallel writes the stored value must match one of the
+        // values we wrote — never a torn / interleaved i64.
+        let stored = throttle.last_attempt.load(Ordering::Relaxed);
+        assert!(
+            (now - 15..=now).contains(&stored),
+            "stored {stored} not in expected range"
+        );
+    }
 }

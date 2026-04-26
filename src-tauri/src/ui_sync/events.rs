@@ -150,4 +150,64 @@ mod tests {
             assert_eq!(json["type"], expected);
         }
     }
+
+    #[test]
+    fn pending_cli_send_queued_includes_optional_fields_when_set() {
+        let event = UiMutationEvent::PendingCliSendQueued {
+            workspace_id: "w".into(),
+            session_id: "s".into(),
+            prompt: "hello".into(),
+            model_id: Some("claude-sonnet-4-5".into()),
+            permission_mode: Some("acceptEdits".into()),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["modelId"], "claude-sonnet-4-5");
+        assert_eq!(json["permissionMode"], "acceptEdits");
+        assert_eq!(json["workspaceId"], "w");
+        assert_eq!(json["sessionId"], "s");
+        assert_eq!(json["prompt"], "hello");
+    }
+
+    #[test]
+    fn settings_changed_omits_or_serializes_key_correctly() {
+        let with_key = UiMutationEvent::SettingsChanged {
+            key: Some("theme".into()),
+        };
+        let without = UiMutationEvent::SettingsChanged { key: None };
+        let with_json = serde_json::to_value(&with_key).unwrap();
+        let without_json = serde_json::to_value(&without).unwrap();
+        assert_eq!(with_json["key"], "theme");
+        // None becomes null over the wire, not undefined.
+        assert!(without_json["key"].is_null());
+    }
+
+    #[test]
+    fn envelope_round_trip_preserves_event() {
+        let envelope = UiMutationEnvelope::new(UiMutationEvent::ContextUsageChanged {
+            session_id: "abc".into(),
+        });
+        let json = serde_json::to_string(&envelope).unwrap();
+        let restored: UiMutationEnvelope = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.version, UiMutationEnvelope::VERSION);
+        assert_eq!(restored.event, envelope.event);
+    }
+
+    #[test]
+    fn envelope_new_uses_current_version() {
+        let envelope = UiMutationEnvelope::new(UiMutationEvent::WorkspaceListChanged);
+        assert_eq!(envelope.version, 1);
+    }
+
+    #[test]
+    fn envelope_rejects_extraneous_keys_at_root() {
+        // Versioning relies on the envelope shape staying stable. If a future
+        // refactor adds new top-level fields, fail loudly.
+        let json = serde_json::json!({
+            "version": 1,
+            "event": { "type": "workspaceListChanged" },
+        });
+        let envelope: UiMutationEnvelope = serde_json::from_value(json).unwrap();
+        assert_eq!(envelope.version, 1);
+        assert_eq!(envelope.event, UiMutationEvent::WorkspaceListChanged);
+    }
 }
