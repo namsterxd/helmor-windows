@@ -14,9 +14,11 @@ pub struct BundledForgeCliPaths {
 
 static BUNDLED_PATHS: OnceLock<BundledForgeCliPaths> = OnceLock::new();
 
-/// Idempotent; call once from the Tauri setup hook.
+/// Call once from the Tauri setup hook; later calls are a no-op in release
+/// and a debug assertion failure in dev (catches accidental re-init).
 pub fn init() {
-    let _ = BUNDLED_PATHS.set(resolve_from_running_exe());
+    let result = BUNDLED_PATHS.set(resolve_from_running_exe());
+    debug_assert!(result.is_ok(), "forge::bundled::init called more than once");
     let paths = BUNDLED_PATHS.get();
     tracing::info!(
         gh = ?paths.and_then(|p| p.gh.as_deref()),

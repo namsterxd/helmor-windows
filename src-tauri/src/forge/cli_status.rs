@@ -1,15 +1,36 @@
 //! `gh` / `glab` status probing + Connect terminal flow.
 
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::github_cli;
 
 use super::bundled;
 use super::command::{command_detail, run_command, run_command_with_timeout};
+use super::status_cache::{self, CacheableStatus, CachedEntry};
 use super::types::{ForgeCliStatus, ForgeLabels, ForgeProvider};
 
 const OPEN_TERMINAL_TIMEOUT: Duration = Duration::from_secs(10);
+const GITLAB_CLI_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
+const GITLAB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(30);
+
+type GitlabStatusCache = Mutex<HashMap<String, CachedEntry<ForgeCliStatus>>>;
+static GITLAB_STATUS_CACHE: LazyLock<GitlabStatusCache> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+impl CacheableStatus for ForgeCliStatus {
+    fn is_ready(&self) -> bool {
+        matches!(self, ForgeCliStatus::Ready { .. })
+    }
+    fn should_debounce_ready_downgrade(&self) -> bool {
+        // Only `Error` (network blip / glab wedged) is genuinely transient.
+        // `Unauthenticated` reads from glab's local config — surface it
+        // immediately on `glab auth logout`.
+        matches!(self, ForgeCliStatus::Error { .. })
+    }
+}
 
 pub fn get_forge_cli_status(provider: ForgeProvider, host: Option<&str>) -> Result<ForgeCliStatus> {
     match provider {
@@ -27,12 +48,17 @@ pub fn get_forge_cli_status(provider: ForgeProvider, host: Option<&str>) -> Resu
 
 pub fn open_forge_cli_auth_terminal(provider: ForgeProvider, host: Option<&str>) -> Result<()> {
     let command = match provider {
-        ForgeProvider::Github => format!("{} auth login", bundled_program_token("gh")),
+        ForgeProvider::Github => format!("{} auth login", bundled_program_token("gh")?),
         ForgeProvider::Gitlab => {
             let host = host.unwrap_or("gitlab.com");
+            // Reject obviously broken hostnames before they reach AppleScript:
+            // a newline would let the user inject extra `do script` commands.
+            if host.contains(['\n', '\r']) {
+                bail!("Invalid hostname (contains newline): {host:?}");
+            }
             format!(
                 "{} auth login --hostname {host}",
-                bundled_program_token("glab")
+                bundled_program_token("glab")?
             )
         }
         ForgeProvider::Unknown => bail!("Unknown forge provider."),
@@ -40,12 +66,19 @@ pub fn open_forge_cli_auth_terminal(provider: ForgeProvider, host: Option<&str>)
     open_terminal_with_command(&command)
 }
 
-/// Absolute bundled path (shell-quoted) when available, otherwise the bare name.
-fn bundled_program_token(program: &str) -> String {
-    match bundled::bundled_path_for(program) {
-        Some(path) => shell_single_quote(&path.display().to_string()),
-        None => program.to_string(),
+/// Absolute bundled path (shell-quoted). In release builds, missing the
+/// bundled binary means the .app payload is broken — fail loudly rather
+/// than spawning a Terminal session that immediately dies on
+/// `command not found`. In dev (`debug_assertions`), fall back to PATH so
+/// `bun run dev` keeps working without a full bundle.
+fn bundled_program_token(program: &str) -> Result<String> {
+    if let Some(path) = bundled::bundled_path_for(program) {
+        return Ok(shell_single_quote(&path.display().to_string()));
     }
+    if cfg!(debug_assertions) {
+        return Ok(program.to_string());
+    }
+    bail!("Bundled `{program}` is missing; reinstall Helmor to recover")
 }
 
 /// `'foo'\''bar'`-style single quoting safe for /bin/sh.
@@ -144,6 +177,16 @@ fn github_status_from(status: github_cli::GithubCliStatus) -> Result<ForgeCliSta
 }
 
 pub(crate) fn gitlab_status(host: &str) -> Result<ForgeCliStatus> {
+    status_cache::load_cached(
+        &GITLAB_STATUS_CACHE,
+        host.to_string(),
+        GITLAB_CLI_STATUS_CACHE_TTL,
+        GITLAB_CLI_READY_DOWNGRADE_GRACE,
+        || gitlab_status_raw(host),
+    )
+}
+
+fn gitlab_status_raw(host: &str) -> Result<ForgeCliStatus> {
     tracing::debug!(host, "Checking GitLab CLI status");
     let version = match run_command("glab", ["--version"]) {
         Ok(output) => Some(parse_glab_version(&output.stdout)),
@@ -310,16 +353,19 @@ fn parse_glab_login(text: &str) -> Option<String> {
     None
 }
 
+/// Match `glab` stderr that conclusively indicates "no valid auth on file"
+/// (token absent / revoked / expired). Avoid bare substrings like
+/// `authentication` that would also catch transient errors like
+/// "authentication endpoint unreachable".
 fn looks_like_glab_unauthenticated(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    normalized.contains("401")
-        || normalized.contains("unauthorized")
+    normalized.contains("401 unauthorized")
         || normalized.contains("no token found")
         || normalized.contains("not logged in")
-        || normalized.contains("unauthenticated")
         || normalized.contains("not authenticated")
-        || normalized.contains("authentication")
+        || normalized.contains("authentication failed")
         || normalized.contains("glab auth login")
+        || normalized.contains("has not been authenticated")
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -389,5 +435,32 @@ mod tests {
             "  ✓ Logged in to gitlab.example.com as ada-lovelace (/path/to/config)\n",
         );
         assert_eq!(parse_glab_login(stderr), Some("ada-lovelace".to_string()),);
+    }
+
+    #[test]
+    fn looks_like_glab_unauthenticated_recognises_canonical_messages() {
+        let real_world = "X ngit.hundun.cn has not been authenticated with glab. Run `glab auth login --hostname ngit.hundun.cn` to authenticate.";
+        assert!(looks_like_glab_unauthenticated(real_world));
+        assert!(looks_like_glab_unauthenticated("401 Unauthorized"));
+        assert!(looks_like_glab_unauthenticated("No token found"));
+        assert!(looks_like_glab_unauthenticated("you are not logged in"));
+        assert!(looks_like_glab_unauthenticated(
+            "Please run: glab auth login"
+        ));
+        assert!(looks_like_glab_unauthenticated("authentication failed"));
+    }
+
+    #[test]
+    fn looks_like_glab_unauthenticated_rejects_transient_errors() {
+        // These contain auth-related substrings but are NOT proof that the
+        // user has no valid token — they're transient infra problems.
+        assert!(!looks_like_glab_unauthenticated(
+            "authentication endpoint unreachable"
+        ));
+        assert!(!looks_like_glab_unauthenticated(
+            "two-factor authentication setup required"
+        ));
+        assert!(!looks_like_glab_unauthenticated("connection reset by peer"));
+        assert!(!looks_like_glab_unauthenticated("internal server error"));
     }
 }

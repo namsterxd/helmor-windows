@@ -1,10 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, LogOut } from "lucide-react";
+import { CheckCircle2, CircleAlert, Loader2, LogOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
 	disconnectGithubIdentity,
 	type ForgeProvider,
@@ -58,36 +64,38 @@ export function AccountPanel({
 	}, [onSignedOut, queryClient]);
 
 	return (
-		<SettingsGroup>
-			{identity ? (
-				<IdentityRow
-					session={identity}
-					onSignOut={() => void handleSignOut()}
-					signingOut={signingOut}
+		<TooltipProvider delayDuration={150}>
+			<SettingsGroup>
+				{identity ? (
+					<IdentityRow
+						session={identity}
+						onSignOut={() => void handleSignOut()}
+						signingOut={signingOut}
+					/>
+				) : null}
+				<CliIntegrationRow
+					provider="github"
+					host="github.com"
+					title="GitHub CLI integration"
+					icon={<GithubBrandIcon size={14} />}
 				/>
-			) : null}
-			<CliIntegrationRow
-				provider="github"
-				host="github.com"
-				title="GitHub CLI integration"
-				icon={<GithubBrandIcon size={14} />}
-			/>
-			{gitlabHosts.length > 0
-				? gitlabHosts.map((host) => (
-						<CliIntegrationRow
-							key={host}
-							provider="gitlab"
-							host={host}
-							title={
-								gitlabHosts.length > 1
-									? `GitLab CLI integration · ${host}`
-									: "GitLab CLI integration"
-							}
-							icon={<GitlabBrandIcon size={14} className="text-[#FC6D26]" />}
-						/>
-					))
-				: null}
-		</SettingsGroup>
+				{gitlabHosts.length > 0
+					? gitlabHosts.map((host) => (
+							<CliIntegrationRow
+								key={host}
+								provider="gitlab"
+								host={host}
+								title={
+									gitlabHosts.length > 1
+										? `GitLab CLI integration · ${host}`
+										: "GitLab CLI integration"
+								}
+								icon={<GitlabBrandIcon size={14} className="text-[#FC6D26]" />}
+							/>
+						))
+					: null}
+			</SettingsGroup>
+		</TooltipProvider>
 	);
 }
 
@@ -217,6 +225,12 @@ function CliIntegrationRow({
 	}, [connecting, host, pollUntilReady, provider]);
 
 	const isReady = status?.status === "ready";
+	const errorMessage =
+		status?.status === "error"
+			? status.message
+			: statusQuery.error instanceof Error
+				? statusQuery.error.message
+				: null;
 
 	return (
 		<SettingsRow
@@ -232,6 +246,24 @@ function CliIntegrationRow({
 					<CheckCircle2 className="size-3.5 text-green-500" strokeWidth={2} />
 					<span className="truncate">{status.login}</span>
 				</div>
+			) : errorMessage ? (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<button
+							type="button"
+							aria-label="CLI status error"
+							className="cursor-default text-destructive"
+						>
+							<CircleAlert className="size-4" strokeWidth={2.2} />
+						</button>
+					</TooltipTrigger>
+					<TooltipContent
+						side="top"
+						className="max-w-xs whitespace-normal text-[11px] leading-snug"
+					>
+						{errorMessage}
+					</TooltipContent>
+				</Tooltip>
 			) : (
 				<Button
 					variant="outline"

@@ -279,6 +279,16 @@ export function RunTab({
 									<RotateCcw className="size-3" strokeWidth={2} />
 								)}
 								{status === "running" ? "Stop" : "Rerun"}
+								{runShortcut ? (
+									<InlineShortcutDisplay
+										hotkey={runShortcut}
+										className={
+											status === "running"
+												? "text-destructive-foreground/70"
+												: "text-muted-foreground"
+										}
+									/>
+								) : null}
 							</Button>
 						</div>
 					)}

@@ -7,6 +7,12 @@ import {
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { normalizeShortcutEvent } from "./format";
 import {
@@ -85,60 +91,54 @@ export function ShortcutsSettingsPanel({
 	};
 
 	return (
-		<div className="flex flex-col gap-4">
-			<div className="relative">
-				<Search
-					className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-					strokeWidth={1.8}
-				/>
-				<Input
-					value={query}
-					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Search shortcuts"
-					className="h-9 rounded-lg border-border/50 bg-muted/20 pl-8 text-[13px]"
-				/>
+		<TooltipProvider delayDuration={150}>
+			<div className="py-5">
+				<div className="relative">
+					<Search
+						className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+						strokeWidth={1.8}
+					/>
+					<Input
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+						placeholder="Search shortcuts"
+						className="h-9 rounded-lg border-border/50 bg-muted/20 pl-8 text-[13px]"
+					/>
+				</div>
 			</div>
 
-			<div className="flex flex-col gap-4">
-				{GROUPS.map((group) => {
-					const definitions = filteredDefinitions.filter(
-						(definition) => definition.group === group,
-					);
-					if (definitions.length === 0) return null;
+			{GROUPS.map((group) => {
+				const definitions = filteredDefinitions.filter(
+					(definition) => definition.group === group,
+				);
+				if (definitions.length === 0) return null;
 
-					return (
-						<section key={group} className="flex flex-col gap-1.5">
-							<div className="px-0.5 text-[12px] font-medium tracking-normal text-muted-foreground">
-								{group}
-							</div>
-							<div className="overflow-hidden rounded-lg border border-border/30 bg-background/70">
-								{definitions.map((definition, index) => (
-									<ShortcutRow
-										key={definition.id}
-										definition={definition}
-										hotkey={getShortcut(overrides, definition.id)}
-										conflicts={conflicts.conflictById[definition.id] ?? []}
-										isRecording={recordingId === definition.id}
-										shake={shakeId === definition.id}
-										overrides={overrides}
-										onChange={onChange}
-										onConflictRecorded={() =>
-											triggerConflictShake(definition.id)
-										}
-										onRecordingChange={(recording) =>
-											setRecordingId(recording ? definition.id : null)
-										}
-										className={
-											index === definitions.length - 1 ? undefined : "border-b"
-										}
-									/>
-								))}
-							</div>
-						</section>
-					);
-				})}
-			</div>
-		</div>
+				return (
+					<section key={group} className="pt-3 pb-1">
+						<div className="pb-1 text-[12px] font-medium tracking-normal text-muted-foreground">
+							{group}
+						</div>
+						{definitions.map((definition, index) => (
+							<ShortcutRow
+								key={definition.id}
+								definition={definition}
+								hotkey={getShortcut(overrides, definition.id)}
+								conflicts={conflicts.conflictById[definition.id] ?? []}
+								isRecording={recordingId === definition.id}
+								shake={shakeId === definition.id}
+								overrides={overrides}
+								onChange={onChange}
+								onConflictRecorded={() => triggerConflictShake(definition.id)}
+								onRecordingChange={(recording) =>
+									setRecordingId(recording ? definition.id : null)
+								}
+								isLastInGroup={index === definitions.length - 1}
+							/>
+						))}
+					</section>
+				);
+			})}
+		</TooltipProvider>
 	);
 }
 
@@ -152,7 +152,7 @@ type ShortcutRowProps = {
 	onChange: (overrides: Partial<Record<ShortcutId, string | null>>) => void;
 	onConflictRecorded: () => void;
 	onRecordingChange: (recording: boolean) => void;
-	className?: string;
+	isLastInGroup: boolean;
 };
 
 function ShortcutRow({
@@ -165,7 +165,7 @@ function ShortcutRow({
 	onChange,
 	onConflictRecorded,
 	onRecordingChange,
-	className,
+	isLastInGroup,
 }: ShortcutRowProps) {
 	const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
 	const hasConflict = conflicts.length > 0;
@@ -238,95 +238,109 @@ function ShortcutRow({
 	]);
 
 	return (
-		<div
-			className={cn(
-				"group flex min-h-12 items-center justify-between gap-3 border-border/35 px-3 py-2 transition-colors",
-				isRecording && "bg-primary/[0.06]",
-				hasConflict && "bg-destructive/12",
-				className,
-			)}
-		>
-			<div className="min-w-0">
-				<div className="truncate text-[13px] font-medium leading-snug text-foreground">
-					{definition.title}
+		<div className={cn("py-1", !isLastInGroup && "border-b border-border/40")}>
+			<div
+				className={cn(
+					"group flex items-center justify-between gap-3 rounded-xl px-2 py-2 transition-colors",
+					hasConflict
+						? "bg-destructive/10"
+						: isRecording
+							? "bg-primary/[0.06]"
+							: undefined,
+				)}
+			>
+				<div className="min-w-0">
+					<div className="truncate text-[13px] font-medium leading-snug text-foreground">
+						{definition.title}
+					</div>
+					{definition.description ? (
+						<div className="mt-1 text-[11px] text-muted-foreground">
+							{definition.description}
+						</div>
+					) : null}
 				</div>
-				{hasConflict ? (
-					<div className="mt-1 text-[11px] text-destructive">
-						Already used by{" "}
-						{conflicts.map((conflict) => conflict.title).join(", ")}
-					</div>
-				) : definition.description ? (
-					<div className="mt-1 text-[11px] text-muted-foreground">
-						{definition.description}
-					</div>
-				) : null}
-			</div>
 
-			<div className="flex shrink-0 items-center gap-3">
-				{hasConflict ? (
-					<CircleAlert
-						aria-label="Shortcut conflict"
-						className="size-4 text-destructive"
-						strokeWidth={2.2}
-					/>
-				) : null}
-				<ContextMenu>
-					<ContextMenuTrigger asChild>
-						<button
-							ref={shortcutButtonRef}
-							type="button"
-							className={cn(
-								"inline-flex h-8 min-w-[3.75rem] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border/55 bg-background px-2 text-[12.5px] font-medium text-muted-foreground shadow-sm outline-none transition-[border-color,box-shadow,color,background-color] hover:border-primary/60 hover:bg-background focus:outline-none focus-visible:outline-none focus-visible:ring-0",
-								isRecording &&
-									"shortcut-recording-pulse relative overflow-visible border-primary bg-background text-primary shadow-none hover:border-primary hover:bg-background hover:text-primary",
-								shake && "shortcut-conflict-shake",
-							)}
-							onClick={() => {
-								onRecordingChange(true);
-							}}
-							onContextMenu={(event) => {
-								if (isRecording) {
-									event.preventDefault();
+				<div className="flex shrink-0 items-center gap-3">
+					{hasConflict ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label="Shortcut conflict"
+									className="cursor-default text-destructive"
+								>
+									<CircleAlert className="size-4" strokeWidth={2.2} />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent
+								side="top"
+								className="max-w-xs whitespace-normal text-[11px] leading-snug"
+							>
+								Already used by{" "}
+								{conflicts.map((conflict) => `"${conflict.title}"`).join(", ")}
+							</TooltipContent>
+						</Tooltip>
+					) : null}
+					<ContextMenu>
+						<ContextMenuTrigger asChild>
+							<button
+								ref={shortcutButtonRef}
+								type="button"
+								className={cn(
+									"inline-flex h-8 min-w-[3.75rem] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border/55 bg-background px-2 text-[12.5px] font-medium text-muted-foreground shadow-sm outline-none transition-[border-color,box-shadow,color,background-color] hover:border-primary/60 hover:bg-background focus:outline-none focus-visible:outline-none focus-visible:ring-0",
+									isRecording &&
+										"shortcut-recording-pulse relative overflow-visible border-primary bg-background text-primary shadow-none hover:border-primary hover:bg-background hover:text-primary",
+									shake && "shortcut-conflict-shake",
+								)}
+								onClick={() => {
+									onRecordingChange(true);
+								}}
+								onContextMenu={(event) => {
+									if (isRecording) {
+										event.preventDefault();
+									}
+								}}
+							>
+								{hotkey ? (
+									<InlineShortcutDisplay
+										hotkey={hotkey}
+										className="text-current"
+									/>
+								) : (
+									<span className="text-[13px] tracking-[0.08em] text-muted-foreground">
+										---
+									</span>
+								)}
+							</button>
+						</ContextMenuTrigger>
+						<ContextMenuContent className="min-w-[11.5rem]">
+							<ContextMenuItem
+								className="px-2"
+								onSelect={() =>
+									onChange(
+										updateShortcutOverride(overrides, definition.id, null),
+									)
 								}
-							}}
-						>
-							{hotkey ? (
-								<InlineShortcutDisplay
-									hotkey={hotkey}
-									className="text-current"
-								/>
-							) : (
-								<span className="text-[13px] tracking-[0.08em] text-muted-foreground">
-									---
-								</span>
-							)}
-						</button>
-					</ContextMenuTrigger>
-					<ContextMenuContent className="min-w-[11.5rem]">
-						<ContextMenuItem
-							className="px-2"
-							onSelect={() =>
-								onChange(updateShortcutOverride(overrides, definition.id, null))
-							}
-						>
-							Remove Shortcut
-						</ContextMenuItem>
-						<ContextMenuItem
-							className="px-2"
-							onSelect={() =>
-								onChange(
-									updateShortcutOverride(
-										overrides,
-										definition.id,
-										definition.defaultHotkey,
-									),
-								)
-							}
-						>
-							Reset Shortcut to Default
-						</ContextMenuItem>
-					</ContextMenuContent>
-				</ContextMenu>
+							>
+								Remove Shortcut
+							</ContextMenuItem>
+							<ContextMenuItem
+								className="px-2"
+								onSelect={() =>
+									onChange(
+										updateShortcutOverride(
+											overrides,
+											definition.id,
+											definition.defaultHotkey,
+										),
+									)
+								}
+							>
+								Reset Shortcut to Default
+							</ContextMenuItem>
+						</ContextMenuContent>
+					</ContextMenu>
+				</div>
 			</div>
 		</div>
 	);

@@ -192,25 +192,35 @@ function stageGhBinary(arch: "arm64" | "amd64"): string {
 	const url = `https://github.com/cli/cli/releases/download/v${GH_VERSION}/${slug}.zip`;
 	downloadAndVerify(url, archive, GH_SHA256[arch]);
 
-	// gh's zip wraps everything inside `${slug}/`, so unzip into BUNDLE_CACHE
-	// and let the wrapper directory land at BUNDLE_CACHE/${slug}.
+	// Unzip into a dedicated temp dir, then locate `bin/gh` regardless of
+	// whether the archive carries an internal wrapper directory. We strip
+	// the wrapper after the fact so changes upstream (with or without it)
+	// don't silently leave stale files in BUNDLE_CACHE.
 	const extractDir = join(BUNDLE_CACHE, slug);
-	rmSync(extractDir, { recursive: true, force: true });
-	execFileSync("unzip", ["-q", "-o", archive, "-d", BUNDLE_CACHE], {
+	freshExtractDir(extractDir);
+	execFileSync("unzip", ["-q", "-o", archive, "-d", extractDir], {
 		stdio: "inherit",
 	});
 
-	const binSrc = join(extractDir, "bin", "gh");
-	if (!existsSync(binSrc)) {
-		throw new Error(
-			`[stage-vendor] gh binary missing after extract: ${binSrc}`,
-		);
-	}
+	const binSrc = locateExtractedBin(extractDir, "gh");
 	const binDest = join(DIST_VENDOR, "gh", "gh");
 	copyFile(binSrc, binDest);
 	chmodSync(binDest, 0o755);
 	maybeSignMacBinary(binDest, false);
 	return binDest;
+}
+
+/// Find `bin/<name>` either at the archive root or one wrapper level deep.
+function locateExtractedBin(extractDir: string, name: string): string {
+	const direct = join(extractDir, "bin", name);
+	if (existsSync(direct)) return direct;
+	for (const entry of readdirSync(extractDir)) {
+		const nested = join(extractDir, entry, "bin", name);
+		if (existsSync(nested)) return nested;
+	}
+	throw new Error(
+		`[stage-vendor] could not locate bin/${name} under ${extractDir}`,
+	);
 }
 
 function stageGlabBinary(arch: "arm64" | "amd64"): string {
