@@ -75,4 +75,52 @@ mod tests {
         assert!(parse_remote("https://github.com/").is_none());
         assert!(parse_remote("git@github.com:incomplete").is_none());
     }
+
+    #[test]
+    fn rejects_empty_or_whitespace_remote() {
+        assert!(parse_remote("").is_none());
+        assert!(parse_remote("   ").is_none());
+    }
+
+    #[test]
+    fn rejects_unrecognized_scheme() {
+        assert!(parse_remote("rsync://example.com/foo/bar.git").is_none());
+        assert!(parse_remote("file:///local/repo").is_none());
+    }
+
+    #[test]
+    fn host_is_normalized_to_lowercase() {
+        let parsed = parse_remote("https://GitHub.COM/Octocat/Hello-World.git").unwrap();
+        assert_eq!(parsed.host, "github.com");
+        // Owner / repo casing is preserved — only the host is normalized.
+        assert_eq!(parsed.namespace, "Octocat");
+        assert_eq!(parsed.repo, "Hello-World");
+    }
+
+    #[test]
+    fn parses_ssh_scheme_with_explicit_protocol() {
+        let parsed = parse_remote("ssh://git@gitlab.com/group/sub/repo.git").unwrap();
+        assert_eq!(parsed.host, "gitlab.com");
+        assert_eq!(parsed.namespace, "group/sub");
+        assert_eq!(parsed.repo, "repo");
+    }
+
+    #[test]
+    fn raw_path_preserves_git_suffix() {
+        let parsed = parse_remote("https://github.com/octocat/hello-world.git").unwrap();
+        // `path` keeps the literal value the user typed (after trimming slashes).
+        assert!(parsed.path.ends_with("hello-world.git"));
+    }
+
+    #[test]
+    fn handles_trailing_slash_after_repo() {
+        let parsed = parse_remote("https://github.com/octocat/hello-world/").unwrap();
+        assert_eq!(parsed.namespace, "octocat");
+        assert_eq!(parsed.repo, "hello-world");
+    }
+
+    #[test]
+    fn ssh_form_with_no_path_is_rejected() {
+        assert!(parse_remote("git@github.com:").is_none());
+    }
 }

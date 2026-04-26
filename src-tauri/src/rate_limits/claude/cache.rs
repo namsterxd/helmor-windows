@@ -159,4 +159,51 @@ mod tests {
         let cached = cache.get(now).expect("cache hit");
         assert_eq!(cached.access_token, "tok2");
     }
+
+    #[test]
+    fn invalidate_on_empty_cache_is_a_noop() {
+        let cache = CredentialsCache::new();
+        cache.invalidate();
+        assert!(cache.get(0).is_none());
+    }
+
+    #[test]
+    fn cache_returns_none_when_token_expires_exactly_at_buffer_boundary() {
+        let cache = CredentialsCache::new();
+        let now = 1_000_000_i64;
+        let creds = ClaudeOAuthCredentials {
+            access_token: "tok".to_string(),
+            expires_at: Some(now + CACHE_EXPIRY_BUFFER_MS),
+            scopes: vec!["user:profile".to_string()],
+        };
+        cache.store(&creds);
+        // is_expired is `<=`, so the boundary value counts as expired.
+        assert!(cache.get(now).is_none());
+    }
+
+    #[test]
+    fn store_then_get_concurrent_does_not_panic() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cache = Arc::new(CredentialsCache::new());
+        let now = 1_000_000_i64;
+        cache.store(&fresh_credentials(now));
+
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let cache = cache.clone();
+            handles.push(thread::spawn(move || {
+                if i % 2 == 0 {
+                    let _ = cache.get(now);
+                } else {
+                    cache.store(&fresh_credentials(now));
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert!(cache.get(now).is_some());
+    }
 }

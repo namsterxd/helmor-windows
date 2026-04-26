@@ -966,6 +966,36 @@ mod tests {
         assert!(cancelled);
     }
 
+    #[test]
+    fn sleep_interruptible_zero_duration_returns_immediately() {
+        let cancel = AtomicBool::new(false);
+        let started = Instant::now();
+        let cancelled = sleep_interruptible(&cancel, Duration::ZERO);
+        assert!(!cancelled);
+        // Should not block — well under one tick.
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn sleep_interruptible_observes_mid_sleep_cancel() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let watcher = flag.clone();
+        // Cancel after a short delay; the sleep loop checks every 1 s so we
+        // expect to bail out within a couple of ticks rather than the full 60 s.
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            watcher.store(true, Ordering::Relaxed);
+        });
+        let started = Instant::now();
+        let cancelled = sleep_interruptible(&flag, Duration::from_secs(60));
+        assert!(cancelled);
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "should observe cancel within a few seconds, took {:?}",
+            started.elapsed()
+        );
+    }
+
     // -- Trigger throttle --
 
     #[test]

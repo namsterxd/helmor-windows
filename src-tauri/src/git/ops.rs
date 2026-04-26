@@ -1422,4 +1422,49 @@ mod tests {
             Some("origin/feature/manual-push"),
         );
     }
+
+    #[test]
+    fn parse_porcelain_status_paths_skips_short_lines_and_empty_paths() {
+        // Note: every line must keep its leading 3 chars of porcelain prefix
+        // (XY + space). A 3-char line like "XX " has no path → must be skipped.
+        let raw = " M file_one.txt\n?? new.rs\nXX\n\n   \nA  second.toml\n";
+        let parsed = parse_porcelain_status_paths(raw);
+        let collected: Vec<&str> = parsed.iter().map(String::as_str).collect();
+        assert!(collected.contains(&"file_one.txt"));
+        assert!(collected.contains(&"new.rs"));
+        assert!(collected.contains(&"second.toml"));
+        // BTreeSet dedupes — no duplicates allowed.
+        assert_eq!(collected.len(), 3);
+    }
+
+    #[test]
+    fn parse_porcelain_status_paths_returns_empty_for_blank_input() {
+        assert!(parse_porcelain_status_paths("").is_empty());
+        assert!(parse_porcelain_status_paths("\n\n\n").is_empty());
+    }
+
+    #[test]
+    fn parse_porcelain_status_paths_dedupes_repeated_paths() {
+        let raw = " M file.txt\nMM file.txt\n";
+        let parsed = parse_porcelain_status_paths(raw);
+        assert_eq!(parsed.len(), 1);
+        assert!(parsed.contains("file.txt"));
+    }
+
+    #[test]
+    fn parse_unmerged_paths_extracts_path_after_tab() {
+        let raw = "100644 abc 1\tconflict.txt\n100644 def 2\tnested/foo.toml\n";
+        let parsed = parse_unmerged_paths(raw);
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed.contains("conflict.txt"));
+        assert!(parsed.contains("nested/foo.toml"));
+    }
+
+    #[test]
+    fn parse_unmerged_paths_skips_lines_without_tab() {
+        let raw = "no-tab here\n100644 abc 1\tvalid.txt\nempty\t\n";
+        let parsed = parse_unmerged_paths(raw);
+        assert_eq!(parsed.len(), 1);
+        assert!(parsed.contains("valid.txt"));
+    }
 }
