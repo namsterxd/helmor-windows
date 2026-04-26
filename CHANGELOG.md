@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- [#248](https://github.com/dohooo/helmor/pull/248) [`3ecf923`](https://github.com/dohooo/helmor/commit/3ecf923950aba9812713175e2ce66f12825c592b) Thanks [@natllian](https://github.com/natllian)! - Streamline GitHub and GitLab onboarding so users no longer have to install the forge CLIs themselves:
+
+  - Ship `gh` and `glab` bundled inside Helmor so Connect GitHub / Connect GitLab works on a fresh install — no Homebrew step required.
+  - Add an Account section in Settings that shows your GitHub identity and the connection status of each forge CLI, with a one-click Connect button that opens a terminal to finish signing in.
+  - Update the inspector's Connect button tooltip to clarify that authentication happens locally in a terminal you control.
+
+- [#249](https://github.com/dohooo/helmor/pull/249) [`8253908`](https://github.com/dohooo/helmor/commit/825390811db3acdd40d806e6c50a19d3a727399d) Thanks [@natllian](https://github.com/natllian)! - Ship a customizable shortcut system across the app:
+  - Add a Shortcuts settings page where users can search, record, clear, reset, and detect conflicts for supported shortcuts.
+  - Show compact shortcut hints in tooltips, buttons, the composer, and editor/diff close controls.
+  - Add shortcuts for workspace/session navigation, repository actions, sidebars, zen mode, zoom, theme switching, composer focus, and common Git actions.
+
+### Patch Changes
+
+- [#247](https://github.com/dohooo/helmor/pull/247) [`fb6710b`](https://github.com/dohooo/helmor/commit/fb6710b2920f12189ca8dffa14320694ccee5eb8) Thanks [@natllian](https://github.com/natllian)! - Stop the Claude rate-limit indicator from re-triggering the macOS keychain prompt on every Helmor upgrade, and let Claude CLI handle expired-token refresh so its saved login is no longer invalidated by Anthropic's refresh-token rotation.
+
+- [#243](https://github.com/dohooo/helmor/pull/243) [`7a7d6c4`](https://github.com/dohooo/helmor/commit/7a7d6c48c61ff946ae3549e1ebc547cdb60dd40e) Thanks [@dohooo](https://github.com/dohooo)! - Use a bundled Claude and Codex model catalog so the model picker always has stable options without depending on SDK model-list loading or cached results.
+
 ## 0.8.0
 
 ### Minor Changes
