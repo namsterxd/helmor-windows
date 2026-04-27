@@ -8,7 +8,7 @@ import {
 	Search,
 	Terminal,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
 	Reasoning,
 	ReasoningContent,
@@ -120,16 +120,8 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 	const hasOutput = resultText != null && resultText.length > 5;
 	const canExpand = hasOutput || hasFiles;
 	const isLiveTool = isLiveStreamingStatus(streamingStatus);
-	const [isOpen, setIsOpen] = useState(isLiveTool || hasFiles);
-	useEffect(() => {
-		if (isLiveTool) {
-			setIsOpen(true);
-			return;
-		}
-		if (!canExpand) {
-			setIsOpen(false);
-		}
-	}, [canExpand, isLiveTool]);
+	// All tool calls default to collapsed; user must click to expand.
+	const [isOpen, setIsOpen] = useState(false);
 
 	const statusIndicator = isLiveTool ? (
 		<LoaderCircle
@@ -231,7 +223,7 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 				onToggle={(event) => {
 					setIsOpen(event.currentTarget.open);
 				}}
-				open={isLiveTool || isOpen}
+				open={isOpen}
 			>
 				<summary
 					className={cn(
@@ -258,7 +250,7 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 						</span>
 					) : null}
 				</summary>
-				{canExpand && (isLiveTool || isOpen) ? (
+				{canExpand && isOpen ? (
 					<div className="flex flex-col gap-1">
 						{hasOutput ? (
 							<div className="max-h-[16rem] overflow-auto rounded-md bg-accent/35 text-[11px] leading-5">

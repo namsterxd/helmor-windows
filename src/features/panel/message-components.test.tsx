@@ -60,8 +60,8 @@ describe("MemoConversationMessage plan review", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("renders multi-file edits as compact rows", () => {
-		render(
+	it("renders multi-file edits as compact rows when expanded", () => {
+		const { container } = render(
 			<AssistantToolCall
 				toolName="apply_patch"
 				args={{
@@ -80,6 +80,14 @@ describe("MemoConversationMessage plan review", () => {
 				}}
 			/>,
 		);
+
+		// Tool calls default to collapsed; expand before asserting on the body.
+		const details = container.querySelector(
+			"details",
+		) as HTMLDetailsElement | null;
+		expect(details).not.toBeNull();
+		details!.open = true;
+		fireEvent(details!, new Event("toggle"));
 
 		expect(
 			screen.getByText("index.test.tsx").closest("[data-variant='row']"),
