@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
+import type { ForgeDetection } from "./api";
 import {
 	prependGeneralPreferencePrompt,
 	resolveRepoPreferencePreview,
 	resolveRepoPreferencePrompt,
 } from "./repo-preferences-prompts";
+
+const GITLAB_FORGE: ForgeDetection = {
+	provider: "gitlab",
+	host: "gitlab.example.com",
+	namespace: "acme",
+	repo: "repo",
+	remoteUrl: "git@gitlab.example.com:acme/repo.git",
+	labels: {
+		providerName: "GitLab",
+		cliName: "glab",
+		changeRequestName: "MR",
+		changeRequestFullName: "merge request",
+		connectAction: "Connect GitLab",
+	},
+	cli: null,
+	detectionSignals: [],
+};
 
 describe("repo preference prompts", () => {
 	const targetRefPlaceholder = "$" + "{TARGET_REF}";
@@ -11,6 +29,15 @@ describe("repo preference prompts", () => {
 
 	it("leaves the general preview empty when no override exists", () => {
 		expect(resolveRepoPreferencePreview("general", {})).toBe("");
+	});
+
+	it("uses generic prose in the create-pr preview", () => {
+		// Preview has no live workspace context — keep the original generic
+		// wording rather than substituting placeholders into the template.
+		const preview = resolveRepoPreferencePreview("createPr", {});
+		expect(preview).toContain("this workspace's target branch");
+		expect(preview).toContain("`gh pr create`");
+		expect(preview).not.toContain("<target-branch>");
 	});
 
 	it("appends the override after the target-specific create-pr prompt", () => {
@@ -23,7 +50,7 @@ describe("repo preference prompts", () => {
 		).toContain("### User Preferences\n\nShip it exactly this way.");
 	});
 
-	it("uses the workspace target branch in the create-pr prompt", () => {
+	it("uses the workspace target branch in the create-pr prompt (GitHub default)", () => {
 		expect(
 			resolveRepoPreferencePrompt({
 				key: "createPr",
@@ -35,6 +62,19 @@ describe("repo preference prompts", () => {
 		);
 	});
 
+	it("uses the GitLab dialect in the create-pr prompt when forge is GitLab", () => {
+		const prompt = resolveRepoPreferencePrompt({
+			key: "createPr",
+			repoPreferences: {},
+			targetBranch: "develop",
+			forge: GITLAB_FORGE,
+		});
+		expect(prompt).toContain("Create a merge request");
+		expect(prompt).toContain(
+			"Open a merge request against `develop` using `glab mr create --target-branch develop`.",
+		);
+	});
+
 	it("throws instead of falling back when create-pr has no target branch", () => {
 		expect(() =>
 			resolveRepoPreferencePrompt({
@@ -42,6 +82,15 @@ describe("repo preference prompts", () => {
 				repoPreferences: {},
 			}),
 		).toThrow("Missing workspace target branch for createPr prompt.");
+	});
+
+	it("uses the GitLab dialect in the fix-errors prompt when forge is GitLab", () => {
+		const prompt = resolveRepoPreferencePrompt({
+			key: "fixErrors",
+			repoPreferences: {},
+			forge: GITLAB_FORGE,
+		});
+		expect(prompt).toContain("`glab ci list` / `glab ci view`");
 	});
 
 	it("renders the dynamic resolve-conflicts fallback", () => {
