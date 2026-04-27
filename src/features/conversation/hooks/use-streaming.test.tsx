@@ -955,6 +955,218 @@ describe("useConversationStreaming", () => {
 		cancelSpy.mockRestore();
 	});
 
+	it("surfaces a non-persisted, non-internal stream error to the composer", async () => {
+		// Locks the contract that drives the StreamingMachine refactor:
+		// `error` event with persisted=false, internal=false must surface
+		// the message in `activeSendError` AND restore the draft so the
+		// user can retry without re-typing.
+		const streamCallbacks: Array<(event: unknown) => void> = [];
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, onEvent: (event: unknown) => void) => {
+				streamCallbacks.push(onEvent);
+			},
+		);
+
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "first attempt",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		act(() => {
+			streamCallbacks[0]({
+				kind: "error",
+				message: "Network unreachable",
+				persisted: false,
+				internal: false,
+			});
+		});
+
+		expect(result.current.activeSendError).toBe("Network unreachable");
+		expect(result.current.restoreDraft).toBe("first attempt");
+		expect(result.current.isSending).toBe(false);
+	});
+
+	it("hides the message of an internal sidecar error from the composer", async () => {
+		// `internal: true` indicates a sidecar bug — the underlying
+		// message would just confuse the user, so we drop it. The hook
+		// instead pops a generic toast (covered by the toast spy).
+		const streamCallbacks: Array<(event: unknown) => void> = [];
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, onEvent: (event: unknown) => void) => {
+				streamCallbacks.push(onEvent);
+			},
+		);
+
+		const { Wrapper, pushToast } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "trigger internal",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		act(() => {
+			streamCallbacks[0]({
+				kind: "error",
+				message: "panic: borrow_mut on poisoned mutex",
+				persisted: false,
+				internal: true,
+			});
+		});
+
+		expect(result.current.activeSendError).toBeNull();
+		expect(result.current.isSending).toBe(false);
+		expect(pushToast).toHaveBeenCalledWith(
+			"Something went wrong. Please try again.",
+			"Error",
+			"destructive",
+		);
+	});
+
+	it("handleStopStream is a no-op when no stream is active", async () => {
+		// Defensive case: stop button is wired even when isSending is
+		// false (race window between done event and UI update). Calling
+		// it must not crash and must not invoke stopAgentStream.
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		expect(result.current.isSending).toBe(false);
+		act(() => {
+			result.current.handleStopStream();
+		});
+		expect(apiMocks.stopAgentStream).not.toHaveBeenCalled();
+	});
+
+	it("allows a fresh submit after a non-persisted stream error", async () => {
+		// The state machine refactor must preserve this: an error event
+		// fully clears sending state so the next submit starts a clean
+		// turn. If sendingContextKeys still had the key, the second
+		// submit would route to steer instead of startAgentMessageStream.
+		const streamCallbacks: Array<(event: unknown) => void> = [];
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, onEvent: (event: unknown) => void) => {
+				streamCallbacks.push(onEvent);
+			},
+		);
+
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		// First attempt — fails with a non-persisted error.
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "first try",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+		act(() => {
+			streamCallbacks[0]({
+				kind: "error",
+				message: "transient error",
+				persisted: false,
+				internal: false,
+			});
+		});
+
+		expect(result.current.isSending).toBe(false);
+		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(1);
+		expect(apiMocks.steerAgentStream).not.toHaveBeenCalled();
+
+		// Second attempt — must hit the fresh-turn path, not steer.
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "retry",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
+		expect(apiMocks.steerAgentStream).not.toHaveBeenCalled();
+	});
+
 	it("keeps persisted stream errors out of the composer error state", async () => {
 		const streamCallbacks: Array<(event: unknown) => void> = [];
 		apiMocks.startAgentMessageStream.mockImplementation(

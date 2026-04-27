@@ -24,7 +24,9 @@ pub use self::queries::{
 };
 pub use self::slash_commands::SlashCommandCache;
 pub use self::streaming::{
-    abort_all_active_streams_blocking, bridge_elicitation_request_event, build_send_message_params,
+    abort_all_active_streams_blocking, bridge_aborted_event, bridge_deferred_tool_use_event,
+    bridge_done_event, bridge_elicitation_request_event, bridge_error_event,
+    bridge_permission_request_event, bridge_user_input_request_event, build_send_message_params,
     convert_elicitation_content_to_codex_answers, lookup_workspace_linked_directories,
     ActiveStreams, BuildSendMessageParamsInput,
 };

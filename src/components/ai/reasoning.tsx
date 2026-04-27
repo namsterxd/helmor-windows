@@ -2,7 +2,6 @@ import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { BrainIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
-import { useStickToBottom } from "use-stick-to-bottom";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -156,22 +155,14 @@ export type ReasoningContentProps = ComponentProps<
 
 export const ReasoningContent = memo(
 	({ className, children, fontSize, ...props }: ReasoningContentProps) => {
-		const { scrollRef, contentRef } = useStickToBottom({ initial: "instant" });
-
 		return (
 			<CollapsibleContent className={cn("pt-1.5", className)} {...props}>
-				<div
-					ref={scrollRef}
-					className="max-h-[20rem] overflow-auto rounded-lg bg-muted/40"
+				<pre
+					className="whitespace-pre-wrap break-words rounded-lg bg-muted/40 px-3 py-2.5 font-sans leading-relaxed text-muted-foreground/80"
+					style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
 				>
-					<pre
-						ref={contentRef}
-						className="whitespace-pre-wrap break-words px-3 py-2.5 font-sans leading-relaxed text-muted-foreground/80"
-						style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
-					>
-						{children}
-					</pre>
-				</div>
+					{children}
+				</pre>
 			</CollapsibleContent>
 		);
 	},

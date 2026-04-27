@@ -334,7 +334,10 @@ export function AskUserQuestionPanel({
 
 				<div
 					data-ask-option-row="other"
-					className={cn("px-2 py-1.5", disabled && "opacity-60")}
+					className={cn(
+						"cursor-pointer px-2 py-1.5",
+						disabled && "cursor-not-allowed opacity-60",
+					)}
 					onClick={() => {
 						if (disabled) {
 							return;
