@@ -92,7 +92,7 @@ describe("App", () => {
 		).not.toBeInTheDocument();
 		expect(screen.getByRole("tab", { name: "Setup" })).toBeInTheDocument();
 		expect(screen.getByRole("tab", { name: "Run" })).toBeInTheDocument();
-		expect(screen.queryByText("Terminal")).not.toBeInTheDocument();
+		expect(screen.getByRole("tab", { name: "Terminal" })).toBeInTheDocument();
 		expect(panel).toHaveClass("relative");
 		expect(panel).toHaveClass("bg-background");
 		expect(dragRegion).toHaveAttribute("data-tauri-drag-region");

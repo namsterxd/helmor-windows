@@ -125,6 +125,11 @@ type InspectorTabsSectionProps = {
 	setupScriptState: ScriptIconState;
 	runScriptState: ScriptIconState;
 	/**
+	 * Number of live shells in the Terminal tab — drives the count badge next
+	 * to the Terminal tab label (`Terminal` / `Terminal · 2`). 0 hides it.
+	 */
+	terminalCount: number;
+	/**
 	 * Gate for the hover-to-zoom effect. When false, hovering the body does
 	 * nothing — used so we only zoom when there's actual terminal output worth
 	 * enlarging (and not on the empty "Run setup" / "Open settings" placeholders).
@@ -142,6 +147,7 @@ export function InspectorTabsSection({
 	tabActions,
 	setupScriptState,
 	runScriptState,
+	terminalCount,
 	canHoverExpand,
 	children,
 }: InspectorTabsSectionProps) {
@@ -512,6 +518,36 @@ export function InspectorTabsSection({
 										className={cn(
 											"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
 											activeTab === "run" && "opacity-100",
+										)}
+									/>
+								</button>
+								<button
+									type="button"
+									role="tab"
+									id="inspector-tab-terminal"
+									aria-controls="inspector-panel-terminal"
+									aria-selected={activeTab === "terminal"}
+									tabIndex={activeTab === "terminal" ? 0 : -1}
+									className={cn(
+										INSPECTOR_TAB_BUTTON_CLASS,
+										activeTab === "terminal" && "text-foreground",
+									)}
+									onClick={() => onTabChange("terminal")}
+								>
+									Terminal
+									{terminalCount > 0 && (
+										<span
+											aria-hidden="true"
+											className="ml-0.5 rounded-full bg-muted px-1.5 text-[10px] leading-4 text-muted-foreground"
+										>
+											{terminalCount}
+										</span>
+									)}
+									<span
+										aria-hidden="true"
+										className={cn(
+											"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
+											activeTab === "terminal" && "opacity-100",
 										)}
 									/>
 								</button>

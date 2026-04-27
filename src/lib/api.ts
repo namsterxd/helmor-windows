@@ -2396,6 +2396,76 @@ export async function resizeRepoScript(
 	});
 }
 
+/**
+ * Spawn a blank interactive `$SHELL -i -l` on a fresh PTY in the workspace
+ * directory. Each Terminal sub-tab in the Inspector is one of these.
+ *
+ * `instanceId` distinguishes concurrent terminals within the same workspace;
+ * the backend keys its `ScriptProcessManager` on `(repoId, "terminal:<instanceId>",
+ * workspaceId)`, so spawning twice with the same `instanceId` would replace
+ * the previous shell — callers must mint a fresh UUID per sub-tab.
+ *
+ * Nothing is persisted: closing the app discards every sub-tab and its
+ * output. Cross-tab / cross-workspace survival is in-memory only.
+ */
+export async function spawnTerminal(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_terminal", {
+		repoId,
+		workspaceId,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopTerminal(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_terminal", {
+		repoId,
+		workspaceId,
+		instanceId,
+	});
+}
+
+export async function writeTerminalStdin(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_terminal_stdin", {
+		repoId,
+		workspaceId,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeTerminal(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_terminal", {
+		repoId,
+		workspaceId,
+		instanceId,
+		cols,
+		rows,
+	});
+}
+
 export { DEFAULT_WORKSPACE_GROUPS };
 
 function describeInvokeError(error: unknown, fallback: string): string {

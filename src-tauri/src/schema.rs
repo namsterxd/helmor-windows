@@ -99,6 +99,10 @@ const DEAD_TABLES: &[(&str, &[&str])] = &[
         ],
     ),
     ("diff_comments", &["idx_diff_comments_workspace"]),
+    // Briefly existed during the Terminal-tab persistence experiment. We
+    // decided not to ship cross-restart history; this drop cleans up dev DBs
+    // that ran the intermediate code so they don't carry an orphan table.
+    ("terminal_history", &["idx_terminal_history_workspace"]),
 ];
 
 fn drop_dead_schema(connection: &Connection) -> Result<()> {
