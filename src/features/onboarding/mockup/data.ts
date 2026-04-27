@@ -214,19 +214,19 @@ export const mockConversation: {
 				{
 					type: "tool",
 					name: "Bash",
-					detail: "helmor workspace new --repo helmor  # DB migration",
+					detail: "helmor workspace new --repo helmor  # DB",
 					cliSplitTarget: true,
 				},
 				{
 					type: "tool",
 					name: "Bash",
-					detail: "helmor workspace new --repo helmor  # backend handlers",
+					detail: "helmor workspace new --repo helmor  # backend",
 					cliSplitTarget: true,
 				},
 				{
 					type: "tool",
 					name: "Bash",
-					detail: "helmor workspace new --repo helmor  # frontend wiring",
+					detail: "helmor workspace new --repo helmor  # frontend",
 					cliSplitTarget: true,
 				},
 				{
