@@ -169,29 +169,31 @@ export const mockConversation: {
 		{
 			id: "user-1",
 			role: "user",
-			text: "Make onboarding feel like the real Helmor workspace.",
+			text: "Split this feature into three workspaces — DB migration, backend handlers, and frontend wiring — so I can pair on each in parallel.",
 		},
 		{
 			id: "assistant-1",
 			role: "assistant",
 			parts: [
-				{ type: "reasoning", label: "Thinking through the layout" },
+				{ type: "reasoning", label: "Planning the workspace split" },
 				{
-					type: "todo",
-					items: [
-						{ label: "Mirror the three-column shell", done: true },
-						{ label: "Keep the mockup data-driven", done: true },
-						{ label: "Tune the preview scale" },
-					],
+					type: "tool",
+					name: "Bash",
+					detail: "helmor workspace new --repo helmor  # DB migration",
 				},
 				{
 					type: "tool",
-					name: "Edit",
-					detail: "src/features/onboarding/mockup/index.tsx",
+					name: "Bash",
+					detail: "helmor workspace new --repo helmor  # backend handlers",
+				},
+				{
+					type: "tool",
+					name: "Bash",
+					detail: "helmor workspace new --repo helmor  # frontend wiring",
 				},
 				{
 					type: "text",
-					text: "I will keep this isolated from the production workspace and use a compact mock dataset.",
+					text: "Spun up three workspaces — switch between them in the sidebar to keep each lane moving.",
 				},
 			],
 		},

@@ -14,7 +14,13 @@ import {
 	XCircleFillIcon,
 } from "@primer/octicons-react";
 import { Pin } from "lucide-react";
-import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar";
+import helmorLogo from "@/assets/helmor-logo-light.png";
+import {
+	Avatar,
+	AvatarBadge,
+	AvatarFallback,
+	AvatarImage,
+} from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
 // ─── Types (mockup-private, decoupled from @/lib/api) ─────────────────────
@@ -148,7 +154,12 @@ export function GroupIcon({ tone }: { tone: GroupTone }) {
 	}
 }
 
-// ─── Avatar (initials-only, mockup-private; no image loading) ─────────────
+// ─── Avatar (Helmor logo, mockup-private) ─────────────────────────────────
+// All mockup rows show the Helmor logo — this is a marketing/onboarding
+// preview, not a real multi-repo workspace. The `repoInitials` / `repoName`
+// props are kept on the signature for shape parity with the production
+// `WorkspaceAvatarUI`, but only feed the fallback shown if the image fails
+// to load.
 
 export function WorkspaceAvatarUI({
 	repoInitials,
@@ -182,6 +193,7 @@ export function WorkspaceAvatarUI({
 				className,
 			)}
 		>
+			<AvatarImage src={helmorLogo} alt="" className="object-contain" />
 			<AvatarFallback
 				delayMs={0}
 				className={cn(

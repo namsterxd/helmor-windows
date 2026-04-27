@@ -2,9 +2,9 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	Layers,
-	Network,
 	PackageCheck,
 	Sparkles,
+	Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SetupItem } from "../components/setup-item";
@@ -84,9 +84,9 @@ export function SkillsStep({
 
 				<div className="mt-7 grid w-full gap-3">
 					<SetupItem
-						icon={<Network className="size-5" />}
-						label="MCP servers"
-						description="Configure local MCP access so Helmor can reach the tools and context your work depends on."
+						icon={<Terminal className="size-5" />}
+						label="Helmor CLI"
+						description="Install the helmor command so you can spin up workspaces and dispatch agents straight from the terminal."
 					/>
 					<SetupItem
 						icon={<PackageCheck className="size-5" />}

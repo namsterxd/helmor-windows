@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import helmorLogoSrc from "@/assets/helmor-logo.png";
+import helmorLogoSrc from "@/assets/helmor-logo-light.png";
 import { Button } from "@/components/ui/button";
 import { HelmorOnboardingMockup } from "../mockup";
 import type { OnboardingStep } from "../types";
