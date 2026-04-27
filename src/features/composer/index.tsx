@@ -241,6 +241,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const consumedInsertRequestIdsRef = useRef<Set<string>>(new Set());
 	const [hasContent, setHasContent] = useState(false);
 	const [isInputFocused, setIsInputFocused] = useState(false);
+	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	useEffect(() => {
 		const handleFocusComposer = () => {
 			if (disabled) return;
@@ -292,6 +293,18 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const hasPendingInteraction = hasPendingElicitation || hasPendingDeferredTool;
 	const inputDisabled = disabled || hasPendingInteraction;
 	const toolbarDisabled = disabled || hasPendingInteraction;
+	useEffect(() => {
+		const handleOpenModelPicker = () => {
+			if (toolbarDisabled) return;
+			setModelPickerOpen(true);
+		};
+		window.addEventListener("helmor:open-model-picker", handleOpenModelPicker);
+		return () =>
+			window.removeEventListener(
+				"helmor:open-model-picker",
+				handleOpenModelPicker,
+			);
+	}, [toolbarDisabled]);
 	const composerToolbarTriggerClassName =
 		"cursor-pointer rounded-[9px] px-1 py-0.5 text-[13px] font-medium transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50";
 	// Shared gate for Send and Steer — the only difference is whether a
@@ -600,7 +613,10 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								</ShimmerText>
 							) : (
 								<>
-									<DropdownMenu>
+									<DropdownMenu
+										open={modelPickerOpen}
+										onOpenChange={setModelPickerOpen}
+									>
 										<DropdownMenuTrigger
 											disabled={toolbarDisabled}
 											className={cn(

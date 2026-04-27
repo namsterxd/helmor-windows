@@ -454,11 +454,18 @@ pub(super) fn stream_via_sidecar(
                             pipeline_state.accumulator.append_aborted_notice();
                         }
 
+                        // Borrow writer once for both turn persistence and the
+                        // terminal finalize. drain_output between the two uses
+                        // is purely in-memory, so holding the writer pool slot
+                        // across it is cheap and halves the writer round-trips
+                        // per terminal event.
+                        let writer = exchange_ctx
+                            .as_ref()
+                            .and_then(|_| crate::models::db::write_conn().ok());
+
                         // Persist remaining turns and sync their UUIDs back
                         // into collected[] so streaming IDs = DB IDs.
-                        if let (Some(ctx), Some(conn)) =
-                            (&exchange_ctx, &crate::models::db::write_conn().ok())
-                        {
+                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -484,9 +491,7 @@ pub(super) fn stream_via_sidecar(
                         if !output.assistant_text.is_empty() {
                             resolved_model = output.resolved_model.clone();
                         }
-                        if let (Some(ctx), Some(conn)) =
-                            (&exchange_ctx, &crate::models::db::write_conn().ok())
-                        {
+                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
                             if is_aborted {
                                 match finalize_session_metadata(
                                     conn,
@@ -526,6 +531,7 @@ pub(super) fn stream_via_sidecar(
                                 "Failed to borrow writer for finalize — reporting persisted=false"
                             );
                         }
+                        drop(writer);
 
                         // Final render with DB-synced IDs so the frontend
                         // cache matches what the historical loader returns.
@@ -620,9 +626,14 @@ pub(super) fn stream_via_sidecar(
                     if let Some(pipeline_state) = pipeline.as_mut() {
                         pipeline_state.accumulator.flush_pending();
 
-                        if let (Some(ctx), Some(conn)) =
-                            (&exchange_ctx, &crate::models::db::write_conn().ok())
-                        {
+                        // Single writer borrow covers turn persistence and
+                        // the exit-plan message write below; only an
+                        // in-memory `resolved_model` read sits between them.
+                        let writer = exchange_ctx
+                            .as_ref()
+                            .and_then(|_| crate::models::db::write_conn().ok());
+
+                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -646,7 +657,7 @@ pub(super) fn stream_via_sidecar(
                         let resolved_model =
                             pipeline_state.accumulator.resolved_model().to_string();
                         let persisted_metadata = if let (Some(ctx), Some(conn)) =
-                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                            (exchange_ctx.as_ref(), writer.as_ref())
                         {
                             persist_exit_plan_message(
                                 conn,
@@ -660,6 +671,7 @@ pub(super) fn stream_via_sidecar(
                         } else {
                             None
                         };
+                        drop(writer);
                         let (msg_id, created_at) = persisted_metadata.unwrap_or_default();
                         let plan_message = build_exit_plan_review_message(
                             (!msg_id.is_empty()).then_some(msg_id),
@@ -704,9 +716,14 @@ pub(super) fn stream_via_sidecar(
                     if let Some(mut pipeline_state) = pipeline.take() {
                         pipeline_state.accumulator.flush_pending();
 
-                        if let (Some(ctx), Some(conn)) =
-                            (&exchange_ctx, &crate::models::db::write_conn().ok())
-                        {
+                        // Borrow writer once for both turn persist and the
+                        // deferred-finalize. The pipeline_state.finish()
+                        // between them is purely in-memory.
+                        let writer = exchange_ctx
+                            .as_ref()
+                            .and_then(|_| crate::models::db::write_conn().ok());
+
+                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -734,9 +751,7 @@ pub(super) fn stream_via_sidecar(
                         resolved_model = pipeline_state.accumulator.resolved_model().to_string();
                         final_messages = pipeline_state.finish();
 
-                        if let (Some(ctx), Some(conn)) =
-                            (&exchange_ctx, &crate::models::db::write_conn().ok())
-                        {
+                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
                             if let Err(error) = finalize_session_metadata(
                                 conn,
                                 ctx,
@@ -750,6 +765,7 @@ pub(super) fn stream_via_sidecar(
                                 );
                             }
                         }
+                        drop(writer);
                     }
 
                     match turn_session.handle_deferred_tool_use(

@@ -146,9 +146,7 @@ fn list_session_historical_records_with_connection(
               sm.created_at
             FROM session_messages sm
             WHERE sm.session_id = ?1
-            ORDER BY
-              COALESCE(julianday(sm.sent_at), julianday(sm.created_at)) ASC,
-              sm.rowid ASC
+            ORDER BY sm.sent_at ASC, sm.rowid ASC
             "#,
     )?;
 

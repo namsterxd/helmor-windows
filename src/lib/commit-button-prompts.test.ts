@@ -19,6 +19,23 @@ const GITLAB_FORGE: ForgeDetection = {
 	detectionSignals: [],
 };
 
+const GITHUB_FORGE: ForgeDetection = {
+	provider: "github",
+	host: "github.com",
+	namespace: "acme",
+	repo: "repo",
+	remoteUrl: "git@github.com:acme/repo.git",
+	labels: {
+		providerName: "GitHub",
+		cliName: "gh",
+		changeRequestName: "PR",
+		changeRequestFullName: "pull request",
+		connectAction: "Connect GitHub",
+	},
+	cli: null,
+	detectionSignals: [],
+};
+
 describe("buildCommitButtonPrompt", () => {
 	it("appends create-pr preferences after the built-in prompt", () => {
 		expect(
@@ -32,10 +49,38 @@ describe("buildCommitButtonPrompt", () => {
 		).toContain("### User Preferences\n\nAlways include rollout notes.");
 	});
 
-	it("passes the target branch into create-pr prompts", () => {
+	it("passes the target branch into create-pr prompts (GitHub default)", () => {
 		expect(buildCommitButtonPrompt("create-pr", {}, "release/next")).toContain(
 			"gh pr create --base release/next",
 		);
+	});
+
+	it("passes the target branch into create-pr prompts (GitHub forge)", () => {
+		const prompt = buildCommitButtonPrompt(
+			"create-pr",
+			{},
+			"release/next",
+			GITHUB_FORGE,
+		);
+		expect(prompt).toContain("Create a pull request");
+		expect(prompt).toContain(
+			"Open a pull request against `release/next` using `gh pr create --base release/next`.",
+		);
+	});
+
+	it("passes the target branch into create-pr prompts (GitLab forge)", () => {
+		const prompt = buildCommitButtonPrompt(
+			"create-pr",
+			{},
+			"release/next",
+			GITLAB_FORGE,
+		);
+		expect(prompt).toContain("Create a merge request");
+		expect(prompt).toContain(
+			"Open a merge request against `release/next` using `glab mr create --target-branch release/next`.",
+		);
+		expect(prompt).not.toContain("`gh pr create`");
+		expect(prompt).not.toContain("the repository's default branch");
 	});
 
 	it("passes the target branch into resolve-conflicts prompts", () => {
@@ -56,29 +101,40 @@ describe("buildCommitButtonPrompt", () => {
 		);
 	});
 
-	it("uses GitLab merge request creation instructions", () => {
-		const prompt = buildCommitButtonPrompt(
-			"create-pr",
+	it("uses GitHub CI inspection commands by default", () => {
+		const prompt = buildCommitButtonPrompt("fix", null);
+		expect(prompt).toContain("`gh run list` / `gh run view`");
+	});
+
+	it("uses GitLab CI inspection commands for GitLab forge", () => {
+		const prompt = buildCommitButtonPrompt("fix", null, null, GITLAB_FORGE);
+		expect(prompt).toContain("GitLab CI is failing");
+		expect(prompt).toContain("`glab ci list` / `glab ci view`");
+		expect(prompt).toContain("failing pipeline");
+		expect(prompt).not.toContain("`gh run list`");
+	});
+
+	it("uses the same root-cause guidance for both forges", () => {
+		const githubPrompt = buildCommitButtonPrompt("fix", null);
+		const gitlabPrompt = buildCommitButtonPrompt(
+			"fix",
 			null,
 			null,
 			GITLAB_FORGE,
 		);
-
-		expect(prompt).toContain("Create a merge request");
-		expect(prompt).toContain("`glab mr create`");
-		expect(prompt).not.toContain("`gh pr create`");
+		const clause = "— don't just paper over the symptom";
+		expect(githubPrompt).toContain(clause);
+		expect(gitlabPrompt).toContain(clause);
 	});
 
-	it("uses GitLab CI inspection instructions for fix mode", () => {
-		const prompt = buildCommitButtonPrompt("fix", null, null, GITLAB_FORGE);
-
-		expect(prompt).toContain("GitLab CI is failing");
-		expect(prompt).toContain("`glab ci list` / `glab ci view`");
+	it("uses GitHub reopen commands for open-pr by default", () => {
+		const prompt = buildCommitButtonPrompt("open-pr", null);
+		expect(prompt).toContain("Reopen the closed pull request");
+		expect(prompt).toContain("`gh pr reopen` + `gh pr comment`");
 	});
 
-	it("uses GitLab reopen instructions for open-pr mode", () => {
+	it("uses GitLab reopen commands for open-pr on GitLab forge", () => {
 		const prompt = buildCommitButtonPrompt("open-pr", null, null, GITLAB_FORGE);
-
 		expect(prompt).toContain("Reopen the closed merge request");
 		expect(prompt).toContain("`glab mr reopen` + `glab mr note`");
 	});
@@ -87,13 +143,30 @@ describe("buildCommitButtonPrompt", () => {
 		const prompt = buildCommitButtonPrompt(
 			"create-pr",
 			{ createPr: "Mention deployment order." },
-			null,
+			"release/next",
 			GITLAB_FORGE,
 		);
 
-		expect(prompt).toContain("`glab mr create`");
+		expect(prompt).toContain("`glab mr create --target-branch release/next`");
 		expect(prompt).toContain(
 			"### User Preferences\n\nMention deployment order.",
 		);
+	});
+
+	it("uses pure-git instructions for commit-and-push regardless of forge", () => {
+		const githubPrompt = buildCommitButtonPrompt(
+			"commit-and-push",
+			null,
+			null,
+			GITHUB_FORGE,
+		);
+		const gitlabPrompt = buildCommitButtonPrompt(
+			"commit-and-push",
+			null,
+			null,
+			GITLAB_FORGE,
+		);
+		expect(githubPrompt).toBe(gitlabPrompt);
+		expect(githubPrompt).toContain("Commit and push all uncommitted work");
 	});
 });

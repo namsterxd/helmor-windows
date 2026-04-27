@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.10.0
+
+### Minor Changes
+
+- [#264](https://github.com/dohooo/helmor/pull/264) [`07c8ce9`](https://github.com/dohooo/helmor/commit/07c8ce998c8df2e10fc112586cb6d996a643dbb8) Thanks [@natllian](https://github.com/natllian)! - Add a guided first-run onboarding flow that walks new users from agent login to a workable workspace:
+
+  - Animated multi-step intro with previews of the Helmor UI, per-step spotlights, and Back / Next navigation between steps.
+  - Agent login step that detects active Claude and Codex installations and highlights the provider you're signed into.
+  - A "Power up Helmor" step that installs the Helmor CLI and Helmor Skills (Beta) from inside the app, with a live `helmor --help` preview — setup failures don't block onboarding, you can resolve them later from inside Helmor.
+  - Repository import step that lets you clone from a URL or add a local path before reaching the main workspace.
+
+- [#261](https://github.com/dohooo/helmor/pull/261) [`24be4a4`](https://github.com/dohooo/helmor/commit/24be4a4876c4a7e56d53b3e49ae85b1dc020976a) Thanks [@natllian](https://github.com/natllian)! - Add three new keyboard shortcuts with matching settings rows and in-app hints:
+  - Reopen closed session — `⌘⇧T` (LIFO history of recently hidden sessions)
+  - Open PR in browser — `⌘⇧G` (forge-aware: tooltip says "Open pull request" on GitHub, "Open merge request" on GitLab)
+  - Open model picker — `⌥P` (opens the composer's model dropdown; tooltip on the trigger shows the binding)
+
+### Patch Changes
+
+- [#262](https://github.com/dohooo/helmor/pull/262) [`dad03a8`](https://github.com/dohooo/helmor/commit/dad03a8ac55da0efd2372b8c977de83edb246f2a) Thanks [@natllian](https://github.com/natllian)! - Fix the Create MR button on GitLab repos so it opens the merge request against the workspace's configured target branch instead of falling back to the repository's default branch.
+
+- [#259](https://github.com/dohooo/helmor/pull/259) [`2c05f79`](https://github.com/dohooo/helmor/commit/2c05f79044f551136ed0a8b49f3072ef5adb5c61) Thanks [@natllian](https://github.com/natllian)! - Keep Helmor's startup cache healthy as your workspace history grows:
+  - The on-disk query cache no longer balloons with workspace diff and file-list snapshots — they reload on focus when you actually need them, instead of getting saved on every state change and pushing the cache toward the browser's storage quota.
+  - Composer drafts are now cleaned up when their session is deleted, so they don't accumulate over time.
+  - Storage write failures (quota exceeded, security errors) now log to the console instead of being silently swallowed, making it easier to diagnose persistence issues.
+
+## 0.9.1
+
+### Patch Changes
+
+- [#257](https://github.com/dohooo/helmor/pull/257) [`33c056b`](https://github.com/dohooo/helmor/commit/33c056b18c943ee01fcf3fea683263b778f75678) Thanks [@natllian](https://github.com/natllian)! - Make the inspector's PR header feel instant on workspace switch:
+
+  - Render the PR badge from the persisted snapshot the moment a workspace opens, before the live forge query returns — no more shimmer flash on cold start.
+  - Stop the shimmer from flashing on background PR refreshes; it now only appears on the very first fetch for a workspace.
+  - Hover the PR badge to see the PR title in a tooltip.
+  - The sidebar workspace name now reflects the live PR title once a PR has been opened.
+
+- [#250](https://github.com/dohooo/helmor/pull/250) [`ddeb6e4`](https://github.com/dohooo/helmor/commit/ddeb6e4ebd82ee35f099312eadbf3d8492a343cd) Thanks [@natllian](https://github.com/natllian)! - Fix a one-frame white flash when toggling the composer's Plan button — the muted off-state now fades smoothly to and from the green on-state instead of briefly brightening at the start of the animation.
+
+- [#255](https://github.com/dohooo/helmor/pull/255) [`1d22cbb`](https://github.com/dohooo/helmor/commit/1d22cbb89bdf4e30a215ae484ceeeed5e0b57986) Thanks [@natllian](https://github.com/natllian)! - Show thinking blocks in full instead of clipping them to an inner scroll container, so scrolling the chat thread no longer gets stuck when the cursor passes over a thinking block.
+
+- [#256](https://github.com/dohooo/helmor/pull/256) [`75993c2`](https://github.com/dohooo/helmor/commit/75993c2548ef90b6fc14352df8a9f6cc7325ee53) Thanks [@natllian](https://github.com/natllian)! - Make switching into large sessions snappier and reduce database contention during heavy streaming.
+
+- [#254](https://github.com/dohooo/helmor/pull/254) [`7a229a8`](https://github.com/dohooo/helmor/commit/7a229a88d49e38237924a2a65b5002f3ab285b38) Thanks [@natllian](https://github.com/natllian)! - Make in-app updates land faster and feel more transparent
+
+- [#253](https://github.com/dohooo/helmor/pull/253) [`a804bb2`](https://github.com/dohooo/helmor/commit/a804bb2ff8a088cdafbbf4ac8b98b649ecd13e7e) Thanks [@natllian](https://github.com/natllian)! - Polish the keyboard shortcut settings:
+  - Right-click anywhere on a shortcut row to open its menu, not just the keybinding chip, and the row picks up a subtle border highlight while the menu is open.
+  - Customized shortcuts now show a small reset button next to the chip so a single click reverts that shortcut to its default.
+  - Change the default Navigation shortcuts to Option+Command+Up/Down for previous/next workspace and Option+Command+Left/Right for previous/next session (replacing Option+H/L and Option+K/J).
+
 ## 0.9.0
 
 ### Minor Changes

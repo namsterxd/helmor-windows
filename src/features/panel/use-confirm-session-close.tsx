@@ -27,6 +27,7 @@ export type SessionCloseRequest = {
 type UseConfirmSessionCloseOptions = {
 	sendingSessionIds?: Set<string>;
 	onSelectSession?: (sessionId: string) => void;
+	onSessionHidden?: (sessionId: string, workspaceId: string) => void;
 	pushToast: PushWorkspaceToast;
 	queryClient: QueryClient;
 };
@@ -43,6 +44,7 @@ type UseConfirmSessionCloseReturn = {
 export function useConfirmSessionClose({
 	sendingSessionIds,
 	onSelectSession,
+	onSessionHidden,
 	pushToast,
 	queryClient,
 }: UseConfirmSessionCloseOptions): UseConfirmSessionCloseReturn {
@@ -59,10 +61,11 @@ export function useConfirmSessionClose({
 				activateAdjacent: request.activateAdjacent,
 				onSelectSession,
 				onSessionsChanged: request.onSessionsChanged,
+				onSessionHidden,
 				pushToast,
 			});
 		},
-		[onSelectSession, pushToast, queryClient],
+		[onSelectSession, onSessionHidden, pushToast, queryClient],
 	);
 
 	const requestClose = useCallback(

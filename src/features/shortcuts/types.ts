@@ -9,6 +9,7 @@ export type ShortcutId =
 	| "session.next"
 	| "session.new"
 	| "session.close"
+	| "session.reopenClosed"
 	| "script.run"
 	| "settings.open"
 	| "theme.toggle"
@@ -23,8 +24,10 @@ export type ShortcutId =
 	| "action.pullLatest"
 	| "action.mergePr"
 	| "action.fixErrors"
+	| "action.openPullRequest"
 	| "composer.focus"
-	| "composer.togglePlanMode";
+	| "composer.togglePlanMode"
+	| "composer.openModelPicker";
 
 export type ShortcutGroup =
 	| "Navigation"

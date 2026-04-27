@@ -142,7 +142,21 @@ pub fn init_pools() -> Result<()> {
 /// Ensure pools exist and point at the current `HELMOR_DATA_DIR`. Rebuilds
 /// transparently if the data dir has changed (tests) or if pools were
 /// never built (first call).
+///
+/// Prod fast path skips `db_path()` resolution: pools are built once at
+/// startup and never swapped. Tests still resolve every call so they can
+/// hot-swap `HELMOR_DATA_DIR`.
 fn with_bundle<T>(f: impl FnOnce(&PoolBundle) -> Result<T>) -> Result<T> {
+    #[cfg(not(test))]
+    {
+        let guard = pool_slot()
+            .read()
+            .map_err(|_| anyhow!("pool lock poisoned"))?;
+        if let Some(bundle) = guard.as_ref() {
+            return f(bundle);
+        }
+    }
+
     let current_path = crate::data_dir::db_path()?;
 
     {
@@ -183,6 +197,10 @@ const SLOW_BORROW_WARN_MS: u128 = 100;
 /// proceed concurrently and never block the writer.
 #[track_caller]
 pub fn read_conn() -> Result<PooledConn> {
+    // Capture caller OUTSIDE the closure: `#[track_caller]` only propagates
+    // across the direct call boundary, so calling `Location::caller()`
+    // inside `with_bundle`'s closure would resolve to db.rs itself.
+    let caller = Location::caller();
     with_bundle(|bundle| {
         let start = std::time::Instant::now();
         let conn = bundle
@@ -191,7 +209,6 @@ pub fn read_conn() -> Result<PooledConn> {
             .map_err(|e| anyhow!("Failed to borrow read connection: {e}"))?;
         let elapsed_ms = start.elapsed().as_millis();
         if elapsed_ms >= SLOW_BORROW_WARN_MS {
-            let caller = Location::caller();
             tracing::warn!(
                 elapsed_ms,
                 pool_state = ?bundle.read.state(),
@@ -209,10 +226,10 @@ pub fn read_conn() -> Result<PooledConn> {
 /// Hold for as short as possible; long-held writes starve all other writers.
 #[track_caller]
 pub fn write_conn() -> Result<PooledConn> {
+    let caller = Location::caller();
     with_bundle(|bundle| {
         let start = std::time::Instant::now();
         let conn = bundle.write.get().map_err(|e| {
-            let caller = Location::caller();
             tracing::error!(
                 elapsed_ms = start.elapsed().as_millis(),
                 pool_state = ?bundle.write.state(),
@@ -224,7 +241,6 @@ pub fn write_conn() -> Result<PooledConn> {
         })?;
         let elapsed_ms = start.elapsed().as_millis();
         if elapsed_ms >= SLOW_BORROW_WARN_MS {
-            let caller = Location::caller();
             tracing::warn!(
                 elapsed_ms,
                 pool_state = ?bundle.write.state(),

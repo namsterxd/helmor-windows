@@ -58,6 +58,8 @@ pub struct WorkspaceSidebarRow {
     pub primary_session_title: Option<String>,
     pub primary_session_agent_type: Option<String>,
     pub pr_title: Option<String>,
+    pub pr_sync_state: PrSyncState,
+    pub pr_url: Option<String>,
     pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
@@ -98,6 +100,8 @@ pub struct WorkspaceSummary {
     pub primary_session_title: Option<String>,
     pub primary_session_agent_type: Option<String>,
     pub pr_title: Option<String>,
+    pub pr_sync_state: PrSyncState,
+    pub pr_url: Option<String>,
     pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
@@ -134,6 +138,8 @@ pub struct WorkspaceDetail {
     pub intended_target_branch: Option<String>,
     pub pinned_at: Option<String>,
     pub pr_title: Option<String>,
+    pub pr_sync_state: PrSyncState,
+    pub pr_url: Option<String>,
     pub archive_commit: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
@@ -319,19 +325,35 @@ pub fn sync_workspace_pr_state(
         return Ok(false);
     }
 
-    let next = stabilize_pr_sync_state(
+    let next_state = stabilize_pr_sync_state(
         record.pr_sync_state,
         pr_sync_state_from_change_request(change_request),
     );
-    if record.pr_sync_state == next {
+
+    // Always reflect the live request's title/url when present; clear them
+    // when the PR has disappeared. Lets the inspector render the PR badge
+    // optimistically on next visit without waiting for the live fetch.
+    let (next_title, next_url) = match change_request {
+        Some(cr) => (Some(cr.title.clone()), Some(cr.url.clone())),
+        None => (None, None),
+    };
+
+    let state_changed = record.pr_sync_state != next_state;
+    let title_changed = record.pr_title != next_title;
+    let url_changed = record.pr_url != next_url;
+    if !state_changed && !title_changed && !url_changed {
         return Ok(false);
     }
 
-    let target_status = match next {
-        PrSyncState::Open => Some(WorkspaceStatus::Review),
-        PrSyncState::Closed => Some(WorkspaceStatus::Canceled),
-        PrSyncState::Merged => Some(WorkspaceStatus::Done),
-        PrSyncState::None => None,
+    let target_status = if state_changed {
+        match next_state {
+            PrSyncState::Open => Some(WorkspaceStatus::Review),
+            PrSyncState::Closed => Some(WorkspaceStatus::Canceled),
+            PrSyncState::Merged => Some(WorkspaceStatus::Done),
+            PrSyncState::None => None,
+        }
+    } else {
+        None
     };
 
     let connection = db::write_conn()?;
@@ -341,22 +363,30 @@ pub fn sync_workspace_pr_state(
                 r#"
                 UPDATE workspaces
                 SET pr_sync_state = ?2,
-                    status = ?3,
+                    pr_title = ?3,
+                    pr_url = ?4,
+                    status = ?5,
                     updated_at = datetime('now')
                 WHERE id = ?1
                 "#,
-                rusqlite::params![workspace_id, next, status],
+                rusqlite::params![workspace_id, next_state, next_title, next_url, status],
             )
             .context("Failed to sync workspace PR state")?;
-        return Ok(true);
+    } else {
+        connection
+            .execute(
+                r#"
+                UPDATE workspaces
+                SET pr_sync_state = ?2,
+                    pr_title = ?3,
+                    pr_url = ?4,
+                    updated_at = datetime('now')
+                WHERE id = ?1
+                "#,
+                rusqlite::params![workspace_id, next_state, next_title, next_url],
+            )
+            .context("Failed to record workspace PR sync state")?;
     }
-
-    connection
-        .execute(
-            "UPDATE workspaces SET pr_sync_state = ?2, updated_at = datetime('now') WHERE id = ?1",
-            rusqlite::params![workspace_id, next],
-        )
-        .context("Failed to record workspace PR sync state")?;
     Ok(true)
 }
 
@@ -700,6 +730,8 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         primary_session_title: record.primary_session_title,
         primary_session_agent_type: record.primary_session_agent_type,
         pr_title: record.pr_title,
+        pr_sync_state: record.pr_sync_state,
+        pr_url: record.pr_url,
         pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
@@ -733,6 +765,8 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         primary_session_title: record.primary_session_title,
         primary_session_agent_type: record.primary_session_agent_type,
         pr_title: record.pr_title,
+        pr_sync_state: record.pr_sync_state,
+        pr_url: record.pr_url,
         pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
@@ -785,6 +819,8 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
         intended_target_branch: record.intended_target_branch,
         pinned_at: record.pinned_at,
         pr_title: record.pr_title,
+        pr_sync_state: record.pr_sync_state,
+        pr_url: record.pr_url,
         archive_commit: record.archive_commit,
         session_count: record.session_count,
         message_count: record.message_count,
@@ -1186,8 +1222,10 @@ mod tests {
                 intended_target_branch: None,
             },
         );
+        // Pre-seed title/url so the stale_open call won't dirty them either —
+        // that lets the assertion below specifically test the *state freeze*.
         conn.execute(
-            "UPDATE workspaces SET status = 'done', pr_sync_state = 'merged' WHERE id = 'w-pr'",
+            "UPDATE workspaces SET status = 'done', pr_sync_state = 'merged', pr_title = 'PR', pr_url = 'https://example.test/pr/1' WHERE id = 'w-pr'",
             [],
         )
         .unwrap();
@@ -1236,10 +1274,95 @@ mod tests {
         );
     }
 
+    #[test]
+    fn pr_sync_persists_title_and_url() {
+        let env = TestEnv::new("pr-sync-persists-title-url");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-pr",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+
+        let open = ChangeRequestInfo {
+            url: "https://github.com/acme/widgets/pull/42".to_string(),
+            number: 42,
+            state: "OPEN".to_string(),
+            title: "Add cool feature".to_string(),
+            is_merged: false,
+        };
+        assert!(sync_workspace_pr_state("w-pr", Some(&open)).unwrap());
+        assert_eq!(
+            workspace_pr_metadata(&env, "w-pr"),
+            (
+                Some("Add cool feature".to_string()),
+                Some("https://github.com/acme/widgets/pull/42".to_string()),
+            )
+        );
+
+        // Same state, but the title or url moved on the remote — should write
+        // the new metadata and report a change so the UI invalidates.
+        let renamed = ChangeRequestInfo {
+            title: "Renamed PR".to_string(),
+            ..open
+        };
+        assert!(sync_workspace_pr_state("w-pr", Some(&renamed)).unwrap());
+        assert_eq!(
+            workspace_pr_metadata(&env, "w-pr").0,
+            Some("Renamed PR".to_string())
+        );
+
+        // Calling again with identical data is a no-op.
+        assert!(!sync_workspace_pr_state("w-pr", Some(&renamed)).unwrap());
+    }
+
+    #[test]
+    fn pr_sync_clears_title_and_url_when_request_disappears() {
+        let env = TestEnv::new("pr-sync-clears-title-url");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-pr",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "UPDATE workspaces SET pr_sync_state = 'open', pr_title = 'old', pr_url = 'https://example.test/pr/1' WHERE id = 'w-pr'",
+            [],
+        )
+        .unwrap();
+
+        assert!(sync_workspace_pr_state("w-pr", None).unwrap());
+        assert_eq!(workspace_pr_metadata(&env, "w-pr"), (None, None));
+    }
+
     fn workspace_statuses(env: &TestEnv, id: &str) -> (String, String) {
         env.db_connection()
             .query_row(
                 "SELECT status, pr_sync_state FROM workspaces WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    fn workspace_pr_metadata(env: &TestEnv, id: &str) -> (Option<String>, Option<String>) {
+        env.db_connection()
+            .query_row(
+                "SELECT pr_title, pr_url FROM workspaces WHERE id = ?1",
                 [id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )

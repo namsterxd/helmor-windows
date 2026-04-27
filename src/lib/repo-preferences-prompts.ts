@@ -1,4 +1,8 @@
-import type { RepoPreferences } from "@/lib/api";
+import type { ForgeDetection, RepoPreferences } from "@/lib/api";
+import {
+	type ForgePromptDialect,
+	forgePromptDialect,
+} from "@/lib/forge-dialect";
 
 const TARGET_REF_PLACEHOLDER = "$" + "{TARGET_REF}";
 const DIRTY_WORKTREE_PLACEHOLDER = "$" + "{DIRTY_WORKTREE}";
@@ -16,6 +20,7 @@ type ResolveRepoPreferencePromptArgs = {
 	targetBranch?: string | null;
 	targetRef?: string | null;
 	dirtyWorktree?: boolean;
+	forge?: ForgeDetection | null;
 };
 
 const DEFAULT_BRANCH_RENAME_PROMPT = `When you generate the branch name segment for a new chat:
@@ -27,7 +32,14 @@ const DEFAULT_BRANCH_RENAME_PROMPT = `When you generate the branch name segment 
 
 const CUSTOM_PREFERENCES_INTRO = `IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.`;
 
-const DEFAULT_CREATE_PR_PROMPT = `Create a pull request for the uncommitted work in this workspace.
+// Used to render `DEFAULT_REPO_PREFERENCE_PROMPTS`, which feeds the settings
+// preview pane. The user has no live workspace context there, so the preview
+// uses generic prose ("this workspace's target branch") rather than the
+// dynamic templates. The `fixErrors` preview can come from the template
+// directly because there's no per-workspace data needed there.
+const PREVIEW_DIALECT = forgePromptDialect(null);
+
+const CREATE_PR_PREVIEW = `Create a pull request for the uncommitted work in this workspace.
 
 Do the following, in order:
 1. Run \`git status\` and \`git diff\` to survey what's changed.
@@ -39,7 +51,7 @@ Do the following, in order:
 
 Don't stop to ask for confirmation — execute each step automatically. If you hit an unrecoverable error (e.g. merge conflict, pre-push hook failure), report it clearly so I can intervene.`;
 
-const DEFAULT_RESOLVE_CONFLICTS_PROMPT = `This branch has merge conflicts with its target branch. Resolve them.
+const RESOLVE_CONFLICTS_PREVIEW = `This branch has merge conflicts with its target branch. Resolve them.
 
 Do the following, in order:
 1. Use this workspace's configured target branch as the branch to resolve against.
@@ -51,23 +63,71 @@ Do the following, in order:
 
 If a conflict is too ambiguous to resolve automatically, stop and ask.`;
 
+function createPrPrompt(
+	dialect: ForgePromptDialect,
+	targetBranch?: string | null,
+): string {
+	const branch = requireTargetBranch("createPr", targetBranch);
+	return `Create a ${dialect.changeRequestFullName} for the uncommitted work in this workspace.
+
+Do the following, in order:
+1. Run \`git status\` and \`git diff\` to survey what's changed.
+2. Stage everything that should ship with \`git add\`.
+3. Commit with a concise, Conventional-Commits-style message (\`feat:\`, \`fix:\`, \`refactor:\`, \`chore:\`, etc.) that summarizes the change in one line.
+4. Push the current branch to its remote. If needed, create the remote tracking branch with \`git push -u <remote> HEAD\`.
+5. Open a ${dialect.changeRequestFullName} against \`${branch}\` using \`${dialect.createCommand(branch)}\`. Use a clear ${dialect.changeRequestName} title and a body that explains: what changed, why it changed, and any follow-up / test notes.
+6. Report the ${dialect.changeRequestName} URL in your final message so I can click it.
+
+Don't stop to ask for confirmation — execute each step automatically. If you hit an unrecoverable error (e.g. merge conflict, pre-push hook failure), report it clearly so I can intervene.`;
+}
+
+function fixErrorsPrompt(dialect: ForgePromptDialect): string {
+	return `${dialect.ciSystemName} is failing on the current branch. Diagnose and fix it.
+
+Do the following, in order:
+1. Use \`${dialect.ciListCommand}\` / \`${dialect.ciViewCommand}\` to inspect the most recent failing ${dialect.ciJobNoun} for this branch. Read the logs for each failing job.
+2. Identify the root cause — don't just paper over the symptom. Explain your diagnosis briefly before making changes.
+3. Apply the minimum set of changes needed to get CI green. Run the relevant tests / linters locally to confirm.
+4. Commit the fix with a clear \`fix(ci): …\` message and push to the same branch so CI re-runs.
+5. Report what was broken, what you changed, and whether the re-run is passing.`;
+}
+
+function resolveConflictsPrompt({
+	targetBranch,
+	targetRef,
+	dirtyWorktree,
+}: Pick<
+	ResolveRepoPreferencePromptArgs,
+	"targetBranch" | "targetRef" | "dirtyWorktree"
+>): string {
+	if (targetRef) {
+		return dirtyWorktree
+			? `Commit uncommitted changes, then merge ${targetRef} into this branch. Then push.`
+			: `Merge ${targetRef} into this branch. Then push.`;
+	}
+
+	const branch = requireTargetBranch("resolveConflicts", targetBranch);
+
+	return `This branch has merge conflicts with \`${branch}\`, this workspace's target branch. Resolve them.
+
+Do the following, in order:
+1. Fetch the latest \`${branch}\` from its remote.
+2. Rebase or merge \`${branch}\` into the current branch.
+3. Resolve each conflict, preserving intent from both sides where possible. Explain your resolution choices briefly in the session.
+4. Run the relevant tests locally to confirm nothing broke.
+5. Commit the resolution and push.
+6. Report the conflicted files and how you resolved them.
+
+If a conflict is too ambiguous to resolve automatically, stop and ask.`;
+}
+
 export const DEFAULT_REPO_PREFERENCE_PROMPTS: Record<
 	RepoPreferenceKey,
 	string
 > = {
-	createPr: DEFAULT_CREATE_PR_PROMPT,
-
-	fixErrors: `CI is failing on the current branch. Diagnose and fix it.
-
-Do the following, in order:
-1. Use \`gh run list\` / \`gh run view\` to inspect the most recent failing run for this branch. Read the logs for each failing job.
-2. Identify the root cause — don't just paper over the symptom. Explain your diagnosis briefly before making changes.
-3. Apply the minimum set of changes needed to get CI green. Run the relevant tests / linters locally to confirm.
-4. Commit the fix with a clear \`fix(ci): …\` message and push to the same branch so CI re-runs.
-5. Report what was broken, what you changed, and whether the re-run is passing.`,
-
-	resolveConflicts: DEFAULT_RESOLVE_CONFLICTS_PROMPT,
-
+	createPr: CREATE_PR_PREVIEW,
+	fixErrors: fixErrorsPrompt(PREVIEW_DIALECT),
+	resolveConflicts: RESOLVE_CONFLICTS_PREVIEW,
 	branchRename: DEFAULT_BRANCH_RENAME_PROMPT,
 	general: "",
 };
@@ -128,50 +188,6 @@ function requireTargetBranch(
 	return branch;
 }
 
-function createPrPrompt(targetBranch?: string | null): string {
-	const branch = requireTargetBranch("createPr", targetBranch);
-	return `Create a pull request for the uncommitted work in this workspace.
-
-Do the following, in order:
-1. Run \`git status\` and \`git diff\` to survey what's changed.
-2. Stage everything that should ship with \`git add\`.
-3. Commit with a concise, Conventional-Commits-style message (\`feat:\`, \`fix:\`, \`refactor:\`, \`chore:\`, etc.) that summarizes the change in one line.
-4. Push the current branch to its remote. If needed, create the remote tracking branch with \`git push -u <remote> HEAD\`.
-5. Open a pull request against \`${branch}\` using \`gh pr create --base ${branch}\`. Use a clear PR title and a body that explains: what changed, why it changed, and any follow-up / test notes.
-6. Report the PR URL in your final message so I can click it.
-
-Don't stop to ask for confirmation — execute each step automatically. If you hit an unrecoverable error (e.g. merge conflict, pre-push hook failure), report it clearly so I can intervene.`;
-}
-
-function resolveConflictsPrompt({
-	targetBranch,
-	targetRef,
-	dirtyWorktree,
-}: Pick<
-	ResolveRepoPreferencePromptArgs,
-	"targetBranch" | "targetRef" | "dirtyWorktree"
->): string {
-	if (targetRef) {
-		return dirtyWorktree
-			? `Commit uncommitted changes, then merge ${targetRef} into this branch. Then push.`
-			: `Merge ${targetRef} into this branch. Then push.`;
-	}
-
-	const branch = requireTargetBranch("resolveConflicts", targetBranch);
-
-	return `This branch has merge conflicts with \`${branch}\`, this workspace's target branch. Resolve them.
-
-Do the following, in order:
-1. Fetch the latest \`${branch}\` from its remote.
-2. Rebase or merge \`${branch}\` into the current branch.
-3. Resolve each conflict, preserving intent from both sides where possible. Explain your resolution choices briefly in the session.
-4. Run the relevant tests locally to confirm nothing broke.
-5. Commit the resolution and push.
-6. Report the conflicted files and how you resolved them.
-
-If a conflict is too ambiguous to resolve automatically, stop and ask.`;
-}
-
 export function resolveRepoPreferencePreview(
 	key: RepoPreferenceKey,
 	repoPreferences?: RepoPreferences | null,
@@ -188,6 +204,7 @@ export function resolveRepoPreferencePrompt({
 	targetBranch,
 	targetRef,
 	dirtyWorktree = false,
+	forge,
 }: ResolveRepoPreferencePromptArgs): string {
 	const override = repoPreferenceOverride(key, repoPreferences);
 	const targetPlaceholderValue = targetRef ?? targetBranch ?? null;
@@ -201,39 +218,28 @@ export function resolveRepoPreferencePrompt({
 					)
 			: override;
 
-	if (key === "resolveConflicts") {
-		return appendUserPreferences(
-			resolveConflictsPrompt({ targetBranch, targetRef, dirtyWorktree }),
-			resolvedOverride,
-		);
+	switch (key) {
+		case "resolveConflicts":
+			return appendUserPreferences(
+				resolveConflictsPrompt({ targetBranch, targetRef, dirtyWorktree }),
+				resolvedOverride,
+			);
+		case "createPr":
+			return appendUserPreferences(
+				createPrPrompt(forgePromptDialect(forge), targetBranch),
+				resolvedOverride,
+			);
+		case "fixErrors":
+			return appendUserPreferences(
+				fixErrorsPrompt(forgePromptDialect(forge)),
+				resolvedOverride,
+			);
+		default:
+			return appendUserPreferences(
+				DEFAULT_REPO_PREFERENCE_PROMPTS[key],
+				resolvedOverride,
+			);
 	}
-
-	if (key === "createPr") {
-		return appendUserPreferences(
-			createPrPrompt(targetBranch),
-			resolvedOverride,
-		);
-	}
-
-	return appendUserPreferences(
-		DEFAULT_REPO_PREFERENCE_PROMPTS[key],
-		resolvedOverride,
-	);
-}
-
-export function resolveRepoPreferencePromptWithDefault({
-	key,
-	defaultPrompt,
-	repoPreferences,
-}: {
-	key: RepoPreferenceKey;
-	defaultPrompt: string;
-	repoPreferences?: RepoPreferences | null;
-}): string {
-	return appendUserPreferences(
-		defaultPrompt,
-		repoPreferenceOverride(key, repoPreferences),
-	);
 }
 
 export function prependGeneralPreferencePrompt(

@@ -2,6 +2,7 @@ import "./App.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
 	Check,
 	ChevronDown,
@@ -12,16 +13,8 @@ import {
 	PanelRightClose,
 	PanelRightOpen,
 } from "lucide-react";
-import {
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ConductorOnboarding } from "@/components/conductor-onboarding";
 import { QuitConfirmDialog } from "@/components/quit-confirm-dialog";
 import { SplashScreen } from "@/components/splash-screen";
 import { Button } from "@/components/ui/button";
@@ -44,6 +37,7 @@ import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
+import { AppOnboarding } from "@/features/onboarding";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
 import { useConfirmSessionClose } from "@/features/panel/use-confirm-session-close";
 import { SettingsButton, SettingsDialog } from "@/features/settings";
@@ -73,12 +67,8 @@ import {
 } from "@/shell/layout";
 import { clampZoom, useZoom, ZOOM_STEP } from "@/shell/use-zoom";
 import {
-	type ConductorWorkspace,
 	createSession,
 	drainPendingCliSends,
-	isConductorAvailable,
-	listConductorRepos,
-	listConductorWorkspaces,
 	markSessionRead,
 	markSessionUnread,
 	openWorkspaceInEditor,
@@ -86,6 +76,7 @@ import {
 	prewarmSlashCommandsForWorkspace,
 	syncWorkspaceWithTargetBranch,
 	triggerWorkspaceFetch,
+	unhideSession,
 	type WorkspaceDetail,
 	type WorkspaceGroup,
 	type WorkspaceSessionSummary,
@@ -185,6 +176,27 @@ function MainApp() {
 	const [splashVisible, setSplashVisible] = useState(true);
 	const [splashMounted, setSplashMounted] = useState(true);
 
+	const hideSplashAfterBoot = useCallback(() => {
+		window.setTimeout(() => {
+			setSplashVisible(false);
+			window.setTimeout(() => setSplashMounted(false), 400);
+		}, 1000);
+	}, []);
+
+	const completeOnboarding = useCallback(() => {
+		setSplashMounted(true);
+		setSplashVisible(true);
+		setAppSettings((previous) => ({
+			...(previous ?? DEFAULT_SETTINGS),
+			onboardingCompleted: true,
+		}));
+		void saveSettings({ onboardingCompleted: true });
+
+		requestAnimationFrame(() => {
+			requestAnimationFrame(hideSplashAfterBoot);
+		});
+	}, [hideSplashAfterBoot]);
+
 	useEffect(() => {
 		const minDelay = new Promise<void>((r) => setTimeout(r, 1000));
 		void Promise.all([loadSettings().then(setAppSettings), minDelay]).then(
@@ -242,6 +254,12 @@ function MainApp() {
 							) {
 								return false;
 							}
+							if (
+								key[0] === "workspaceChanges" ||
+								key[0] === "workspaceFiles"
+							) {
+								return false;
+							}
 							return query.state.status === "success";
 						},
 					},
@@ -257,13 +275,17 @@ function MainApp() {
 					});
 				}}
 			>
-				<AppShell
-					onOpenSettings={(workspaceId, workspaceRepoId) => {
-						setSettingsWorkspaceId(workspaceId);
-						setSettingsWorkspaceRepoId(workspaceRepoId);
-						setSettingsOpen(true);
-					}}
-				/>
+				{appSettings === null ? null : !appSettings.onboardingCompleted ? (
+					<AppOnboarding onComplete={completeOnboarding} />
+				) : (
+					<AppShell
+						onOpenSettings={(workspaceId, workspaceRepoId) => {
+							setSettingsWorkspaceId(workspaceId);
+							setSettingsWorkspaceRepoId(workspaceRepoId);
+							setSettingsOpen(true);
+						}}
+					/>
+				)}
 				{splashMounted && <SplashScreen visible={splashVisible} />}
 				<SettingsDialog
 					open={settingsOpen}
@@ -388,13 +410,6 @@ function AppShell({
 		setSidebarCollapsed,
 	} = useShellPanels();
 	const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
-	const [showOnboarding, setShowOnboarding] = useState(false);
-	const [onboardingPending, setOnboardingPending] = useState(false);
-	const [conductorWorkspaces, setConductorWorkspaces] = useState<
-		ConductorWorkspace[]
-	>([]);
-	const [isLoadingConductorWorkspaces, setIsLoadingConductorWorkspaces] =
-		useState(false);
 	const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
 		null,
 	);
@@ -579,21 +594,6 @@ function AppShell({
 		workspaceReselectTick,
 	]);
 
-	useEffect(() => {
-		if (!showOnboarding) return;
-
-		setIsLoadingConductorWorkspaces(true);
-		listConductorRepos()
-			.then(async (repos) => {
-				const all = await Promise.all(
-					repos.map((repo) => listConductorWorkspaces(repo.id)),
-				);
-				setConductorWorkspaces(all.flat());
-			})
-			.catch(() => setConductorWorkspaces([]))
-			.finally(() => setIsLoadingConductorWorkspaces(false));
-	}, [showOnboarding]);
-
 	const { settings: appSettings, updateSettings } = useSettings();
 	const appUpdateStatus = useAppUpdater();
 	useDockUnreadBadge();
@@ -645,6 +645,9 @@ function AppShell({
 		setSidebarCollapsed(!zenActive);
 		setInspectorCollapsed(!zenActive);
 	}, [inspectorCollapsed, setSidebarCollapsed, sidebarCollapsed]);
+	const handleOpenModelPicker = useCallback(() => {
+		window.dispatchEvent(new Event("helmor:open-model-picker"));
+	}, []);
 	const handlePullLatest = useCallback(async () => {
 		if (!selectedWorkspaceId) return;
 		try {
@@ -685,21 +688,6 @@ function AppShell({
 			]);
 		}
 	}, [queryClient, selectedWorkspaceId]);
-
-	// Show onboarding before the main shell paints so the app does not flash first.
-	useLayoutEffect(() => {
-		if (!isIdentityConnected) return;
-		const key = "helmor_onboarding_completed";
-		if (localStorage.getItem(key)) return;
-
-		setOnboardingPending(true);
-		isConductorAvailable()
-			.then((available) => {
-				if (available) setShowOnboarding(true);
-				setOnboardingPending(false);
-			})
-			.catch(() => setOnboardingPending(false));
-	}, [isIdentityConnected]);
 
 	const navigationGroupsQuery = useQuery({
 		...workspaceGroupsQueryOptions(),
@@ -762,11 +750,41 @@ function AppShell({
 		selectedWorkspaceDetail?.state !== "archived" &&
 		(workspaceForgeProvider === "gitlab" || isIdentityConnected);
 
+	// Seed the change-request query with whatever PR snapshot is already
+	// persisted on the workspace row. Lets the inspector render the PR badge
+	// optimistically on first visit, before the live forge query returns.
+	const workspaceChangeRequestSeed = useMemo(
+		() => ({
+			prSyncState: selectedWorkspaceDetail?.prSyncState,
+			prUrl: selectedWorkspaceDetail?.prUrl ?? null,
+			prTitle: selectedWorkspaceDetail?.prTitle ?? null,
+		}),
+		[
+			selectedWorkspaceDetail?.prSyncState,
+			selectedWorkspaceDetail?.prUrl,
+			selectedWorkspaceDetail?.prTitle,
+		],
+	);
 	const workspaceChangeRequestQuery = useQuery({
-		...workspaceChangeRequestQueryOptions(selectedWorkspaceId ?? "__none__"),
+		...workspaceChangeRequestQueryOptions(
+			selectedWorkspaceId ?? "__none__",
+			workspaceChangeRequestSeed,
+		),
 		enabled: workspaceForgeQueriesEnabled,
 	});
 	const workspaceChangeRequest = workspaceChangeRequestQuery.data ?? null;
+	const pullRequestUrl =
+		workspaceChangeRequest?.url || selectedWorkspaceDetail?.prUrl || null;
+	const handleOpenPullRequest = useCallback(() => {
+		if (!pullRequestUrl) return;
+		void openUrl(pullRequestUrl).catch((error) => {
+			pushWorkspaceToast(
+				error instanceof Error ? error.message : String(error),
+				"Unable to open pull request",
+				"destructive",
+			);
+		});
+	}, [pullRequestUrl, pushWorkspaceToast]);
 
 	const workspaceForgeActionStatusQuery = useQuery({
 		...workspaceForgeActionStatusQueryOptions(
@@ -776,6 +794,16 @@ function AppShell({
 	});
 	const workspaceForgeActionStatus =
 		workspaceForgeActionStatusQuery.data ?? null;
+
+	// Drive the inspector's git-header shimmer. Only show it on the first
+	// cold fetch — not on background refetches, and not while we're already
+	// rendering a placeholder built from the persisted PR snapshot.
+	const workspaceForgeIsRefreshing =
+		(workspaceChangeRequestQuery.isFetching &&
+			(workspaceChangeRequestQuery.data === undefined ||
+				workspaceChangeRequestQuery.isPlaceholderData)) ||
+		(workspaceForgeActionStatusQuery.isFetching &&
+			workspaceForgeActionStatusQuery.data === undefined);
 
 	const workspaceGitActionStatusQuery = useQuery({
 		...workspaceGitActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
@@ -1533,13 +1561,66 @@ function AppShell({
 		};
 	}, [queryClient]);
 
+	// Stack of recently hidden sessions for "Reopen closed session". LIFO so
+	// repeated invocations walk back through history. Empty (deleted) sessions
+	// are not tracked because the backend can't restore them.
+	const recentlyClosedSessionsRef = useRef<
+		{ sessionId: string; workspaceId: string }[]
+	>([]);
+	const handleSessionHidden = useCallback(
+		(sessionId: string, workspaceId: string) => {
+			recentlyClosedSessionsRef.current = [
+				{ sessionId, workspaceId },
+				...recentlyClosedSessionsRef.current.filter(
+					(entry) => entry.sessionId !== sessionId,
+				),
+			].slice(0, 20);
+		},
+		[],
+	);
+
 	const { requestClose: requestCloseSession, dialogNode: closeConfirmDialog } =
 		useConfirmSessionClose({
 			sendingSessionIds,
 			onSelectSession: handleSelectSession,
+			onSessionHidden: handleSessionHidden,
 			pushToast: pushWorkspaceToast,
 			queryClient,
 		});
+
+	const handleReopenClosedSession = useCallback(async () => {
+		const next = recentlyClosedSessionsRef.current[0];
+		if (!next) return;
+		recentlyClosedSessionsRef.current =
+			recentlyClosedSessionsRef.current.slice(1);
+		try {
+			await unhideSession(next.sessionId);
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceDetail(next.workspaceId),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceSessions(next.workspaceId),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceGroups,
+				}),
+			]);
+			handleSelectWorkspace(next.workspaceId);
+			handleSelectSession(next.sessionId);
+		} catch (error) {
+			pushWorkspaceToast(
+				error instanceof Error ? error.message : String(error),
+				"Unable to reopen session",
+				"destructive",
+			);
+		}
+	}, [
+		handleSelectSession,
+		handleSelectWorkspace,
+		pushWorkspaceToast,
+		queryClient,
+	]);
 
 	const handleCloseSelectedSession = useCallback(async () => {
 		const currentSession = getCloseableCurrentSession();
@@ -1736,6 +1817,11 @@ function AppShell({
 				enabled: isIdentityConnected && workspaceViewMode === "conversation",
 			},
 			{
+				id: "session.reopenClosed" as const,
+				callback: () => void handleReopenClosedSession(),
+				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+			},
+			{
 				id: "script.run" as const,
 				callback: () => window.dispatchEvent(new Event("helmor:run-script")),
 				enabled: isIdentityConnected,
@@ -1789,9 +1875,22 @@ function AppShell({
 				enabled: isIdentityConnected && workspaceViewMode === "conversation",
 			},
 			{
+				id: "action.openPullRequest" as const,
+				callback: handleOpenPullRequest,
+				enabled:
+					isIdentityConnected &&
+					workspaceViewMode === "conversation" &&
+					Boolean(pullRequestUrl),
+			},
+			{
 				id: "composer.focus" as const,
 				callback: () =>
 					window.dispatchEvent(new Event("helmor:focus-composer")),
+				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+			},
+			{
+				id: "composer.openModelPicker" as const,
+				callback: handleOpenModelPicker,
 				enabled: isIdentityConnected && workspaceViewMode === "conversation",
 			},
 			{
@@ -1822,13 +1921,17 @@ function AppShell({
 			handleInspectorCommitAction,
 			handleNavigateSessions,
 			handleNavigateWorkspaces,
+			handleOpenModelPicker,
 			handleOpenPreferredEditor,
+			handleOpenPullRequest,
 			handleOpenSettings,
 			handlePullLatest,
+			handleReopenClosedSession,
 			handleToggleTheme,
 			handleToggleZenMode,
 			isIdentityConnected,
 			preferredEditor,
+			pullRequestUrl,
 			selectedWorkspaceId,
 			setInspectorCollapsed,
 			setSidebarCollapsed,
@@ -2042,29 +2145,6 @@ function AppShell({
 								aria-label="Application shell"
 								className="relative h-screen overflow-hidden bg-background font-sans text-foreground antialiased"
 							>
-								{onboardingPending && (
-									<div className="fixed inset-0 z-[60] bg-background" />
-								)}
-								{showOnboarding && (
-									<ConductorOnboarding
-										onComplete={() => {
-											localStorage.setItem("helmor_onboarding_completed", "1");
-											setShowOnboarding(false);
-											setConductorWorkspaces([]);
-											void queryClient.invalidateQueries({
-												queryKey: helmorQueryKeys.workspaceGroups,
-											});
-											void queryClient.invalidateQueries({
-												queryKey: helmorQueryKeys.archivedWorkspaces,
-											});
-											void queryClient.invalidateQueries({
-												queryKey: helmorQueryKeys.repositories,
-											});
-										}}
-										workspaces={conductorWorkspaces}
-										isLoadingWorkspaces={isLoadingConductorWorkspaces}
-									/>
-								)}
 								<div className="relative flex h-full min-h-0 bg-background">
 									{workspaceViewMode === "conversation" && (
 										<>
@@ -2517,6 +2597,7 @@ function AppShell({
 													commitButtonMode={commitButtonMode}
 													commitButtonState={commitButtonState}
 													changeRequest={workspaceChangeRequest}
+													forgeIsRefreshing={workspaceForgeIsRefreshing}
 													onOpenSettings={handleOpenSettings}
 												/>
 											</aside>
