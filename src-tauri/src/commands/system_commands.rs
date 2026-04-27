@@ -170,30 +170,55 @@ fn install_cli_symlink(
         );
     }
 
+    // Refuse to clobber a real directory (even with elevation — too destructive).
+    if let Ok(metadata) = std::fs::symlink_metadata(install_path) {
+        if metadata.file_type().is_dir() {
+            anyhow::bail!(
+                "Install path {} is a directory. Remove it manually first.",
+                install_path.display()
+            );
+        }
+    }
+
+    match try_install_symlink_unprivileged(bundled_cli, install_path) {
+        Ok(()) => return Ok(()),
+        Err(error) if is_permission_denied(&error) => {
+            tracing::info!(
+                target: "helmor_lib::commands::system_commands",
+                "Direct CLI install hit permission denied; requesting authorization."
+            );
+        }
+        Err(error) => return Err(error),
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        install_cli_symlink_elevated(bundled_cli, install_path)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Installing the CLI requires elevated privileges. Run:\n  {}",
+            cli_install_remediation(bundled_cli, install_path)
+        )
+    }
+}
+
+fn try_install_symlink_unprivileged(
+    bundled_cli: &std::path::Path,
+    install_path: &std::path::Path,
+) -> anyhow::Result<()> {
     if let Some(parent) = install_path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "Failed to prepare install directory {}. Try:\n  {}",
-                parent.display(),
-                cli_install_remediation(bundled_cli, install_path)
-            )
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to prepare install directory {}", parent.display()))?;
     }
 
     match std::fs::symlink_metadata(install_path) {
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            anyhow::bail!(
-                "Install path {} is a directory. Remove it first, then run:\n  {}",
-                install_path.display(),
-                cli_install_remediation(bundled_cli, install_path)
-            );
-        }
         Ok(_) => {
             std::fs::remove_file(install_path).with_context(|| {
                 format!(
-                    "Failed to replace existing CLI install at {}. Try:\n  {}",
-                    install_path.display(),
-                    cli_install_remediation(bundled_cli, install_path)
+                    "Failed to replace existing CLI install at {}",
+                    install_path.display()
                 )
             })?;
         }
@@ -201,9 +226,8 @@ fn install_cli_symlink(
         Err(error) => {
             return Err(error).with_context(|| {
                 format!(
-                    "Failed to inspect existing CLI install at {}. Try:\n  {}",
-                    install_path.display(),
-                    cli_install_remediation(bundled_cli, install_path)
+                    "Failed to inspect existing CLI install at {}",
+                    install_path.display()
                 )
             });
         }
@@ -211,20 +235,86 @@ fn install_cli_symlink(
 
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(bundled_cli, install_path).with_context(|| {
-            format!(
-                "Failed to install CLI at {}. Try:\n  {}",
-                install_path.display(),
-                cli_install_remediation(bundled_cli, install_path)
-            )
-        })?;
+        std::os::unix::fs::symlink(bundled_cli, install_path)
+            .with_context(|| format!("Failed to install CLI at {}", install_path.display()))?;
         Ok(())
     }
 
     #[cfg(not(unix))]
     {
-        anyhow::bail!("CLI installation via symlink is only supported on Unix.");
+        let _ = bundled_cli;
+        anyhow::bail!("CLI installation via symlink is only supported on Unix.")
     }
+}
+
+fn is_permission_denied(error: &anyhow::Error) -> bool {
+    error.chain().any(|err| {
+        err.downcast_ref::<std::io::Error>()
+            .map(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
+            .unwrap_or(false)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn install_cli_symlink_elevated(
+    bundled_cli: &std::path::Path,
+    install_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    let script = build_elevated_install_script(bundled_cli, install_path);
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .context("Failed to launch osascript for elevated CLI install")?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let trimmed = stderr.trim();
+    // -128 = userCanceledErr (cmd-period / dialog Cancel button).
+    if trimmed.contains("(-128)") || trimmed.contains("User canceled") {
+        anyhow::bail!("Authorization canceled.");
+    }
+    anyhow::bail!(
+        "Elevated CLI install failed.\n{trimmed}\n\nFallback: {fallback}",
+        fallback = cli_install_remediation(bundled_cli, install_path),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn build_elevated_install_script(
+    bundled_cli: &std::path::Path,
+    install_path: &std::path::Path,
+) -> String {
+    let parent = install_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("/"));
+    // `ln -sfn` atomically replaces an existing symlink/file at the target;
+    // running as root via osascript also covers the case where the parent is
+    // root-owned (the typical macOS /usr/local/bin situation).
+    let inner = format!(
+        "/bin/mkdir -p {parent} && /bin/ln -sfn {src} {target}",
+        parent = applescript_shell_arg(parent),
+        src = applescript_shell_arg(bundled_cli),
+        target = applescript_shell_arg(install_path),
+    );
+    format!(
+        "do shell script \"{inner}\" with prompt \"Helmor wants to install the {name} command line tool to {display}.\" with administrator privileges",
+        name = installed_cli_name(),
+        display = install_path.display(),
+    )
+}
+
+/// Quote a path so it survives both `do shell script "..."` (AppleScript string
+/// literal) and the shell that AppleScript hands the script to.
+fn applescript_shell_arg(path: &std::path::Path) -> String {
+    let raw = path.display().to_string();
+    // 1. Single-quote for the shell, escaping embedded single quotes via `'\''`.
+    let shell_quoted = format!("'{}'", raw.replace('\'', "'\\''"));
+    // 2. Escape backslashes and double quotes for the AppleScript string literal.
+    shell_quoted.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn home_dir() -> PathBuf {
@@ -1070,6 +1160,58 @@ mod tests {
         assert_eq!(
             command,
             "sudo ln -sfn '/Applications/Helmor.app/Contents/MacOS/helmor-cli' '/usr/local/bin/helmor-dev'"
+        );
+    }
+
+    #[test]
+    fn applescript_shell_arg_quotes_plain_path() {
+        assert_eq!(
+            applescript_shell_arg(std::path::Path::new("/usr/local/bin/helmor")),
+            "'/usr/local/bin/helmor'"
+        );
+    }
+
+    #[test]
+    fn applescript_shell_arg_escapes_single_quote_for_shell_then_applescript() {
+        // Shell-quote turns `'` into `'\''`; the embedded backslash then needs
+        // to survive AppleScript string-literal parsing, so it doubles to `\\`.
+        assert_eq!(
+            applescript_shell_arg(std::path::Path::new("/Users/me/foo's app")),
+            r"'/Users/me/foo'\\''s app'"
+        );
+    }
+
+    #[test]
+    fn applescript_shell_arg_escapes_double_quote_and_backslash() {
+        assert_eq!(
+            applescript_shell_arg(std::path::Path::new("/foo\"bar\\baz")),
+            r#"'/foo\"bar\\baz'"#
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn build_elevated_install_script_produces_expected_osascript_payload() {
+        let bundled_cli =
+            std::path::Path::new("/Applications/Helmor.app/Contents/MacOS/helmor-cli");
+        let install_path = std::path::Path::new("/usr/local/bin/helmor");
+
+        let script = build_elevated_install_script(bundled_cli, install_path);
+
+        let expected_inner = "/bin/mkdir -p '/usr/local/bin' && /bin/ln -sfn \
+                              '/Applications/Helmor.app/Contents/MacOS/helmor-cli' \
+                              '/usr/local/bin/helmor'";
+        assert!(
+            script.contains(expected_inner),
+            "script missing expected shell command: {script}"
+        );
+        assert!(
+            script.contains("with administrator privileges"),
+            "script missing privilege escalation clause: {script}"
+        );
+        assert!(
+            script.contains("with prompt \""),
+            "script missing prompt clause: {script}"
         );
     }
 }
