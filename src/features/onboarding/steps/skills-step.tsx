@@ -17,6 +17,9 @@ import {
 import { SetupItem } from "../components/setup-item";
 import type { OnboardingStep } from "../types";
 
+const SETUP_FAILED_MESSAGE =
+	"Something went wrong — don't worry, Helmor will work fine without it.";
+
 export function SkillsStep({
 	step,
 	onBack,
@@ -30,15 +33,10 @@ export function SkillsStep({
 }) {
 	const [isInstallingCli, setIsInstallingCli] = useState(false);
 	const [cliInstalled, setCliInstalled] = useState(false);
-	const [cliInstallError, setCliInstallError] = useState<string | null>(null);
+	const [cliInstallFailed, setCliInstallFailed] = useState(false);
 	const [isInstallingSkills, setIsInstallingSkills] = useState(false);
 	const [skillsInstalled, setSkillsInstalled] = useState(false);
-	const [skillsInstallError, setSkillsInstallError] = useState<string | null>(
-		null,
-	);
-	const [skillsInstallCommand, setSkillsInstallCommand] = useState<
-		string | null
-	>(null);
+	const [skillsInstallFailed, setSkillsInstallFailed] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -47,7 +45,6 @@ export function SkillsStep({
 				if (!cancelled) {
 					setCliInstalled(cliStatus.installState === "managed");
 					setSkillsInstalled(skillsStatus.installed);
-					setSkillsInstallCommand(skillsStatus.command);
 				}
 			})
 			.catch(() => {});
@@ -61,14 +58,13 @@ export function SkillsStep({
 			return;
 		}
 		setIsInstallingCli(true);
-		setCliInstallError(null);
+		setCliInstallFailed(false);
 		try {
 			const status = await installCli();
 			setCliInstalled(status.installState === "managed");
 			toast("Helmor CLI installed.");
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			setCliInstallError(message);
+		} catch {
+			setCliInstallFailed(true);
 		} finally {
 			setIsInstallingCli(false);
 		}
@@ -79,15 +75,13 @@ export function SkillsStep({
 			return;
 		}
 		setIsInstallingSkills(true);
-		setSkillsInstallError(null);
+		setSkillsInstallFailed(false);
 		try {
 			const status = await installHelmorSkills();
 			setSkillsInstalled(status.installed);
-			setSkillsInstallCommand(status.command);
 			toast("Helmor skills installed.");
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			setSkillsInstallError(message);
+		} catch {
+			setSkillsInstallFailed(true);
 		} finally {
 			setIsInstallingSkills(false);
 		}
@@ -192,45 +186,22 @@ Options:
 					<SetupItem
 						icon={<Terminal className="size-5" />}
 						label="Helmor CLI"
-						description={
-							<>
-								Control Helmor from your terminal: create workspaces, send
-								prompts, inspect files, and script repeatable flows.
-								{cliInstallError ? (
-									<span className="mt-1 block text-destructive">
-										{cliInstallError}
-									</span>
-								) : null}
-							</>
-						}
+						description="Control Helmor from your terminal: create workspaces, send prompts, inspect files, and script repeatable flows."
 						actionLabel={isInstallingCli ? "Installing" : "Set up"}
 						onAction={handleInstallCli}
 						busy={isInstallingCli}
 						ready={cliInstalled}
+						error={cliInstallFailed ? SETUP_FAILED_MESSAGE : null}
 					/>
 					<SetupItem
 						icon={<PackageCheck className="size-5" />}
 						label="Helmor Skills (Beta)"
-						description={
-							<>
-								Install skills so Helmor can help with more workflows across
-								every workspace.
-								{skillsInstallError ? (
-									<span className="mt-1 block text-destructive">
-										{skillsInstallError}
-									</span>
-								) : null}
-								{skillsInstallError && skillsInstallCommand ? (
-									<code className="mt-2 block break-words rounded-md bg-muted px-2 py-1 font-mono text-[11px] leading-4 text-muted-foreground">
-										{skillsInstallCommand}
-									</code>
-								) : null}
-							</>
-						}
+						description="Install skills so Helmor can help with more workflows across every workspace."
 						actionLabel={isInstallingSkills ? "Installing" : "Set up"}
 						onAction={handleInstallSkills}
 						busy={isInstallingSkills}
 						ready={skillsInstalled}
+						error={skillsInstallFailed ? SETUP_FAILED_MESSAGE : null}
 					/>
 				</div>
 

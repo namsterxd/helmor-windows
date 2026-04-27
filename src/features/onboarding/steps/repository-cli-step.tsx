@@ -197,7 +197,7 @@ export function RepositoryCliStep({
 		setActiveGitlabPanel("host");
 	}, [clearPoll]);
 
-	const handleGitlabHostSubmit = useCallback(() => {
+	const handleGitlabHostSubmit = useCallback(async () => {
 		const host = normalizeGitlabHost(gitlabHost);
 		if (!host) {
 			toast.error("Enter a GitLab domain.");
@@ -205,10 +205,25 @@ export function RepositoryCliStep({
 		}
 		setGitlabHost(host);
 		setGitlabStatusHost(host);
-		if (gitlab.status?.status === "ready" && gitlab.status.host === host)
-			return;
+		// Probe `glab auth status --hostname <host>` before spawning the terminal —
+		// the domain may already be authenticated, in which case we skip straight
+		// to the ready state instead of forcing the user through `glab auth login`.
+		clearPoll();
+		setWaitingProvider("gitlab");
+		setGitlab((prev) => ({ status: prev.status, checking: true }));
+		try {
+			const status = await refreshStatus("gitlab", host);
+			if (status.status === "ready") {
+				setWaitingProvider(null);
+				setActiveGitlabPanel(null);
+				toast.success(`${status.cliName} connected`);
+				return;
+			}
+		} catch {
+			// Fall through to the terminal so the user can finish auth manually.
+		}
 		openTerminal("gitlab", host);
-	}, [gitlab.status, gitlabHost, openTerminal]);
+	}, [clearPoll, gitlabHost, openTerminal, refreshStatus]);
 
 	return (
 		<section

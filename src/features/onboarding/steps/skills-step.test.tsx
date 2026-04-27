@@ -156,7 +156,7 @@ describe("SkillsStep", () => {
 		expect(within(skillsItem).getByText("Ready")).toBeInTheDocument();
 	});
 
-	it("shows the skills setup error and manual command", async () => {
+	it("shows the unified failure hint when skills setup throws", async () => {
 		const user = userEvent.setup();
 		apiMocks.getCliStatus.mockResolvedValue({
 			installed: true,
@@ -165,7 +165,7 @@ describe("SkillsStep", () => {
 			installState: "managed",
 		});
 		apiMocks.installHelmorSkills.mockRejectedValue(
-			new Error("Helmor skills setup failed."),
+			new Error("Helmor skills setup failed with a long stack trace."),
 		);
 
 		render(
@@ -187,11 +187,12 @@ describe("SkillsStep", () => {
 
 		await waitFor(() => {
 			expect(
-				within(skillsItem).getByText("Helmor skills setup failed."),
+				within(skillsItem).getByText(/something went wrong/i),
 			).toBeInTheDocument();
 		});
+		expect(within(skillsItem).getByText(/don't worry/i)).toBeInTheDocument();
 		expect(
-			within(skillsItem).getByText(/npx --yes skills add/),
-		).toBeInTheDocument();
+			within(skillsItem).queryByText(/long stack trace/i),
+		).not.toBeInTheDocument();
 	});
 });

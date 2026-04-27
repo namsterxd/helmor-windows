@@ -12,6 +12,7 @@ export function SetupItem({
 	disabled = false,
 	busy = false,
 	ready = false,
+	error,
 }: {
 	icon: ReactNode;
 	label: string;
@@ -21,7 +22,9 @@ export function SetupItem({
 	disabled?: boolean;
 	busy?: boolean;
 	ready?: boolean;
+	error?: ReactNode;
 }) {
+	const hasError = Boolean(error);
 	return (
 		<div
 			role="group"
@@ -36,6 +39,18 @@ export function SetupItem({
 				<p className="mt-0.5 text-xs leading-5 text-muted-foreground">
 					{description}
 				</p>
+				<div
+					aria-hidden={!hasError}
+					className={`grid transition-[grid-template-rows,opacity,margin] duration-500 ease-[cubic-bezier(.22,.82,.2,1)] ${
+						hasError
+							? "mt-1 grid-rows-[1fr] opacity-100"
+							: "mt-0 grid-rows-[0fr] opacity-0"
+					}`}
+				>
+					<div className="overflow-hidden">
+						<p className="text-[11px] leading-4 text-destructive">{error}</p>
+					</div>
+				</div>
 			</div>
 			{ready ? (
 				<ReadyStatus />
