@@ -58,6 +58,7 @@ import { AppUpdatesPanel } from "./panels/app-updates";
 import { CliInstallPanel } from "./panels/cli-install";
 import { ConductorImportPanel } from "./panels/conductor-import";
 import { DevToolsPanel } from "./panels/dev-tools";
+import { ClaudeCustomProvidersPanel } from "./panels/model-providers";
 import { RepositorySettingsPanel } from "./panels/repository-settings";
 
 const MIN_FONT_SIZE = 12;
@@ -489,6 +490,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 											</div>
 										</div>
 									</SettingsRow>
+									<ClaudeCustomProvidersPanel />
 								</SettingsGroup>
 							)}
 

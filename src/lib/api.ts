@@ -120,14 +120,16 @@ export type AgentModelOption = {
 	provider: AgentProvider;
 	label: string;
 	cliModel: string;
+	providerKey?: string | null;
 	effortLevels?: string[];
 	supportsFastMode?: boolean;
+	supportsContextUsage?: boolean;
 };
 
 export type AgentModelSectionStatus = "ready" | "unavailable" | "error";
 
 export type AgentModelSection = {
-	id: AgentProvider;
+	id: string;
 	label: string;
 	status?: AgentModelSectionStatus;
 	options: AgentModelOption[];

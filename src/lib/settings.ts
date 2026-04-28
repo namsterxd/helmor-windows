@@ -11,6 +11,16 @@ export type FollowUpBehavior = "steer" | "queue";
 
 export type ShortcutOverrides = Record<string, string | null>;
 
+export type ClaudeCustomProviderSettings = {
+	minimaxApiKey: string;
+	minimaxCnApiKey: string;
+	builtinProviderApiKeys: Record<string, string>;
+	customProviderName: string;
+	customBaseUrl: string;
+	customApiKey: string;
+	customModels: string;
+};
+
 export type AppSettings = {
 	fontSize: number;
 	branchPrefixType: "github" | "custom" | "none";
@@ -32,6 +42,7 @@ export type AppSettings = {
 	showUsageStats: boolean;
 	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
+	claudeCustomProviders: ClaudeCustomProviderSettings;
 };
 
 /**
@@ -58,6 +69,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	showUsageStats: true,
 	onboardingCompleted: false,
 	shortcuts: {},
+	claudeCustomProviders: {
+		minimaxApiKey: "",
+		minimaxCnApiKey: "",
+		builtinProviderApiKeys: {},
+		customProviderName: "",
+		customBaseUrl: "",
+		customApiKey: "",
+		customModels: "",
+	},
 };
 
 export const THEME_STORAGE_KEY = "helmor-theme";
@@ -79,6 +99,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	showUsageStats: "app.show_usage_stats",
 	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
+	claudeCustomProviders: "app.claude_custom_providers",
 };
 
 function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
@@ -95,6 +116,58 @@ function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
 		) as ShortcutOverrides;
 	} catch {
 		return DEFAULT_SETTINGS.shortcuts;
+	}
+}
+
+function parseClaudeCustomProviderSettings(
+	raw: string | undefined,
+): ClaudeCustomProviderSettings {
+	if (!raw) return DEFAULT_SETTINGS.claudeCustomProviders;
+	try {
+		const parsed = JSON.parse(raw) as Partial<ClaudeCustomProviderSettings>;
+		const builtinProviderApiKeys =
+			parsed.builtinProviderApiKeys &&
+			typeof parsed.builtinProviderApiKeys === "object" &&
+			!Array.isArray(parsed.builtinProviderApiKeys)
+				? Object.fromEntries(
+						Object.entries(parsed.builtinProviderApiKeys).filter(
+							([, value]) => typeof value === "string",
+						),
+					)
+				: {};
+		if (
+			typeof parsed.minimaxApiKey === "string" &&
+			!builtinProviderApiKeys.minimax
+		) {
+			builtinProviderApiKeys.minimax = parsed.minimaxApiKey;
+		}
+		if (
+			typeof parsed.minimaxCnApiKey === "string" &&
+			!builtinProviderApiKeys["minimax-cn"]
+		) {
+			builtinProviderApiKeys["minimax-cn"] = parsed.minimaxCnApiKey;
+		}
+		return {
+			minimaxApiKey:
+				typeof parsed.minimaxApiKey === "string" ? parsed.minimaxApiKey : "",
+			minimaxCnApiKey:
+				typeof parsed.minimaxCnApiKey === "string"
+					? parsed.minimaxCnApiKey
+					: "",
+			builtinProviderApiKeys,
+			customProviderName:
+				typeof parsed.customProviderName === "string"
+					? parsed.customProviderName
+					: "",
+			customBaseUrl:
+				typeof parsed.customBaseUrl === "string" ? parsed.customBaseUrl : "",
+			customApiKey:
+				typeof parsed.customApiKey === "string" ? parsed.customApiKey : "",
+			customModels:
+				typeof parsed.customModels === "string" ? parsed.customModels : "",
+		};
+	} catch {
+		return DEFAULT_SETTINGS.claudeCustomProviders;
 	}
 }
 
@@ -155,6 +228,9 @@ export async function loadSettings(): Promise<AppSettings> {
 					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"
 					: DEFAULT_SETTINGS.onboardingCompleted,
 			shortcuts: parseShortcutOverrides(raw[SETTINGS_KEY_MAP.shortcuts]),
+			claudeCustomProviders: parseClaudeCustomProviderSettings(
+				raw[SETTINGS_KEY_MAP.claudeCustomProviders],
+			),
 		};
 	} catch {
 		return { ...DEFAULT_SETTINGS };
@@ -178,7 +254,7 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 		const value = patch[key as keyof Omit<AppSettings, "theme">];
 		if (value !== undefined) {
 			settings[dbKey] =
-				key === "shortcuts"
+				key === "shortcuts" || key === "claudeCustomProviders"
 					? JSON.stringify(value)
 					: value === null
 						? ""
@@ -197,13 +273,13 @@ export type SettingsContextValue = {
 	settings: AppSettings;
 	/** False while the initial load from SQLite is still in flight. */
 	isLoaded: boolean;
-	updateSettings: (patch: Partial<AppSettings>) => void;
+	updateSettings: (patch: Partial<AppSettings>) => void | Promise<void>;
 };
 
 export const SettingsContext = createContext<SettingsContextValue>({
 	settings: DEFAULT_SETTINGS,
 	isLoaded: false,
-	updateSettings: () => {},
+	updateSettings: async () => {},
 });
 
 export function useSettings(): SettingsContextValue {

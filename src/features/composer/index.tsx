@@ -15,7 +15,15 @@ import {
 	Zap,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
+import {
+	ClaudeIcon,
+	KimiIcon,
+	MinimaxIcon,
+	OpenAIIcon,
+	QwenIcon,
+	XiaomiMiMoIcon,
+	ZhipuIcon,
+} from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -38,6 +46,7 @@ import { humanizeBranch } from "@/features/navigation/shared";
 import { normalizeShortcutEvent } from "@/features/shortcuts/format";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type {
+	AgentModelOption,
 	AgentModelSection,
 	CandidateDirectory,
 	SlashCommandEntry,
@@ -150,6 +159,27 @@ type WorkspaceComposerProps = {
 	focusShortcut?: string | null;
 	togglePlanShortcut?: string | null;
 };
+
+function ModelIcon({
+	model,
+	className,
+}: {
+	model?: AgentModelOption | null;
+	className?: string;
+}) {
+	if (model?.provider === "codex") return <OpenAIIcon className={className} />;
+	if (model?.providerKey === "minimax" || model?.providerKey === "minimax-cn")
+		return <MinimaxIcon className={className} />;
+	if (model?.providerKey === "moonshot" || model?.providerKey === "moonshot-cn")
+		return <KimiIcon className={className} />;
+	if (model?.providerKey === "zai" || model?.providerKey === "zai-cn")
+		return <ZhipuIcon className={className} />;
+	if (model?.providerKey === "qwen" || model?.providerKey === "qwen-intl")
+		return <QwenIcon className={className} />;
+	if (model?.providerKey === "xiaomi")
+		return <XiaomiMiMoIcon className={className} />;
+	return <ClaudeIcon className={className} />;
+}
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
 const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
@@ -268,6 +298,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	);
 	const supportsEffort = availableEffortLevels.length > 0;
 	const supportsFastMode = selectedModel?.supportsFastMode === true;
+	const supportsContextUsage = selectedModel?.supportsContextUsage !== false;
 	const effectiveEffort = useMemo(
 		() => clampEffort(effortLevel, availableEffortLevels),
 		[effortLevel, availableEffortLevels],
@@ -626,11 +657,10 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 													"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
 											)}
 										>
-											{selectedModel?.provider === "codex" ? (
-												<OpenAIIcon className="size-[13px]" />
-											) : (
-												<ClaudeIcon className="size-[13px]" />
-											)}
+											<ModelIcon
+												model={selectedModel}
+												className="size-[13px]"
+											/>
 											<span>
 												{selectedModel?.label ??
 													selectedModelId ??
@@ -663,11 +693,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 														>
 															<div className="flex items-center gap-3">
 																<span className="text-muted-foreground">
-																	{option.provider === "codex" ? (
-																		<OpenAIIcon />
-																	) : (
-																		<ClaudeIcon />
-																	)}
+																	<ModelIcon model={option} />
 																</span>
 																<span className="font-mono tabular-nums">
 																	{option.label}
@@ -801,7 +827,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 
 						<div className="flex items-center gap-1">
 							<UsageStatsIndicator agentType={agentType} disabled={disabled} />
-							{sessionId ? (
+							{sessionId && supportsContextUsage ? (
 								<ContextUsageRing
 									sessionId={sessionId}
 									providerSessionId={providerSessionId}

@@ -128,6 +128,8 @@ pub(super) fn stream_via_sidecar(
         permission_mode: request.permission_mode.as_deref(),
         fast_mode: request.fast_mode.unwrap_or(false),
         helmor_session_id: request.helmor_session_id.as_deref(),
+        claude_base_url: model.claude_base_url.as_deref(),
+        claude_auth_token: model.claude_auth_token.as_deref(),
     });
 
     // Surface the `/add-dir` decision in logs — we often debug linked-

@@ -394,6 +394,7 @@ export class ClaudeSessionManager implements SessionManager {
 			permissionMode,
 			effortLevel,
 			fastMode,
+			claudeEnvironment,
 		} = params;
 		const abortController = new AbortController();
 		const additionalDirectories = [...(params.additionalDirectories ?? [])];
@@ -435,9 +436,17 @@ export class ClaudeSessionManager implements SessionManager {
 
 		const effectiveFastMode =
 			fastMode === true && modelSupportsFastMode("claude", model);
+		const claudeEnv =
+			claudeEnvironment && Object.keys(claudeEnvironment).length > 0
+				? claudeEnvironment
+				: undefined;
 		const additionalDirectoryEnv =
 			additionalDirectories.length > 0
 				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
+				: undefined;
+		const queryEnv =
+			claudeEnv || additionalDirectoryEnv
+				? { ...claudeEnv, ...additionalDirectoryEnv }
 				: undefined;
 
 		const q = query({
@@ -448,7 +457,7 @@ export class ClaudeSessionManager implements SessionManager {
 				...executableOptions(),
 				cwd: cwd || undefined,
 				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
-				...(additionalDirectoryEnv ? { env: additionalDirectoryEnv } : {}),
+				...(queryEnv ? { env: queryEnv } : {}),
 				model: model || undefined,
 				...(resume ? { resume } : {}),
 				permissionMode: parsePermissionMode(permissionMode),

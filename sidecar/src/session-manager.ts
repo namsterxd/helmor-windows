@@ -18,6 +18,7 @@ export interface SendMessageParams {
 	readonly permissionMode: string | undefined;
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
+	readonly claudeEnvironment?: Readonly<Record<string, string>>;
 	/**
 	 * Extra directories the user linked via `/add-dir`. Passed to Claude as
 	 * `additionalDirectories`; merged into Codex's per-turn `sandboxPolicy`

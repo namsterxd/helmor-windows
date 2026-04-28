@@ -8,7 +8,9 @@ use uuid::Uuid;
 use crate::error::CommandError;
 
 pub mod action_kind;
+mod builtin_claude_providers;
 mod catalog;
+mod custom_providers;
 mod persistence;
 mod queries;
 mod slash_commands;

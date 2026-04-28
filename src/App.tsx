@@ -168,9 +168,9 @@ function MainApp() {
 			updateSettings: (patch: Partial<AppSettings>) => {
 				setAppSettings((previous) => {
 					const next = { ...(previous ?? DEFAULT_SETTINGS), ...patch };
-					void saveSettings(patch);
 					return next;
 				});
+				return saveSettings(patch);
 			},
 		}),
 		[appSettings, preloadSettings],

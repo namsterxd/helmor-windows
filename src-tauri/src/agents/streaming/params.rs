@@ -19,6 +19,8 @@ pub struct BuildSendMessageParamsInput<'a> {
     pub permission_mode: Option<&'a str>,
     pub fast_mode: bool,
     pub helmor_session_id: Option<&'a str>,
+    pub claude_base_url: Option<&'a str>,
+    pub claude_auth_token: Option<&'a str>,
 }
 
 /// Build the `sendMessage` request params that the sidecar receives.
@@ -45,6 +47,17 @@ pub fn build_send_message_params(input: BuildSendMessageParamsInput<'_>) -> Valu
             obj.insert(
                 "additionalDirectories".to_string(),
                 Value::from(additional_directories),
+            );
+        }
+    }
+    if let (Some(base_url), Some(auth_token)) = (input.claude_base_url, input.claude_auth_token) {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert(
+                "claudeEnvironment".to_string(),
+                serde_json::json!({
+                    "ANTHROPIC_BASE_URL": base_url,
+                    "ANTHROPIC_AUTH_TOKEN": auth_token,
+                }),
             );
         }
     }

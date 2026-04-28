@@ -126,11 +126,31 @@ export function parseSendMessageParams(
 		permissionMode: optionalString(params, "permissionMode"),
 		effortLevel: optionalString(params, "effortLevel"),
 		fastMode: optionalBoolean(params, "fastMode"),
+		claudeEnvironment: parseOptionalStringRecord(params, "claudeEnvironment"),
 		additionalDirectories: parseOptionalStringArray(
 			params,
 			"additionalDirectories",
 		),
 	};
+}
+
+function parseOptionalStringRecord(
+	params: Record<string, unknown>,
+	key: string,
+): Readonly<Record<string, string>> | undefined {
+	const value = params[key];
+	if (value === undefined || value === null) return undefined;
+	if (typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`params.${key} must be an object`);
+	}
+	const out: Record<string, string> = {};
+	for (const [recordKey, recordValue] of Object.entries(value)) {
+		if (typeof recordValue !== "string") {
+			throw new Error(`params.${key}.${recordKey} must be a string`);
+		}
+		out[recordKey] = recordValue;
+	}
+	return out;
 }
 
 function parseOptionalStringArray(

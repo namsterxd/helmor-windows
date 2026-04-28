@@ -98,6 +98,8 @@ fn base_input<'a>(session_id: Option<&'a str>) -> BuildSendMessageParamsInput<'a
         permission_mode: Some("bypassPermissions"),
         fast_mode: false,
         helmor_session_id: session_id,
+        claude_base_url: None,
+        claude_auth_token: None,
     }
 }
 
@@ -122,6 +124,19 @@ fn includes_additional_directories_from_workspace() {
 
     let params = build(base_input(Some("s-2")));
     assert_yaml_snapshot!("params_with_linked_dirs", &params);
+}
+
+#[test]
+fn includes_claude_environment_for_custom_provider() {
+    let env = TestEnv::new();
+    seed_workspace_session(&env.connection(), "w-3", "s-3", None);
+
+    let mut input = base_input(Some("s-3"));
+    input.claude_base_url = Some("https://api.example.com/anthropic");
+    input.claude_auth_token = Some("sk-test");
+
+    let params = build(input);
+    assert_yaml_snapshot!("params_with_claude_environment", &params);
 }
 
 #[test]
