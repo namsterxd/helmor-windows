@@ -496,11 +496,10 @@ export const SettingsDialog = memo(function SettingsDialog({
 								<SettingsGroup>
 									<div className="py-5">
 										<div className="text-[13px] font-medium leading-snug text-foreground">
-											Default Branch Prefix
+											Branch Prefix
 										</div>
 										<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-											Default for repositories added before they are configured
-											individually
+											Prefix added to branch names when creating new workspaces
 										</div>
 										<RadioGroup
 											value={settings.branchPrefixType}
@@ -516,7 +515,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 										>
 											<RadioOption
 												value="github"
-												label={`Provider username${githubLogin ? ` (GitHub: ${githubLogin})` : ""}`}
+												label={`GitHub username${githubLogin ? ` (${githubLogin})` : ""}`}
 											/>
 											<RadioOption value="custom" label="Custom" />
 											{settings.branchPrefixType === "custom" && (

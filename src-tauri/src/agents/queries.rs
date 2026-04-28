@@ -99,10 +99,10 @@ pub async fn generate_session_title(
         .and_then(|(_, repo_id, _, _, _)| {
             crate::repos::load_repo_branch_prefix_settings(repo_id).ok()
         })
-        .unwrap_or(crate::settings::BranchPrefixSettings {
-            branch_prefix_type: Some("github".to_string()),
-            branch_prefix_custom: Some(String::new()),
-            forge_provider: Some("github".to_string()),
+        .unwrap_or(crate::settings::EffectiveBranchPrefixSettings {
+            branch_prefix_type: None,
+            branch_prefix_custom: None,
+            forge_provider: None,
             remote_url: None,
         });
 

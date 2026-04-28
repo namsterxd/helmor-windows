@@ -258,7 +258,7 @@ function BranchPrefixSection({
 }) {
 	const { settings } = useSettings();
 	const [customPrefix, setCustomPrefix] = useState(
-		repo.branchPrefixType === "custom" ? (repo.branchPrefixCustom ?? "") : "",
+		repo.branchPrefixCustom ?? "",
 	);
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const gitlabHost = parseRemoteHost(repo.remoteUrl);
@@ -268,6 +268,8 @@ function BranchPrefixSection({
 	const gitlabStatusQuery = useQuery({
 		queryKey: ["forgeCliStatus", "gitlab", gitlabHost ?? "gitlab.com"],
 		queryFn: () => getForgeCliStatus("gitlab", gitlabHost),
+		// The global "github" option means "use the current provider login"
+		// once it is resolved through this repository's forge.
 		enabled: isGitLabRepo && settings.branchPrefixType === "github",
 		staleTime: 2000,
 	});
@@ -285,16 +287,14 @@ function BranchPrefixSection({
 	const inheritedPlaceholder = inheritedPrefix || "No prefix";
 
 	useEffect(() => {
-		setCustomPrefix(
-			repo.branchPrefixType === "custom" ? (repo.branchPrefixCustom ?? "") : "",
-		);
-	}, [repo.id, repo.branchPrefixType, repo.branchPrefixCustom]);
+		setCustomPrefix(repo.branchPrefixCustom ?? "");
+	}, [repo.id]);
 
 	useEffect(() => {
 		return () => {
 			if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 		};
-	}, []);
+	}, [repo.id]);
 
 	const save = useCallback(
 		(nextCustom: string) => {
@@ -302,7 +302,6 @@ function BranchPrefixSection({
 			saveTimerRef.current = setTimeout(() => {
 				void updateRepositoryBranchPrefix(
 					repo.id,
-					"custom",
 					nextCustom.trim() || null,
 				).then(onChanged);
 			}, 400);
@@ -334,12 +333,7 @@ function BranchPrefixSection({
 					<div className="mt-1.5 text-[12px] text-muted-foreground">
 						Preview: {customPrefix}tokyo
 					</div>
-				) : (
-					<div className="mt-1.5 text-[12px] text-muted-foreground">
-						Using global:{" "}
-						{inheritedPrefix ? `${inheritedPrefix}tokyo` : "tokyo"}
-					</div>
-				)}
+				) : null}
 			</div>
 		</div>
 	);

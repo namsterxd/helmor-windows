@@ -497,7 +497,7 @@ pub const WORKSPACE_NAMES: &[&str] = &[
 
 pub fn branch_name_for_directory(
     directory_name: &str,
-    settings: &crate::settings::BranchPrefixSettings,
+    settings: &crate::settings::EffectiveBranchPrefixSettings,
 ) -> String {
     let prefix_type = settings
         .branch_prefix_type
@@ -531,7 +531,7 @@ pub fn branch_name_for_directory(
 pub fn is_default_branch_name(
     branch: &str,
     directory_name: &str,
-    settings: &crate::settings::BranchPrefixSettings,
+    settings: &crate::settings::EffectiveBranchPrefixSettings,
 ) -> bool {
     branch == branch_name_for_directory(directory_name, settings)
 }
@@ -539,7 +539,7 @@ pub fn is_default_branch_name(
 pub fn is_auto_generated_branch_name(
     branch: &str,
     directory_name: &str,
-    settings: &crate::settings::BranchPrefixSettings,
+    settings: &crate::settings::EffectiveBranchPrefixSettings,
 ) -> bool {
     let base = branch_name_for_directory(directory_name, settings);
     branch == base
@@ -550,7 +550,9 @@ pub fn is_auto_generated_branch_name(
         })
 }
 
-fn resolve_forge_login(settings: &crate::settings::BranchPrefixSettings) -> Result<Option<String>> {
+fn resolve_forge_login(
+    settings: &crate::settings::EffectiveBranchPrefixSettings,
+) -> Result<Option<String>> {
     let provider = settings
         .forge_provider
         .as_deref()
@@ -566,7 +568,7 @@ fn resolve_forge_login(settings: &crate::settings::BranchPrefixSettings) -> Resu
     }
 }
 
-fn remote_url_looks_like_gitlab(settings: &crate::settings::BranchPrefixSettings) -> bool {
+fn remote_url_looks_like_gitlab(settings: &crate::settings::EffectiveBranchPrefixSettings) -> bool {
     settings
         .remote_url
         .as_deref()
@@ -586,7 +588,7 @@ fn resolve_github_login() -> Result<Option<String>> {
 }
 
 fn resolve_gitlab_login(
-    settings: &crate::settings::BranchPrefixSettings,
+    settings: &crate::settings::EffectiveBranchPrefixSettings,
 ) -> Result<Option<String>> {
     let host = settings
         .remote_url
@@ -697,7 +699,7 @@ mod tests {
 
     #[test]
     fn auto_generated_branch_name_accepts_version_suffixes() {
-        let settings = crate::settings::BranchPrefixSettings {
+        let settings = crate::settings::EffectiveBranchPrefixSettings {
             branch_prefix_type: Some("custom".to_string()),
             branch_prefix_custom: Some("user/".to_string()),
             forge_provider: Some("github".to_string()),
