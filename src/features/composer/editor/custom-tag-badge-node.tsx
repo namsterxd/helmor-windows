@@ -3,6 +3,7 @@ import {
 	$applyNodeReplacement,
 	$getNodeByKey,
 	DecoratorNode,
+	type DOMConversionMap,
 	type DOMExportOutput,
 	type LexicalNode,
 	type NodeKey,
@@ -85,6 +86,36 @@ export class CustomTagBadgeNode extends DecoratorNode<ReactNode> {
 		});
 	}
 
+	static importDOM(): DOMConversionMap | null {
+		return {
+			span: (element) => {
+				if (
+					element.dataset.helmorComposerNode !== CustomTagBadgeNode.getType()
+				) {
+					return null;
+				}
+				return {
+					conversion: () => {
+						const id = element.dataset.helmorCustomTagId;
+						const label = element.dataset.helmorCustomTagLabel;
+						const submitText = element.dataset.helmorCustomTagSubmitText;
+						if (!id || !label || !submitText) {
+							return { node: null };
+						}
+						return {
+							node: $createCustomTagBadgeNode({
+								id,
+								label,
+								submitText,
+							}),
+						};
+					},
+					priority: 1,
+				};
+			},
+		};
+	}
+
 	constructor(customTag: ComposerCustomTag, key?: NodeKey) {
 		super(key);
 		this.__id = customTag.id;
@@ -116,6 +147,10 @@ export class CustomTagBadgeNode extends DecoratorNode<ReactNode> {
 
 	exportDOM(): DOMExportOutput {
 		const span = document.createElement("span");
+		span.dataset.helmorComposerNode = CustomTagBadgeNode.getType();
+		span.dataset.helmorCustomTagId = this.__id;
+		span.dataset.helmorCustomTagLabel = this.__label;
+		span.dataset.helmorCustomTagSubmitText = this.__submitText;
 		span.textContent = this.__label;
 		return { element: span };
 	}

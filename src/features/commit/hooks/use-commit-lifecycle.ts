@@ -40,6 +40,13 @@ import { moveWorkspaceToGroup } from "@/lib/workspace-helpers";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import type { CommitButtonState, WorkspaceCommitButtonMode } from "../button";
 
+const DEBUG_COMMIT_LIFECYCLE = false;
+const debugCommitLifecycle = (...args: unknown[]) => {
+	if (DEBUG_COMMIT_LIFECYCLE) {
+		console.log(...args);
+	}
+};
+
 /**
  * Derive the workspace lane this PR state implies. Mirrors the backend's
  * `pr_sync_state_from_change_request` + `sync_workspace_pr_state` mapping
@@ -224,7 +231,7 @@ export function useWorkspaceCommitLifecycle({
 			}
 
 			completedSessionHandledRef.current = null;
-			console.log("[commitButton] begin", { mode, workspaceId });
+			debugCommitLifecycle("[commitButton] begin", { mode, workspaceId });
 
 			if (mode === "merge" || mode === "closed") {
 				// ── Merge pre-validation ─────────────────────────────────
@@ -376,7 +383,7 @@ export function useWorkspaceCommitLifecycle({
 					forge,
 					selectedWorkspaceRemote,
 				);
-				console.log("[commitButton] session created", { sessionId });
+				debugCommitLifecycle("[commitButton] session created", { sessionId });
 
 				await queryClient.invalidateQueries({
 					queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
@@ -422,7 +429,7 @@ export function useWorkspaceCommitLifecycle({
 	);
 
 	const handlePendingPromptConsumed = useCallback(() => {
-		console.log("[commitButton] pending prompt consumed by composer");
+		debugCommitLifecycle("[commitButton] pending prompt consumed by composer");
 		setPendingPromptForSession(null);
 		setCommitLifecycle((current) =>
 			current && current.phase === "creating"
@@ -438,7 +445,7 @@ export function useWorkspaceCommitLifecycle({
 
 	useEffect(() => {
 		const current = commitLifecycleRef.current;
-		console.log("[commitButton] action-session settlement check", {
+		debugCommitLifecycle("[commitButton] action-session settlement check", {
 			sendingIds: Array.from(sendingSessionIds),
 			completedIds: Array.from(completedSessionIds),
 			abortedIds: abortedSessionIds ? Array.from(abortedSessionIds) : [],
@@ -457,7 +464,7 @@ export function useWorkspaceCommitLifecycle({
 		// Aborted sessions clear the lifecycle — no PR was created, so the
 		// button returns to idle rather than proceeding to verify.
 		if (abortedSessionIds?.has(trackedSessionId)) {
-			console.log(
+			debugCommitLifecycle(
 				"[commitButton] tracked session aborted — clearing lifecycle",
 			);
 			hasObservedSendingRef.current = false;
@@ -468,38 +475,40 @@ export function useWorkspaceCommitLifecycle({
 
 		const isSending = sendingSessionIds.has(trackedSessionId);
 		if (isSending) {
-			console.log("[commitButton] tracked session is streaming");
+			debugCommitLifecycle("[commitButton] tracked session is streaming");
 			hasObservedSendingRef.current = true;
 			return;
 		}
 
 		if (!hasObservedSendingRef.current) {
-			console.log(
+			debugCommitLifecycle(
 				"[commitButton] tracked session not yet observed streaming — waiting",
 			);
 			return;
 		}
 
 		if (!completedSessionIds.has(trackedSessionId)) {
-			console.log("[commitButton] tracked session not yet completed — waiting");
+			debugCommitLifecycle(
+				"[commitButton] tracked session not yet completed — waiting",
+			);
 			return;
 		}
 
 		if (interactionRequiredSessionIds.has(trackedSessionId)) {
-			console.log(
+			debugCommitLifecycle(
 				"[commitButton] tracked session still requires interaction — waiting",
 			);
 			return;
 		}
 
 		if (completedSessionHandledRef.current === trackedSessionId) {
-			console.log(
+			debugCommitLifecycle(
 				"[commitButton] tracked session completion already handled — skipping",
 			);
 			return;
 		}
 
-		console.log(
+		debugCommitLifecycle(
 			"[commitButton] tracked session completed and settled — transitioning to verifying phase",
 		);
 		hasObservedSendingRef.current = false;
@@ -511,13 +520,13 @@ export function useWorkspaceCommitLifecycle({
 		const workspaceId = current.workspaceId;
 		void (async () => {
 			try {
-				console.log(
+				debugCommitLifecycle(
 					"[commitButton] calling refreshWorkspaceChangeRequest",
 					workspaceId,
 				);
 				const currentChangeRequest =
 					await refreshWorkspaceChangeRequest(workspaceId);
-				console.log(
+				debugCommitLifecycle(
 					"[commitButton] refreshWorkspaceChangeRequest result",
 					currentChangeRequest,
 				);

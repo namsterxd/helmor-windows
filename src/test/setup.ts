@@ -157,6 +157,12 @@ vi.mock("@tauri-apps/api/webview", () => ({
 	})),
 }));
 
+vi.mock("@tauri-apps/plugin-notification", () => ({
+	isPermissionGranted: vi.fn(async () => false),
+	requestPermission: vi.fn(async () => "denied"),
+	sendNotification: vi.fn(),
+}));
+
 // `src/lib/api.ts` always calls `invoke` from `@tauri-apps/api/core` now —
 // there is no browser-mode fallback layer anymore. jsdom has no Tauri runtime,
 // so without this mock every test that triggers a real API function (via
@@ -171,6 +177,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 			case "get_app_settings":
 				return {
 					"app.onboarding_completed": "true",
+					"app.onboarding_version": "2",
 				};
 			case "get_github_identity_session":
 				return {
@@ -203,6 +210,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 					email: null,
 				};
 			case "list_github_accessible_repositories":
+				return [];
+			case "list_workspace_groups":
+				return [
+					{ id: "done", label: "Done", tone: "done", rows: [] },
+					{ id: "review", label: "In review", tone: "review", rows: [] },
+					{ id: "progress", label: "In progress", tone: "progress", rows: [] },
+				];
+			case "list_archived_workspaces":
 				return [];
 			case "list_repositories":
 				return [];
@@ -247,12 +262,74 @@ vi.mock("@tauri-apps/api/core", () => ({
 				return [];
 			case "list_workspace_changes_with_content":
 				return { items: [], prefetched: [] };
+			case "get_workspace":
+				return {
+					id: "workspace-1",
+					title: "Workspace",
+					repoId: "repo-1",
+					repoName: "helmor",
+					directoryName: "workspace",
+					state: "ready",
+					hasUnread: false,
+					workspaceUnread: 0,
+					unreadSessionCount: 0,
+					status: "in-progress",
+					activeSessionId: "session-1",
+					activeSessionTitle: "Untitled",
+					activeSessionAgentType: "claude",
+					activeSessionStatus: "idle",
+					rootPath: "D:\\helmor",
+					branch: "main",
+					initializationParentBranch: "main",
+					intendedTargetBranch: "main",
+					pinnedAt: null,
+					prTitle: null,
+					archiveCommit: null,
+					sessionCount: 1,
+					messageCount: 0,
+				};
+			case "list_workspace_sessions":
+				return [
+					{
+						id: "session-1",
+						workspaceId: "workspace-1",
+						title: "Untitled",
+						agentType: "claude",
+						status: "idle",
+						model: "opus",
+						permissionMode: "default",
+						providerSessionId: null,
+						unreadCount: 0,
+						fastMode: false,
+						createdAt: "2026-04-04T00:00:00Z",
+						updatedAt: "2026-04-04T00:00:00Z",
+						lastUserMessageAt: null,
+						isHidden: false,
+						active: true,
+					},
+				];
 			case "list_slash_commands":
 				return [];
 			case "list_workspace_linked_directories":
 				return [];
 			case "list_workspace_candidate_directories":
 				return [];
+			case "load_repo_scripts":
+				return {
+					setupScript: null,
+					runScript: null,
+					archiveScript: null,
+					setupFromProject: false,
+					runFromProject: false,
+					archiveFromProject: false,
+					autoRunSetup: true,
+				};
+			case "get_session_context_usage":
+				return null;
+			case "get_claude_rate_limits":
+				return null;
+			case "get_codex_rate_limits":
+				return null;
 			case "refresh_workspace_change_request":
 				return null;
 			case "get_workspace_forge":

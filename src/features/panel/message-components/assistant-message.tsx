@@ -155,8 +155,8 @@ export function ChatAssistantMessage({
 			data-message-role="assistant"
 			className="flex min-w-0 max-w-full flex-col gap-1"
 		>
-			{parts.map((part) => {
-				const key = partKey(part);
+			{parts.map((part, index) => {
+				const key = `${partKey(part) || part.type}:${index}`;
 				if (isTextPart(part)) {
 					return (
 						<AssistantText key={key} text={part.text} streaming={streaming} />

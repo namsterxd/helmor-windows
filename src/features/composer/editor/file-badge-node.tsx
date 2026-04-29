@@ -10,6 +10,7 @@ import {
 	$applyNodeReplacement,
 	$getNodeByKey,
 	DecoratorNode,
+	type DOMConversionMap,
 	type DOMExportOutput,
 	type LexicalNode,
 	type NodeKey,
@@ -79,6 +80,25 @@ export class FileBadgeNode extends DecoratorNode<ReactNode> {
 		return $createFileBadgeNode(serializedNode.filePath);
 	}
 
+	static importDOM(): DOMConversionMap | null {
+		return {
+			span: (element) => {
+				if (element.dataset.helmorComposerNode !== FileBadgeNode.getType()) {
+					return null;
+				}
+				return {
+					conversion: () => {
+						const filePath = element.dataset.helmorFilePath;
+						return filePath
+							? { node: $createFileBadgeNode(filePath) }
+							: { node: null };
+					},
+					priority: 1,
+				};
+			},
+		};
+	}
+
 	constructor(filePath: string, key?: NodeKey) {
 		super(key);
 		this.__filePath = filePath;
@@ -104,6 +124,8 @@ export class FileBadgeNode extends DecoratorNode<ReactNode> {
 
 	exportDOM(): DOMExportOutput {
 		const span = document.createElement("span");
+		span.dataset.helmorComposerNode = FileBadgeNode.getType();
+		span.dataset.helmorFilePath = this.__filePath;
 		span.textContent = `@${this.__filePath}`;
 		return { element: span };
 	}

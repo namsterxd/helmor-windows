@@ -11,6 +11,7 @@ import {
 	$applyNodeReplacement,
 	$getNodeByKey,
 	DecoratorNode,
+	type DOMConversionMap,
 	type DOMExportOutput,
 	type LexicalNode,
 	type NodeKey,
@@ -89,6 +90,25 @@ export class ImageBadgeNode extends DecoratorNode<ReactNode> {
 		return $createImageBadgeNode(serializedNode.imagePath);
 	}
 
+	static importDOM(): DOMConversionMap | null {
+		return {
+			span: (element) => {
+				if (element.dataset.helmorComposerNode !== ImageBadgeNode.getType()) {
+					return null;
+				}
+				return {
+					conversion: () => {
+						const imagePath = element.dataset.helmorImagePath;
+						return imagePath
+							? { node: $createImageBadgeNode(imagePath) }
+							: { node: null };
+					},
+					priority: 1,
+				};
+			},
+		};
+	}
+
 	constructor(imagePath: string, key?: NodeKey) {
 		super(key);
 		this.__imagePath = imagePath;
@@ -114,6 +134,8 @@ export class ImageBadgeNode extends DecoratorNode<ReactNode> {
 
 	exportDOM(): DOMExportOutput {
 		const span = document.createElement("span");
+		span.dataset.helmorComposerNode = ImageBadgeNode.getType();
+		span.dataset.helmorImagePath = this.__imagePath;
 		span.textContent = `@${this.__imagePath}`;
 		return { element: span };
 	}

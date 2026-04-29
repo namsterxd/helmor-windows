@@ -13,6 +13,7 @@
 import {
 	$applyNodeReplacement,
 	DecoratorNode,
+	type DOMConversionMap,
 	type DOMExportOutput,
 	type LexicalNode,
 	type NodeKey,
@@ -31,6 +32,22 @@ export class AddDirTriggerNode extends DecoratorNode<ReactNode> {
 
 	static importJSON(_serialized: SerializedLexicalNode): AddDirTriggerNode {
 		return $createAddDirTriggerNode();
+	}
+
+	static importDOM(): DOMConversionMap | null {
+		return {
+			span: (element) => {
+				if (
+					element.dataset.helmorComposerNode !== AddDirTriggerNode.getType()
+				) {
+					return null;
+				}
+				return {
+					conversion: () => ({ node: $createAddDirTriggerNode() }),
+					priority: 1,
+				};
+			},
+		};
 	}
 
 	// Default constructor from DecoratorNode suffices — no extra state to
@@ -69,6 +86,7 @@ export class AddDirTriggerNode extends DecoratorNode<ReactNode> {
 
 	exportDOM(): DOMExportOutput {
 		const span = document.createElement("span");
+		span.dataset.helmorComposerNode = AddDirTriggerNode.getType();
 		span.textContent = "/add-dir";
 		return { element: span };
 	}

@@ -61,7 +61,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, not(test)))]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     let app = builder

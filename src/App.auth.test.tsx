@@ -209,7 +209,6 @@ describe("App GitHub identity states", () => {
 			return undefined;
 		});
 
-		const user = userEvent.setup();
 		render(<App />);
 
 		expect(
@@ -225,7 +224,7 @@ describe("App GitHub identity states", () => {
 			screen.queryByRole("main", { name: "GitHub identity gate" }),
 		).not.toBeInTheDocument();
 
-		await user.click(screen.getByRole("button", { name: "Explore" }));
+		fireEvent.click(screen.getByRole("button", { name: "Explore" }));
 
 		expect(
 			await screen.findByRole("main", { name: "Helmor onboarding" }),
