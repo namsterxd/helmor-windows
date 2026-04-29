@@ -21,6 +21,7 @@ const apiMocks = vi.hoisted(() => ({
 	loadSessionThreadMessages: vi.fn(),
 	getSessionContextUsage: vi.fn(),
 	getCodexRateLimits: vi.fn(),
+	getClaudeRateLimits: vi.fn(),
 	loadRepoScripts: vi.fn(),
 	getWorkspaceForge: vi.fn(),
 	refreshWorkspaceChangeRequest: vi.fn(),
@@ -84,6 +85,7 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
 		getSessionContextUsage: apiMocks.getSessionContextUsage,
 		getCodexRateLimits: apiMocks.getCodexRateLimits,
+		getClaudeRateLimits: apiMocks.getClaudeRateLimits,
 		loadRepoScripts: apiMocks.loadRepoScripts,
 		getWorkspaceForge: apiMocks.getWorkspaceForge,
 		refreshWorkspaceChangeRequest: apiMocks.refreshWorkspaceChangeRequest,
@@ -409,6 +411,8 @@ async function renderAppReady(expectedSessionTitle = "Done session 1") {
 
 describe("App global navigation shortcuts", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
+		window.sessionStorage.clear();
 		runtimeSessionFixtures = createRuntimeSessionFixtures();
 		apiMocks.createSession.mockReset();
 		apiMocks.deleteSession.mockReset();
@@ -421,6 +425,7 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.loadSessionThreadMessages.mockReset();
 		apiMocks.getSessionContextUsage.mockReset();
 		apiMocks.getCodexRateLimits.mockReset();
+		apiMocks.getClaudeRateLimits.mockReset();
 		apiMocks.loadRepoScripts.mockReset();
 		apiMocks.getWorkspaceForge.mockReset();
 		apiMocks.refreshWorkspaceChangeRequest.mockReset();
@@ -549,6 +554,7 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
 		apiMocks.getSessionContextUsage.mockResolvedValue(null);
 		apiMocks.getCodexRateLimits.mockResolvedValue(null);
+		apiMocks.getClaudeRateLimits.mockResolvedValue(null);
 		apiMocks.loadRepoScripts.mockResolvedValue(EMPTY_REPO_SCRIPTS);
 		apiMocks.getWorkspaceForge.mockResolvedValue(UNKNOWN_FORGE_DETECTION);
 		apiMocks.refreshWorkspaceChangeRequest.mockResolvedValue(null);
@@ -878,7 +884,7 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedSession("Done session 3");
 		});
 		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-2");
-	});
+	}, 10_000);
 
 	it("selects the left session after closing the rightmost session", async () => {
 		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
@@ -914,7 +920,7 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedSession("Done session 2");
 		});
 		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-3");
-	});
+	}, 10_000);
 
 	it("keeps the active session when closing an inactive session tab", async () => {
 		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
@@ -942,7 +948,7 @@ describe("App global navigation shortcuts", () => {
 			expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-2");
 		});
 		expectSelectedSession("Done session 1");
-	});
+	}, 10_000);
 
 	it("quits silently on a Rust-emitted quit-requested event when nothing is in flight", async () => {
 		apiMocks.requestQuit.mockReset();

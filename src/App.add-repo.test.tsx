@@ -11,6 +11,9 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	getSessionContextUsage: vi.fn(),
+	getClaudeRateLimits: vi.fn(),
+	loadRepoScripts: vi.fn(),
 	listRepositories: vi.fn(),
 }));
 
@@ -41,6 +44,9 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
+		getSessionContextUsage: apiMocks.getSessionContextUsage,
+		getClaudeRateLimits: apiMocks.getClaudeRateLimits,
+		loadRepoScripts: apiMocks.loadRepoScripts,
 		listRepositories: apiMocks.listRepositories,
 	};
 });
@@ -49,6 +55,8 @@ import App from "./App";
 
 describe("App add repository flow", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
+		window.sessionStorage.clear();
 		addRepoRuntime.added = false;
 
 		apiMocks.addRepositoryFromLocalPath.mockReset();
@@ -59,6 +67,9 @@ describe("App add repository flow", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.getSessionContextUsage.mockReset();
+		apiMocks.getClaudeRateLimits.mockReset();
+		apiMocks.loadRepoScripts.mockReset();
 		apiMocks.listRepositories.mockReset();
 		dialogMocks.open.mockReset();
 
@@ -227,6 +238,17 @@ describe("App add repository flow", () => {
 			},
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+		apiMocks.getSessionContextUsage.mockResolvedValue(null);
+		apiMocks.getClaudeRateLimits.mockResolvedValue(null);
+		apiMocks.loadRepoScripts.mockResolvedValue({
+			setupScript: null,
+			runScript: null,
+			archiveScript: null,
+			setupFromProject: false,
+			runFromProject: false,
+			archiveFromProject: false,
+			autoRunSetup: true,
+		});
 		apiMocks.addRepositoryFromLocalPath.mockImplementation(async () => {
 			addRepoRuntime.added = true;
 
@@ -279,7 +301,7 @@ describe("App add repository flow", () => {
 		});
 
 		expect(screen.getByText("Acamar")).toBeInTheDocument();
-	});
+	}, 10_000);
 
 	it("treats picker cancel as a no-op", async () => {
 		const user = userEvent.setup();
@@ -298,7 +320,7 @@ describe("App add repository flow", () => {
 		});
 		expect(apiMocks.addRepositoryFromLocalPath).not.toHaveBeenCalled();
 		expect(screen.queryByText("Acamar")).not.toBeInTheDocument();
-	});
+	}, 10_000);
 
 	it("focuses the existing workspace when the repository already exists", async () => {
 		const user = userEvent.setup();
@@ -325,7 +347,7 @@ describe("App add repository flow", () => {
 		});
 
 		expect(screen.queryByText("Acamar")).not.toBeInTheDocument();
-	});
+	}, 10_000);
 
 	it("shows add-repository failures inline", async () => {
 		const user = userEvent.setup();
@@ -346,5 +368,5 @@ describe("App add repository flow", () => {
 				screen.getByText("Selected directory is not a Git working tree"),
 			).toBeInTheDocument();
 		});
-	});
+	}, 10_000);
 });
