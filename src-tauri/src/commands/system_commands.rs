@@ -13,7 +13,11 @@ use tauri::{
 use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager};
 use crate::{agents, git_watcher, models::db, service, sidecar};
 
-use super::common::{run_blocking, CmdResult};
+#[cfg(windows)]
+use super::common::login_terminal_shell;
+use super::common::{
+    login_terminal_command, login_terminal_initial_input, run_blocking, CmdResult, LoginShell,
+};
 
 // Best-fit fixed window size for the current onboarding motion layout.
 // Resizing is restored when onboarding exits.
@@ -46,6 +50,8 @@ pub struct DataInfo {
 pub struct AgentLoginStatus {
     pub claude: bool,
     pub codex: bool,
+    pub claude_wsl: bool,
+    pub codex_wsl: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,6 +67,8 @@ pub struct CliStatus {
 #[serde(rename_all = "camelCase")]
 pub struct HelmorSkillsStatus {
     pub installed: bool,
+    pub windows_installed: bool,
+    pub wsl_installed: bool,
     pub claude: bool,
     pub codex: bool,
     pub command: String,
@@ -68,7 +76,20 @@ pub struct HelmorSkillsStatus {
 
 /// Where Helmor installs its managed CLI entrypoint on macOS.
 fn cli_install_target() -> std::path::PathBuf {
-    std::path::PathBuf::from(format!("/usr/local/bin/{}", installed_cli_name()))
+    #[cfg(windows)]
+    {
+        crate::data_dir::data_dir()
+            .unwrap_or_else(|_| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            })
+            .join("bin")
+            .join(format!("{}.exe", installed_cli_name()))
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::path::PathBuf::from(format!("/usr/local/bin/{}", installed_cli_name()))
+    }
 }
 
 fn installed_cli_name() -> &'static str {
@@ -88,7 +109,61 @@ fn bundled_cli_binary(app_exe: &std::path::Path) -> anyhow::Result<std::path::Pa
     let target_dir = app_exe
         .parent()
         .context("Cannot determine app binary directory")?;
-    Ok(target_dir.join(cli_source_binary_name()))
+    let binary_name = if cfg!(windows) {
+        format!("{}.exe", cli_source_binary_name())
+    } else {
+        cli_source_binary_name().to_string()
+    };
+    let sibling = target_dir.join(binary_name);
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        if let Some(cli) = debug_cli_binary_candidate(app_exe) {
+            return Ok(cli);
+        }
+    }
+
+    Ok(sibling)
+}
+
+#[cfg(debug_assertions)]
+fn debug_cli_binary_candidate(app_exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let exe_dir = app_exe.parent()?;
+    let binary_name = if cfg!(windows) {
+        format!("{}.exe", cli_source_binary_name())
+    } else {
+        cli_source_binary_name().to_string()
+    };
+    let candidate = exe_dir.join(&binary_name);
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    let candidate = manifest_dir.join("target").join(profile).join(&binary_name);
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+
+    let status = Command::new("cargo")
+        .args(["build", "--manifest-path"])
+        .arg(manifest_dir.join("Cargo.toml"))
+        .args(["--bin", "helmor-cli"])
+        .status()
+        .ok()?;
+    if !status.success() {
+        return None;
+    }
+
+    candidate.is_file().then_some(candidate)
 }
 
 fn cli_install_remediation(cli_binary: &std::path::Path, install_path: &std::path::Path) -> String {
@@ -119,29 +194,48 @@ fn classify_cli_install(
         Err(_) => return CliInstallState::Stale,
     };
 
-    if !metadata.file_type().is_symlink() {
-        return CliInstallState::Stale;
+    #[cfg(windows)]
+    {
+        if !metadata.file_type().is_file() {
+            return CliInstallState::Stale;
+        }
+        match (
+            std::fs::metadata(install_path),
+            std::fs::metadata(bundled_cli),
+        ) {
+            (Ok(installed), Ok(expected)) if installed.len() == expected.len() => {
+                CliInstallState::Managed
+            }
+            _ => CliInstallState::Stale,
+        }
     }
 
-    let target = match std::fs::read_link(install_path) {
-        Ok(target) => target,
-        Err(_) => return CliInstallState::Stale,
-    };
-    let resolved_target = if target.is_absolute() {
-        target
-    } else {
-        install_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("/"))
-            .join(target)
-    };
+    #[cfg(not(windows))]
+    {
+        if !metadata.file_type().is_symlink() {
+            return CliInstallState::Stale;
+        }
 
-    match (
-        std::fs::canonicalize(resolved_target),
-        std::fs::canonicalize(bundled_cli),
-    ) {
-        (Ok(installed), Ok(expected)) if installed == expected => CliInstallState::Managed,
-        _ => CliInstallState::Stale,
+        let target = match std::fs::read_link(install_path) {
+            Ok(target) => target,
+            Err(_) => return CliInstallState::Stale,
+        };
+        let resolved_target = if target.is_absolute() {
+            target
+        } else {
+            install_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("/"))
+                .join(target)
+        };
+
+        match (
+            std::fs::canonicalize(resolved_target),
+            std::fs::canonicalize(bundled_cli),
+        ) {
+            (Ok(installed), Ok(expected)) if installed == expected => CliInstallState::Managed,
+            _ => CliInstallState::Stale,
+        }
     }
 }
 
@@ -242,9 +336,51 @@ fn try_install_symlink_unprivileged(
 
     #[cfg(not(unix))]
     {
-        let _ = bundled_cli;
-        anyhow::bail!("CLI installation via symlink is only supported on Unix.")
+        std::fs::copy(bundled_cli, install_path)
+            .with_context(|| format!("Failed to install CLI at {}", install_path.display()))?;
+        Ok(())
     }
+}
+
+fn install_cli_wsl_shim(install_path: &std::path::Path) -> anyhow::Result<()> {
+    if !cfg!(windows) {
+        return Ok(());
+    }
+    let Some(wsl_cli_path) = windows_path_to_wsl(install_path) else {
+        anyhow::bail!(
+            "Unable to translate {} to a WSL path.",
+            install_path.display()
+        );
+    };
+    let command_name = installed_cli_name();
+    let script = format!(
+        "mkdir -p ~/.local/bin && cat > ~/.local/bin/{name} <<'EOF'\n#!/bin/sh\nexec {target} \"$@\"\nEOF\nchmod +x ~/.local/bin/{name}",
+        name = command_name,
+        target = shell_quote_arg(&wsl_cli_path),
+    );
+    let output = Command::new("wsl.exe")
+        .args(["--", "sh", "-lc"])
+        .arg(script)
+        .output()
+        .context("Failed to install WSL Helmor CLI shim")?;
+    if output.status.success() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "WSL CLI install failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+}
+
+fn windows_path_to_wsl(path: &std::path::Path) -> Option<String> {
+    let raw = path.display().to_string().replace('\\', "/");
+    let mut chars = raw.chars();
+    let drive = chars.next()?.to_ascii_lowercase();
+    if chars.next()? != ':' {
+        return None;
+    }
+    let rest = chars.as_str().trim_start_matches('/');
+    Some(format!("/mnt/{drive}/{rest}"))
 }
 
 fn is_permission_denied(error: &anyhow::Error) -> bool {
@@ -309,6 +445,7 @@ fn build_elevated_install_script(
 
 /// Quote a path so it survives both `do shell script "..."` (AppleScript string
 /// literal) and the shell that AppleScript hands the script to.
+#[cfg(any(target_os = "macos", test))]
 fn applescript_shell_arg(path: &std::path::Path) -> String {
     let raw = path.display().to_string();
     // 1. Single-quote for the shell, escaping embedded single quotes via `'\''`.
@@ -340,12 +477,41 @@ fn skill_exists(base: &Path) -> bool {
     base.join(HELMOR_SKILL_NAME).join("SKILL.md").is_file()
 }
 
+fn skills_installed_for_agents(agents: &[&str], claude: bool, codex: bool) -> bool {
+    if agents.is_empty() {
+        claude || codex
+    } else {
+        agents.iter().all(|agent| match *agent {
+            "claude-code" => claude,
+            "codex" => codex,
+            _ => false,
+        })
+    }
+}
+
 fn ready_skill_agents(login: &AgentLoginStatus) -> Vec<&'static str> {
+    ready_skill_agents_for_shell(login, None)
+}
+
+fn ready_skill_agents_for_shell(
+    login: &AgentLoginStatus,
+    shell: Option<LoginShell>,
+) -> Vec<&'static str> {
     let mut agents = Vec::new();
-    if login.claude {
+    let claude_ready = match shell {
+        Some(LoginShell::Powershell) => login.claude,
+        Some(LoginShell::Wsl) => login.claude_wsl,
+        None => login.claude || login.claude_wsl,
+    };
+    let codex_ready = match shell {
+        Some(LoginShell::Powershell) => login.codex,
+        Some(LoginShell::Wsl) => login.codex_wsl,
+        None => login.codex || login.codex_wsl,
+    };
+    if claude_ready {
         agents.push("claude-code");
     }
-    if login.codex {
+    if codex_ready {
         agents.push("codex");
     }
     agents
@@ -353,8 +519,6 @@ fn ready_skill_agents(login: &AgentLoginStatus) -> Vec<&'static str> {
 
 fn helmor_skills_install_args(agents: &[&str]) -> Vec<String> {
     let mut args = vec![
-        "--yes".to_string(),
-        "skills".to_string(),
         "add".to_string(),
         HELMOR_SKILL_SOURCE.to_string(),
         "-g".to_string(),
@@ -376,39 +540,227 @@ fn helmor_skills_install_command(agents: &[&str]) -> String {
     } else {
         agents.to_vec()
     };
-    std::iter::once("npx".to_string())
-        .chain(helmor_skills_install_args(&command_agents))
+    skills_installer_command_display(&command_agents)
+}
+
+fn skills_installer_command_display(agents: &[&str]) -> String {
+    let launcher = skills_installer_launcher()
+        .map(|launcher| launcher.display_args())
+        .unwrap_or_else(|| vec!["npx".to_string(), "--yes".to_string(), "skills".to_string()]);
+    launcher
+        .into_iter()
+        .chain(helmor_skills_install_args(agents))
         .map(|arg| shell_quote_arg(&arg))
         .collect::<Vec<_>>()
         .join(" ")
 }
 
+#[derive(Debug, Clone)]
+struct SkillsInstallerLauncher {
+    program: std::path::PathBuf,
+    args: Vec<String>,
+}
+
+impl SkillsInstallerLauncher {
+    fn display_args(&self) -> Vec<String> {
+        std::iter::once(self.program.display().to_string())
+            .chain(self.args.clone())
+            .collect()
+    }
+}
+
+fn skills_installer_launcher() -> Option<SkillsInstallerLauncher> {
+    if let Some(bun) = bundled_bun_path() {
+        return Some(SkillsInstallerLauncher {
+            program: bun,
+            args: vec!["x".to_string(), "skills".to_string()],
+        });
+    }
+    Some(SkillsInstallerLauncher {
+        program: std::path::PathBuf::from(if cfg!(windows) { "npx.cmd" } else { "npx" }),
+        args: vec!["--yes".to_string(), "skills".to_string()],
+    })
+}
+
+fn bundled_bun_path() -> Option<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("HELMOR_BUN_PATH") {
+        let path = std::path::PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let contents_dir = exe_dir.parent()?;
+    let resources_dir = contents_dir.join("Resources");
+    let bun_name = if cfg!(windows) { "bun.exe" } else { "bun" };
+    let candidate = resources_dir.join(format!("vendor/bun/{bun_name}"));
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(std::path::Path::to_path_buf)?
+            .join(format!("sidecar/dist/vendor/bun/{bun_name}"));
+        if dev.is_file() {
+            return Some(dev);
+        }
+    }
+
+    None
+}
+
+fn install_helmor_skills_wsl(agents: &[&str]) -> anyhow::Result<()> {
+    let mut args = helmor_skills_install_args(agents);
+    let quoted_args = args
+        .drain(..)
+        .map(|arg| shell_quote_arg(&arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let script = format!(
+        "if command -v bun >/dev/null 2>&1; then bun x skills {args}; elif command -v npx >/dev/null 2>&1; then npx --yes skills {args}; else printf '%s\\n' 'Install Bun or Node.js inside WSL, then run this again.'; exit 127; fi",
+        args = quoted_args,
+    );
+    let output = run_wsl_shell_script(&script).context("Failed to start WSL skills installer")?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    anyhow::bail!(
+        "Helmor skills WSL setup failed.\n{}\n{}",
+        stdout.trim(),
+        stderr.trim()
+    )
+}
+
+fn ready_wsl_skill_agents() -> Vec<&'static str> {
+    let claude = wsl_resolved_cli_status_command(
+        "claude",
+        &[
+            "$HOME/.npm-global/bin/claude",
+            "$HOME/.bun/bin/claude",
+            "$HOME/.local/bin/claude",
+        ],
+        "auth status >/dev/null 2>&1",
+    );
+    let codex = wsl_resolved_cli_status_command(
+        "codex",
+        &[
+            "$HOME/.npm-global/bin/codex",
+            "$HOME/.bun/bin/codex",
+            "$HOME/.local/bin/codex",
+        ],
+        "login status >/dev/null 2>&1 && \"\\$cli\" app-server --help >/dev/null 2>&1",
+    );
+    let script =
+        format!("({claude}) && printf '%s\\n' claude-code; ({codex}) && printf '%s\\n' codex");
+    let Ok(output) = run_wsl_shell_script(&script) else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| match line.trim() {
+            "claude-code" => Some("claude-code"),
+            "codex" => Some("codex"),
+            _ => None,
+        })
+        .collect()
+}
+
+fn wsl_helmor_skills_status_for_agents(agents: &[&str]) -> (bool, bool, bool) {
+    if !cfg!(windows) {
+        return (false, false, false);
+    }
+    let script = format!(
+        "if [ -f \"$HOME/.claude/skills/{name}/SKILL.md\" ]; then printf '%s\\n' claude=1; else printf '%s\\n' claude=0; fi; if [ -f \"$HOME/.agents/skills/{name}/SKILL.md\" ]; then printf '%s\\n' codex=1; else printf '%s\\n' codex=0; fi",
+        name = HELMOR_SKILL_NAME,
+    );
+    let Ok(output) = run_wsl_shell_script(&script) else {
+        return (false, false, false);
+    };
+    if !output.status.success() {
+        return (false, false, false);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let claude = stdout.lines().any(|line| line.trim() == "claude=1");
+    let codex = stdout.lines().any(|line| line.trim() == "codex=1");
+    (skills_installed_for_agents(agents, claude, codex), claude, codex)
+}
+
+fn run_wsl_shell_script(script: &str) -> std::io::Result<std::process::Output> {
+    let mut last: Option<std::io::Result<std::process::Output>> = None;
+    for shell in ["sh", "bash", "zsh"] {
+        let result = Command::new("wsl.exe")
+            .arg("--")
+            .arg(shell)
+            .arg("-lc")
+            .arg(script)
+            .output();
+        match result {
+            Ok(output) if output.status.success() || !looks_like_missing_wsl_command(&output) => {
+                return Ok(output);
+            }
+            other => last = Some(other),
+        }
+    }
+    last.unwrap_or_else(|| {
+        Command::new("wsl.exe")
+            .args(["--", "sh", "-lc", script])
+            .output()
+    })
+}
+
 fn helmor_skills_status() -> anyhow::Result<HelmorSkillsStatus> {
-    Ok(helmor_skills_status_for_agents(&ready_skill_agents(
-        &AgentLoginStatus {
-            claude: claude_login_ready(),
-            codex: codex_login_ready(),
-        },
-    )))
+    let login = AgentLoginStatus {
+        claude: claude_login_ready(),
+        codex: codex_login_ready(),
+        claude_wsl: claude_wsl_login_ready(),
+        codex_wsl: codex_wsl_login_ready(),
+    };
+    Ok(helmor_skills_status_for_login(&login))
 }
 
 fn helmor_skills_status_for_agents(agents: &[&str]) -> HelmorSkillsStatus {
+    let windows_installed = windows_helmor_skills_status_for_agents(agents).0;
+    HelmorSkillsStatus {
+        installed: windows_installed,
+        windows_installed,
+        wsl_installed: false,
+        claude: skill_exists(&claude_skills_dir()),
+        codex: skill_exists(&codex_skills_dir()),
+        command: helmor_skills_install_command(agents),
+    }
+}
+
+fn windows_helmor_skills_status_for_agents(agents: &[&str]) -> (bool, bool, bool) {
     let claude = skill_exists(&claude_skills_dir());
     let codex = skill_exists(&codex_skills_dir());
-    let installed = if agents.is_empty() {
-        claude || codex
-    } else {
-        agents.iter().all(|agent| match *agent {
-            "claude-code" => claude,
-            "codex" => codex,
-            _ => false,
-        })
-    };
+    (skills_installed_for_agents(agents, claude, codex), claude, codex)
+}
+
+fn helmor_skills_status_for_login(login: &AgentLoginStatus) -> HelmorSkillsStatus {
+    let all_agents = ready_skill_agents(login);
+    let windows_agents = ready_skill_agents_for_shell(login, Some(LoginShell::Powershell));
+    let wsl_agents = ready_skill_agents_for_shell(login, Some(LoginShell::Wsl));
+    let (windows_installed, windows_claude, windows_codex) =
+        windows_helmor_skills_status_for_agents(&windows_agents);
+    let (wsl_installed, wsl_claude, wsl_codex) =
+        wsl_helmor_skills_status_for_agents(&wsl_agents);
     HelmorSkillsStatus {
-        installed,
-        claude,
-        codex,
-        command: helmor_skills_install_command(agents),
+        installed: windows_installed || wsl_installed,
+        windows_installed,
+        wsl_installed,
+        claude: windows_claude || wsl_claude,
+        codex: windows_codex || wsl_codex,
+        command: helmor_skills_install_command(&all_agents),
     }
 }
 
@@ -421,12 +773,15 @@ pub fn get_cli_status() -> CmdResult<CliStatus> {
 }
 
 #[tauri::command]
-pub async fn install_cli() -> CmdResult<CliStatus> {
-    run_blocking(|| {
+pub async fn install_cli(shell: Option<LoginShell>) -> CmdResult<CliStatus> {
+    run_blocking(move || {
         let source = std::env::current_exe()?;
         let cli_binary = bundled_cli_binary(&source)?;
         let install_path = cli_install_target();
         install_cli_symlink(&cli_binary, &install_path)?;
+        if matches!(shell, Some(LoginShell::Wsl)) {
+            install_cli_wsl_shim(&install_path)?;
+        }
         Ok(cli_status_for_paths(&install_path, &cli_binary))
     })
     .await
@@ -438,13 +793,32 @@ pub async fn get_helmor_skills_status() -> CmdResult<HelmorSkillsStatus> {
 }
 
 #[tauri::command]
-pub async fn install_helmor_skills() -> CmdResult<HelmorSkillsStatus> {
-    run_blocking(|| {
+pub async fn install_helmor_skills(shell: Option<LoginShell>) -> CmdResult<HelmorSkillsStatus> {
+    run_blocking(move || {
         let login = AgentLoginStatus {
             claude: claude_login_ready(),
             codex: codex_login_ready(),
+            claude_wsl: claude_wsl_login_ready(),
+            codex_wsl: codex_wsl_login_ready(),
         };
-        let agents = ready_skill_agents(&login);
+        let mut agents = ready_skill_agents_for_shell(&login, shell);
+        if matches!(shell, Some(LoginShell::Wsl)) && agents.is_empty() {
+            agents = ready_wsl_skill_agents();
+        }
+
+        if matches!(shell, Some(LoginShell::Wsl)) {
+            if agents.is_empty() {
+                agents.push("codex");
+            }
+            install_helmor_skills_wsl(&agents)?;
+            return Ok(helmor_skills_status_for_login(&AgentLoginStatus {
+                claude: login.claude,
+                codex: login.codex,
+                claude_wsl: agents.contains(&"claude-code"),
+                codex_wsl: agents.contains(&"codex"),
+            }));
+        }
+
         let command = helmor_skills_install_command(&agents);
 
         if agents.is_empty() {
@@ -454,7 +828,11 @@ pub async fn install_helmor_skills() -> CmdResult<HelmorSkillsStatus> {
             );
         }
 
-        let output = Command::new("npx")
+        let launcher = skills_installer_launcher().context(
+            "No skills installer launcher found. Install Bun or Node.js, then try again.",
+        )?;
+        let output = Command::new(&launcher.program)
+            .args(&launcher.args)
             .args(helmor_skills_install_args(&agents))
             .output()
             .with_context(|| format!("Failed to start skills installer. Try:\n  {command}"))?;
@@ -570,6 +948,8 @@ pub async fn get_agent_login_status() -> CmdResult<AgentLoginStatus> {
         Ok(AgentLoginStatus {
             claude: claude_login_ready(),
             codex: codex_login_ready(),
+            claude_wsl: claude_wsl_login_ready(),
+            codex_wsl: codex_wsl_login_ready(),
         })
     })
     .await
@@ -589,14 +969,15 @@ fn claude_login_ready() -> bool {
             false
         }
         Err(error) => {
-            tracing::debug!("Claude auth status unavailable: {error}");
+            tracing::trace!("Claude auth status unavailable: {error}");
             false
         }
     }
 }
 
 fn codex_login_ready() -> bool {
-    match std::process::Command::new("codex")
+    let executable = codex_executable();
+    match std::process::Command::new(&executable)
         .args(["login", "status"])
         .output()
     {
@@ -604,6 +985,7 @@ fn codex_login_ready() -> bool {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             parse_codex_login_status(&format!("{stdout}\n{stderr}"))
+                && codex_app_server_ready(&executable)
         }
         Ok(output) => {
             tracing::debug!(
@@ -619,6 +1001,149 @@ fn codex_login_ready() -> bool {
     }
 }
 
+fn codex_app_server_ready(executable: &str) -> bool {
+    match std::process::Command::new(executable)
+        .args(["app-server", "--help"])
+        .output()
+    {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            tracing::debug!(
+                "Codex app-server unavailable: {}",
+                command_failure_detail(&output)
+            );
+            false
+        }
+        Err(error) => {
+            tracing::debug!("Codex app-server unavailable: {error}");
+            false
+        }
+    }
+}
+
+fn claude_wsl_login_ready() -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    let command = wsl_resolved_cli_status_command(
+        "claude",
+        &[
+            "$HOME/.npm-global/bin/claude",
+            "$HOME/.bun/bin/claude",
+            "$HOME/.local/bin/claude",
+        ],
+        "auth status",
+    );
+    match run_wsl_shell_script(&command) {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            if looks_like_missing_wsl_command(&output) {
+                tracing::trace!(
+                    "Claude WSL auth status unavailable: {}",
+                    command_failure_detail(&output)
+                );
+            } else {
+                tracing::debug!(
+                    "Claude WSL auth status failed: {}",
+                    command_failure_detail(&output)
+                );
+            }
+            false
+        }
+        Err(error) => {
+            tracing::trace!("Claude WSL auth status unavailable: {error}");
+            false
+        }
+    }
+}
+
+fn codex_wsl_login_ready() -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    let command = wsl_resolved_cli_status_command(
+        "codex",
+        &[
+            "$HOME/.npm-global/bin/codex",
+            "$HOME/.bun/bin/codex",
+            "$HOME/.local/bin/codex",
+        ],
+        "login status >/dev/null 2>&1 && \"\\$cli\" app-server --help >/dev/null 2>&1",
+    );
+    match run_wsl_shell_script(&command) {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            tracing::debug!(
+                "Codex WSL login status failed: {}",
+                command_failure_detail(&output)
+            );
+            false
+        }
+        Err(error) => {
+            tracing::debug!("Codex WSL login status unavailable: {error}");
+            false
+        }
+    }
+}
+
+fn wsl_resolved_cli_status_command(
+    binary: &str,
+    fallback_paths: &[&str],
+    status_args: &str,
+) -> String {
+    let mut script = String::new();
+    for (index, path) in fallback_paths.iter().enumerate() {
+        script.push_str(if index == 0 { "if " } else { "elif " });
+        script.push_str(&format!("[ -x \"{path}\" ]; then cli=\"{path}\"; "));
+    }
+    if fallback_paths.is_empty() {
+        script.push_str("if ");
+    } else {
+        script.push_str("elif ");
+    }
+    script.push_str(&format!(
+        "cli=$(command -v {binary} 2>/dev/null) && [ -n \"\\$cli\" ]; then case \"\\$cli\" in /mnt/[A-Za-z]/*) printf '%s\\n' {}; exit 127;; esac; ",
+        shell_quote_arg(&format!(
+            "{binary} resolved to a Windows interop path; install it inside WSL instead."
+        ))
+    ));
+    script.push_str("else ");
+    script.push_str("printf '%s\\n' ");
+    script.push_str(&shell_quote_arg(&format!(
+        "{binary} is not on PATH in this WSL shell."
+    )));
+    script.push_str("; exit 127; fi; ");
+    script.push_str(&format!("\"\\$cli\" {status_args}"));
+    script
+}
+
+fn command_failure_detail(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = format!(
+        "status={} stdout={} stderr={}",
+        output.status,
+        stdout.trim(),
+        stderr.trim()
+    );
+    detail.trim().to_string()
+}
+
+fn looks_like_missing_wsl_command(output: &std::process::Output) -> bool {
+    let detail = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .to_ascii_lowercase();
+    (output.status.code() == Some(127) && detail.trim().is_empty())
+        || detail.contains("command not found")
+        || detail.contains("not recognized")
+        || detail.contains("executable file not found")
+        || detail.contains("not on path")
+        || detail.contains("windows interop path")
+}
+
 fn parse_claude_login_status(stdout: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(stdout)
         .ok()
@@ -631,16 +1156,137 @@ fn parse_codex_login_status(output: &str) -> bool {
     normalized.contains("logged in") && !normalized.contains("not logged in")
 }
 
-fn agent_login_command(provider: &str) -> anyhow::Result<&'static str> {
+fn codex_executable() -> String {
+    std::env::var("HELMOR_CODEX_BIN_PATH")
+        .ok()
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or_else(|| "codex".to_string())
+}
+
+fn shell_command_arg(value: &str) -> String {
+    if cfg!(windows) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+fn agent_login_command(provider: &str) -> anyhow::Result<String> {
     match provider {
-        "claude" => Ok("claude auth login"),
-        "codex" => Ok("codex login"),
+        "claude" => Ok("claude auth login".to_string()),
+        "codex" => Ok(format!("{} login", shell_command_arg(&codex_executable()))),
         _ => anyhow::bail!("Unknown agent provider: {provider}"),
     }
 }
 
-fn agent_login_script_type(provider: &str, instance_id: &str) -> String {
-    format!("agent-login:{provider}:{instance_id}")
+fn agent_login_wsl_command(provider: &str) -> anyhow::Result<String> {
+    match provider {
+        "claude" => Ok(wsl_resolved_cli_command(
+            "claude",
+            &[
+                "$HOME/.npm-global/bin/claude",
+                "$HOME/.bun/bin/claude",
+                "$HOME/.local/bin/claude",
+            ],
+            "auth status",
+            "auth login",
+            &[
+                "Claude Code CLI is not on PATH in this WSL shell.",
+                "Install it in WSL, then run this again.",
+            ],
+        )),
+        "codex" => Ok(wsl_resolved_cli_command(
+            "codex",
+            &[
+                "$HOME/.npm-global/bin/codex",
+                "$HOME/.bun/bin/codex",
+                "$HOME/.local/bin/codex",
+            ],
+            "login status >/dev/null 2>&1 && \"\\$cli\" app-server --help",
+            "login",
+            &[
+                "Codex CLI is not on PATH in this WSL shell.",
+                "Install it in WSL, then run this again.",
+            ],
+        )),
+        _ => anyhow::bail!("Unknown agent provider: {provider}"),
+    }
+}
+
+fn wsl_resolved_cli_command(
+    binary: &str,
+    fallback_paths: &[&str],
+    status_args: &str,
+    login_args: &str,
+    missing_lines: &[&str],
+) -> String {
+    let mut script = String::new();
+    for (index, path) in fallback_paths.iter().enumerate() {
+        script.push_str(if index == 0 { "if " } else { "elif " });
+        script.push_str(&format!("[ -x \"{path}\" ]; then cli=\"{path}\"; "));
+    }
+    if fallback_paths.is_empty() {
+        script.push_str("if ");
+    } else {
+        script.push_str("elif ");
+    }
+    script.push_str(&format!(
+        "cli=$(command -v {binary} 2>/dev/null) && [ -n \"\\$cli\" ]; then case \"\\$cli\" in /mnt/[A-Za-z]/*) printf '%s\\n' {}; exit 127;; esac; ",
+        shell_quote_arg(&format!(
+            "{binary} resolved to a Windows interop path; install it inside WSL instead."
+        ))
+    ));
+    script.push_str("else ");
+    for line in missing_lines {
+        script.push_str("printf '%s\\n' ");
+        script.push_str(&shell_quote_arg(line));
+        script.push_str("; ");
+    }
+    script.push_str("exit 127; fi; ");
+    script.push_str(&format!(
+        "\"\\$cli\" {status_args} >/dev/null 2>&1 && printf '%s\\n' 'Already logged in.' || exec \"\\$cli\" {login_args}"
+    ));
+    script
+}
+
+#[cfg(test)]
+mod wsl_command_tests {
+    use super::{wsl_resolved_cli_command, wsl_resolved_cli_status_command};
+
+    #[test]
+    fn wsl_status_prefers_linux_fallbacks_before_path_lookup() {
+        let command = wsl_resolved_cli_status_command(
+            "codex",
+            &["$HOME/.npm-global/bin/codex", "$HOME/.bun/bin/codex"],
+            "login status",
+        );
+
+        assert!(command.starts_with(
+            "if [ -x \"$HOME/.npm-global/bin/codex\" ]; then cli=\"$HOME/.npm-global/bin/codex\";"
+        ));
+        assert!(command
+            .contains("elif [ -x \"$HOME/.bun/bin/codex\" ]; then cli=\"$HOME/.bun/bin/codex\";"));
+        assert!(
+            command.contains("elif cli=$(command -v codex 2>/dev/null) && [ -n \"\\$cli\" ]; then")
+        );
+    }
+
+    #[test]
+    fn wsl_commands_reject_windows_interop_paths() {
+        let command = wsl_resolved_cli_command("codex", &[], "login status", "login", &["missing"]);
+
+        assert!(command.contains("case \"\\$cli\" in /mnt/[A-Za-z]/*)"));
+        assert!(command
+            .contains("codex resolved to a Windows interop path; install it inside WSL instead."));
+        assert!(command.contains("exec \"\\$cli\" login"));
+    }
+}
+
+fn agent_login_script_type(provider: &str, shell: LoginShell, instance_id: &str) -> String {
+    format!(
+        "agent-login:{provider}:{}:{instance_id}",
+        shell.as_script_key()
+    )
 }
 
 const AGENT_LOGIN_REPO_ID: &str = "__helmor_onboarding__";
@@ -650,9 +1296,14 @@ pub async fn spawn_agent_login_terminal(
     manager: State<'_, ScriptProcessManager>,
     provider: String,
     instance_id: String,
+    shell: LoginShell,
     channel: Channel<ScriptEvent>,
 ) -> CmdResult<()> {
-    let command = agent_login_command(&provider)?.to_string();
+    let command = login_terminal_command(
+        shell,
+        agent_login_command(&provider)?,
+        agent_login_wsl_command(&provider)?,
+    );
     let working_dir = std::env::var("HOME")
         .ok()
         .filter(|home| !home.trim().is_empty())
@@ -669,7 +1320,7 @@ pub async fn spawn_agent_login_terminal(
         default_branch: None,
     };
     let mgr = manager.inner().clone();
-    let script_type = agent_login_script_type(&provider, &instance_id);
+    let script_type = agent_login_script_type(&provider, shell, &instance_id);
 
     tauri::async_runtime::spawn_blocking(move || {
         let key = (
@@ -677,7 +1328,7 @@ pub async fn spawn_agent_login_terminal(
             script_type.clone(),
             None::<String>,
         );
-        let command_to_send = format!("{command}; exit\n");
+        let command_to_send = login_terminal_initial_input(shell, &command);
         let stdin_manager = mgr.clone();
         std::thread::spawn(move || {
             for _ in 0..80 {
@@ -693,11 +1344,10 @@ pub async fn spawn_agent_login_terminal(
             tracing::debug!("Agent login terminal was not ready for initial command");
         });
 
-        if let Err(error) = crate::workspace::scripts::run_terminal_session(
+        if let Err(error) = run_agent_login_terminal_session(
             &mgr,
-            AGENT_LOGIN_REPO_ID,
             &script_type,
-            None,
+            shell,
             &working_dir,
             &context,
             channel.clone(),
@@ -711,15 +1361,56 @@ pub async fn spawn_agent_login_terminal(
     Ok(())
 }
 
+fn run_agent_login_terminal_session(
+    manager: &ScriptProcessManager,
+    script_type: &str,
+    shell: LoginShell,
+    working_dir: &str,
+    context: &ScriptContext,
+    channel: Channel<ScriptEvent>,
+) -> anyhow::Result<Option<i32>> {
+    #[cfg(windows)]
+    {
+        let (shell_path, shell_args) = login_terminal_shell(shell);
+        return crate::workspace::scripts::run_script_with_shell(
+            manager,
+            AGENT_LOGIN_REPO_ID,
+            script_type,
+            None,
+            None,
+            working_dir,
+            context,
+            channel,
+            shell_path,
+            shell_args,
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = shell;
+        crate::workspace::scripts::run_terminal_session(
+            manager,
+            AGENT_LOGIN_REPO_ID,
+            script_type,
+            None,
+            working_dir,
+            context,
+            channel,
+        )
+    }
+}
+
 #[tauri::command]
 pub async fn stop_agent_login_terminal(
     manager: State<'_, ScriptProcessManager>,
     provider: String,
     instance_id: String,
+    shell: LoginShell,
 ) -> CmdResult<bool> {
     let key = (
         AGENT_LOGIN_REPO_ID.to_string(),
-        agent_login_script_type(&provider, &instance_id),
+        agent_login_script_type(&provider, shell, &instance_id),
         None,
     );
     Ok(manager.kill(&key))
@@ -730,11 +1421,12 @@ pub async fn write_agent_login_terminal_stdin(
     manager: State<'_, ScriptProcessManager>,
     provider: String,
     instance_id: String,
+    shell: LoginShell,
     data: String,
 ) -> CmdResult<bool> {
     let key = (
         AGENT_LOGIN_REPO_ID.to_string(),
-        agent_login_script_type(&provider, &instance_id),
+        agent_login_script_type(&provider, shell, &instance_id),
         None,
     );
     Ok(manager.write_stdin(&key, data.as_bytes())?)
@@ -745,12 +1437,13 @@ pub async fn resize_agent_login_terminal(
     manager: State<'_, ScriptProcessManager>,
     provider: String,
     instance_id: String,
+    shell: LoginShell,
     cols: u16,
     rows: u16,
 ) -> CmdResult<bool> {
     let key = (
         AGENT_LOGIN_REPO_ID.to_string(),
-        agent_login_script_type(&provider, &instance_id),
+        agent_login_script_type(&provider, shell, &instance_id),
         None,
     );
     Ok(manager.resize(&key, cols, rows)?)
@@ -759,7 +1452,7 @@ pub async fn resize_agent_login_terminal(
 #[cfg(target_os = "macos")]
 fn open_agent_login_terminal_impl(provider: &str) -> anyhow::Result<()> {
     let command = agent_login_command(provider)?;
-    let script_command = applescript_string(command);
+    let script_command = applescript_string(&command);
     let output = std::process::Command::new("osascript")
         .arg("-e")
         .arg("tell application \"Terminal\" to activate")
@@ -780,10 +1473,27 @@ fn open_agent_login_terminal_impl(provider: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn open_agent_login_terminal_impl(provider: &str) -> anyhow::Result<()> {
+    let command = agent_login_command(provider)?;
+    std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-NoExit",
+            "-Command",
+            &command,
+        ])
+        .spawn()
+        .context("Failed to open PowerShell for agent login")?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn open_agent_login_terminal_impl(provider: &str) -> anyhow::Result<()> {
     let _ = agent_login_command(provider)?;
-    anyhow::bail!("Opening agent login in a terminal is currently supported on macOS only.")
+    anyhow::bail!("Opening agent login in a terminal is not supported on this platform.")
 }
 
 #[cfg(target_os = "macos")]
@@ -847,7 +1557,7 @@ pub async fn show_image_in_finder(path: String) -> CmdResult<()> {
                 source.display()
             ));
         }
-        reveal_file_in_finder(&source).context("Failed to show image in Finder")
+        reveal_file_in_file_manager(&source).context("Failed to show image")
     })
     .await
 }
@@ -868,7 +1578,7 @@ pub async fn copy_image_to_clipboard(path: String) -> CmdResult<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn reveal_file_in_finder(path: &std::path::Path) -> anyhow::Result<()> {
+fn reveal_file_in_file_manager(path: &std::path::Path) -> anyhow::Result<()> {
     std::process::Command::new("open")
         .arg("-R")
         .arg(path)
@@ -877,9 +1587,18 @@ fn reveal_file_in_finder(path: &std::path::Path) -> anyhow::Result<()> {
         .context("open command failed")
 }
 
-#[cfg(not(target_os = "macos"))]
-fn reveal_file_in_finder(_path: &std::path::Path) -> anyhow::Result<()> {
-    anyhow::bail!("Showing images in Finder is only supported on macOS")
+#[cfg(windows)]
+fn reveal_file_in_file_manager(path: &std::path::Path) -> anyhow::Result<()> {
+    std::process::Command::new("explorer.exe")
+        .arg(format!("/select,{}", path.display()))
+        .spawn()
+        .map(|_| ())
+        .context("explorer.exe command failed")
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn reveal_file_in_file_manager(_path: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("Showing images in the file manager is not supported on this platform")
 }
 
 #[cfg(target_os = "macos")]
@@ -913,13 +1632,46 @@ fn copy_image_file_to_clipboard(path: &std::path::Path) -> anyhow::Result<()> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn copy_image_file_to_clipboard(_path: &std::path::Path) -> anyhow::Result<()> {
-    anyhow::bail!("Copying images is only supported on macOS")
+#[cfg(windows)]
+fn copy_image_file_to_clipboard(path: &std::path::Path) -> anyhow::Result<()> {
+    let script = format!(
+        "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $image = [System.Drawing.Image]::FromFile({path}); try {{ [System.Windows.Forms.Clipboard]::SetImage($image) }} finally {{ $image.Dispose() }}",
+        path = powershell_string(&path.display().to_string()),
+    );
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-Sta",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .output()
+        .context("powershell clipboard command failed")?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
+#[cfg(not(any(target_os = "macos", windows)))]
+fn copy_image_file_to_clipboard(_path: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("Copying images is not supported on this platform")
+}
+
+#[cfg(target_os = "macos")]
 fn applescript_escape(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(windows)]
+fn powershell_string(input: &str) -> String {
+    format!("'{}'", input.replace('\'', "''"))
 }
 
 fn base64_decode(input: &str) -> anyhow::Result<Vec<u8>> {

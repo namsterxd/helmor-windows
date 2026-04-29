@@ -4,7 +4,7 @@ use tauri::{AppHandle, State};
 use crate::repos;
 use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager};
 
-use super::common::CmdResult;
+use super::common::{CmdResult, LoginShell};
 
 #[tauri::command]
 pub async fn execute_repo_script(
@@ -13,6 +13,7 @@ pub async fn execute_repo_script(
     repo_id: String,
     script_type: String,
     workspace_id: Option<String>,
+    shell: LoginShell,
     channel: Channel<ScriptEvent>,
 ) -> CmdResult<()> {
     let scripts = tauri::async_runtime::spawn_blocking({
@@ -70,7 +71,8 @@ pub async fn execute_repo_script(
     let mgr = manager.inner().clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        match crate::workspace::scripts::run_script(
+        #[cfg(windows)]
+        let result = run_windows_repo_script(
             &mgr,
             &repo_id,
             &script_type,
@@ -79,7 +81,25 @@ pub async fn execute_repo_script(
             &working_dir,
             &context,
             channel.clone(),
-        ) {
+            shell,
+        );
+
+        #[cfg(not(windows))]
+        let result = {
+            let _ = shell;
+            crate::workspace::scripts::run_script(
+                &mgr,
+                &repo_id,
+                &script_type,
+                workspace_id.as_deref(),
+                &script,
+                &working_dir,
+                &context,
+                channel.clone(),
+            )
+        };
+
+        match result {
             Ok(Some(0)) if script_type == "setup" => {
                 if let Some(ws_id) = &workspace_id {
                     if let Ok(ts) = crate::models::db::current_timestamp() {
@@ -143,4 +163,64 @@ pub async fn resize_repo_script(
 ) -> CmdResult<bool> {
     let key = (repo_id, script_type, workspace_id);
     Ok(manager.resize(&key, cols, rows)?)
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn run_windows_repo_script(
+    mgr: &ScriptProcessManager,
+    repo_id: &str,
+    script_type: &str,
+    workspace_id: Option<&str>,
+    script: &str,
+    working_dir: &str,
+    context: &ScriptContext,
+    channel: Channel<ScriptEvent>,
+    shell: LoginShell,
+) -> anyhow::Result<Option<i32>> {
+    match shell {
+        LoginShell::Powershell => crate::workspace::scripts::run_script(
+            mgr,
+            repo_id,
+            script_type,
+            workspace_id,
+            script,
+            working_dir,
+            context,
+            channel,
+        ),
+        LoginShell::Wsl => {
+            let wsl_dir =
+                windows_path_to_wsl(working_dir).unwrap_or_else(|| working_dir.replace('\\', "/"));
+            let script = format!(
+                "export PATH=\"$HOME/.bun/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH\"; {script}"
+            );
+            crate::workspace::scripts::run_script_with_shell(
+                mgr,
+                repo_id,
+                script_type,
+                workspace_id,
+                Some(&script),
+                working_dir,
+                context,
+                channel,
+                "wsl.exe",
+                &["--cd", &wsl_dir, "--", "bash", "-lc"],
+            )
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_path_to_wsl(path: &str) -> Option<String> {
+    let bytes = path.as_bytes();
+    if bytes.len() < 3 || bytes[1] != b':' || (bytes[2] != b'\\' && bytes[2] != b'/') {
+        return None;
+    }
+    let drive = (bytes[0] as char).to_ascii_lowercase();
+    if !drive.is_ascii_alphabetic() {
+        return None;
+    }
+    let rest = path[3..].replace('\\', "/");
+    Some(format!("/mnt/{drive}/{rest}"))
 }

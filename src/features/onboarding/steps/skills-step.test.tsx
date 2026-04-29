@@ -40,6 +40,8 @@ describe("SkillsStep", () => {
 		apiMocks.installHelmorSkills.mockReset();
 		apiMocks.getHelmorSkillsStatus.mockResolvedValue({
 			installed: false,
+			windowsInstalled: false,
+			wslInstalled: false,
 			claude: false,
 			codex: false,
 			command:
@@ -107,10 +109,12 @@ describe("SkillsStep", () => {
 		const cliItem = screen.getByRole("group", { name: "Helmor CLI" });
 
 		await user.click(within(cliItem).getByRole("button", { name: "Set up" }));
+		await user.click(screen.getByRole("menuitem", { name: "Windows agents" }));
 
 		await waitFor(() => {
 			expect(apiMocks.installCli).toHaveBeenCalledTimes(1);
 		});
+		expect(apiMocks.installCli).toHaveBeenCalledWith("powershell");
 		expect(within(cliItem).getByText("Ready")).toBeInTheDocument();
 		expect(
 			within(cliItem).queryByRole("button", { name: "Set up" }),
@@ -127,6 +131,8 @@ describe("SkillsStep", () => {
 		});
 		apiMocks.installHelmorSkills.mockResolvedValue({
 			installed: true,
+			windowsInstalled: true,
+			wslInstalled: false,
 			claude: true,
 			codex: false,
 			command:
@@ -149,11 +155,54 @@ describe("SkillsStep", () => {
 		await user.click(
 			within(skillsItem).getByRole("button", { name: "Set up" }),
 		);
+		await user.click(screen.getByRole("menuitem", { name: "Windows agents" }));
 
 		await waitFor(() => {
 			expect(apiMocks.installHelmorSkills).toHaveBeenCalledTimes(1);
 		});
-		expect(within(skillsItem).getByText("Ready")).toBeInTheDocument();
+		expect(apiMocks.installHelmorSkills).toHaveBeenCalledWith("powershell");
+		expect(within(skillsItem).getByText("Ready for Windows")).toBeInTheDocument();
+	});
+
+	it("shows separate ready states for installed skill targets", async () => {
+		apiMocks.getCliStatus.mockResolvedValue({
+			installed: true,
+			installPath: "/usr/local/bin/helmor-dev",
+			buildMode: "development",
+			installState: "managed",
+		});
+		apiMocks.getHelmorSkillsStatus.mockResolvedValue({
+			installed: true,
+			windowsInstalled: true,
+			wslInstalled: true,
+			claude: true,
+			codex: true,
+			command:
+				"npx --yes skills add dohooo/helmor/.codex/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code -a codex",
+		});
+
+		render(
+			<SkillsStep
+				step="skills"
+				onBack={vi.fn()}
+				onNext={vi.fn()}
+				isRoutingImport={false}
+			/>,
+		);
+
+		const skillsItem = screen.getByRole("group", {
+			name: "Helmor Skills (Beta)",
+		});
+
+		await waitFor(() => {
+			expect(
+				within(skillsItem).getByText("Ready for Windows"),
+			).toBeInTheDocument();
+		});
+		expect(within(skillsItem).getByText("Ready for WSL")).toBeInTheDocument();
+		expect(
+			within(skillsItem).getByRole("button", { name: "Add target" }),
+		).toBeInTheDocument();
 	});
 
 	it("shows the unified failure hint when skills setup throws", async () => {
@@ -184,6 +233,7 @@ describe("SkillsStep", () => {
 		await user.click(
 			within(skillsItem).getByRole("button", { name: "Set up" }),
 		);
+		await user.click(screen.getByRole("menuitem", { name: "Windows agents" }));
 
 		await waitFor(() => {
 			expect(

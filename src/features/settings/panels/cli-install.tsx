@@ -2,6 +2,7 @@ import { Download, Loader2, Terminal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type CliStatus, getCliStatus, installCli } from "@/lib/api";
+import { isMac } from "@/lib/platform";
 import {
 	SettingsGroup,
 	SettingsNotice,
@@ -17,8 +18,8 @@ export function CliInstallPanel() {
 	const buildLabel = status?.buildMode === "development" ? "Debug" : "Release";
 	const isManaged = status?.installState === "managed";
 	const isStale = status?.installState === "stale";
-	const buttonLabel =
-		isManaged || isStale ? "Reinstall" : "Install to /usr/local/bin";
+	const platformInstallLabel = isMac() ? "Install to /usr/local/bin" : "Install";
+	const buttonLabel = isManaged || isStale ? "Reinstall" : platformInstallLabel;
 
 	useEffect(() => {
 		void getCliStatus().then(setStatus).catch(setError);
@@ -56,8 +57,8 @@ export function CliInstallPanel() {
 						<code className="rounded bg-muted px-1 py-0.5 text-[11px]">
 							{commandName}
 						</code>{" "}
-						command as a symlink to this app&apos;s bundled CLI so terminal
-						usage tracks desktop updates automatically. {buildLabel} build.
+						command so terminal usage tracks this desktop build. {buildLabel}{" "}
+						build.
 						{isManaged ? (
 							<SettingsNotice tone="ok">
 								Installed at{" "}

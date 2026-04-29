@@ -32,6 +32,8 @@ Open Helmor, Import Helmor, Ask Helmor:
 
 That's the guide.
 
+Testing native Windows support: [docs/windows-testing.md](./docs/windows-testing.md).
+
 ## License
 
 [Apache 2.0](./LICENSE)

@@ -165,6 +165,10 @@ export const WorkspaceConversationContainer = memo(
 			repoId,
 			selectionPending,
 			followUpBehavior: settings.followUpBehavior,
+			agentTargets: {
+				claude: settings.claudeAgentTarget,
+				codex: settings.codexAgentTarget,
+			},
 			submitQueue: submitQueueApi,
 			onSendingSessionsChange,
 			onSendingWorkspacesChange,

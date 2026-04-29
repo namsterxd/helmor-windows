@@ -520,6 +520,10 @@ export const WorkspaceComposerContainer = memo(
 		// query — anything else degrades to claude so we never miss the popup.
 		const slashProvider: AgentProvider =
 			provider === "codex" ? "codex" : "claude";
+		const slashAgentTarget =
+			slashProvider === "codex"
+				? settings.codexAgentTarget
+				: settings.claudeAgentTarget;
 		// Slash command list — keyed by (provider, workingDirectory). The
 		// composer popup is hidden until this resolves; on error we fall back
 		// to an empty list and the popup never opens (no UI breakage).
@@ -529,6 +533,7 @@ export const WorkspaceComposerContainer = memo(
 				workingDirectory,
 				workspaceDetailQuery.data?.repoId ?? null,
 				displayedWorkspaceId,
+				slashAgentTarget,
 			),
 			enabled: Boolean(workingDirectory),
 		});

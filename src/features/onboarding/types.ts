@@ -9,6 +9,9 @@ export type AgentLoginItem = {
 	label: string;
 	description: string;
 	status: AgentLoginStatus;
+	readyDetail?: string;
+	windowsReady?: boolean;
+	wslReady?: boolean;
 };
 
 export type OnboardingStep =

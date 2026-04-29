@@ -8,6 +8,7 @@ export type ThemeMode = "system" | "light" | "dark";
  *  - `queue`: stash locally; auto-fire as a new turn once the agent finishes.
  */
 export type FollowUpBehavior = "steer" | "queue";
+export type AgentRuntimeTarget = "powershell" | "wsl";
 
 export type ShortcutOverrides = Record<string, string | null>;
 
@@ -37,6 +38,8 @@ export type AppSettings = {
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
 	showUsageStats: boolean;
+	claudeAgentTarget: AgentRuntimeTarget;
+	codexAgentTarget: AgentRuntimeTarget;
 	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
 	claudeCustomProviders: ClaudeCustomProviderSettings;
@@ -64,6 +67,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	followUpBehavior: "steer",
 	alwaysShowContextUsage: true,
 	showUsageStats: true,
+	claudeAgentTarget: "powershell",
+	codexAgentTarget: "powershell",
 	onboardingCompleted: false,
 	shortcuts: {},
 	claudeCustomProviders: {
@@ -91,6 +96,8 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	followUpBehavior: "app.follow_up_behavior",
 	alwaysShowContextUsage: "app.always_show_context_usage",
 	showUsageStats: "app.show_usage_stats",
+	claudeAgentTarget: "app.claude_agent_target",
+	codexAgentTarget: "app.codex_agent_target",
 	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
 	claudeCustomProviders: "app.claude_custom_providers",
@@ -195,6 +202,12 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
 					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
 					: DEFAULT_SETTINGS.showUsageStats,
+			claudeAgentTarget: parseAgentRuntimeTarget(
+				raw[SETTINGS_KEY_MAP.claudeAgentTarget],
+			),
+			codexAgentTarget: parseAgentRuntimeTarget(
+				raw[SETTINGS_KEY_MAP.codexAgentTarget],
+			),
 			onboardingCompleted:
 				raw[SETTINGS_KEY_MAP.onboardingCompleted] !== undefined
 					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"
@@ -207,6 +220,10 @@ export async function loadSettings(): Promise<AppSettings> {
 	} catch {
 		return { ...DEFAULT_SETTINGS };
 	}
+}
+
+function parseAgentRuntimeTarget(raw: string | undefined): AgentRuntimeTarget {
+	return raw === "wsl" ? "wsl" : "powershell";
 }
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {

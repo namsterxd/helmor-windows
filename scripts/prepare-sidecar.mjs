@@ -36,6 +36,12 @@ function run(cmd, cwd) {
 // this binary during bundling, but codesign preserves the entitlements blob
 // unless --entitlements is passed again with a different plist.
 function signSidecarWithEntitlements(path) {
+	if (process.platform !== "darwin") {
+		console.log(
+			"[prepare-sidecar] non-macOS build — skipping sidecar pre-sign",
+		);
+		return;
+	}
 	const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
 	if (!identity) {
 		console.log(
@@ -91,14 +97,18 @@ function main() {
 	run("bun install --frozen-lockfile", sidecarDir);
 
 	// 2. Build the compiled sidecar + staged vendor tree.
-	run("bun run build", sidecarDir);
+	run(
+		process.platform === "win32" ? "bun run build:windows" : "bun run build",
+		sidecarDir,
+	);
 
 	const triple = detectTargetTriple();
-	const sidecarSource = resolve(sidecarDir, "dist", "helmor-sidecar");
+	const exeSuffix = triple.includes("windows") ? ".exe" : "";
+	const sidecarSource = resolve(sidecarDir, "dist", `helmor-sidecar${exeSuffix}`);
 	const sidecarDestination = resolve(
 		sidecarDir,
 		"dist",
-		`helmor-sidecar-${triple}`,
+		`helmor-sidecar-${triple}${exeSuffix}`,
 	);
 	const cliBinaryName =
 		process.platform === "win32" ? "helmor-cli.exe" : "helmor-cli";
@@ -109,7 +119,10 @@ function main() {
 		"release",
 		cliBinaryName,
 	);
-	const cliDestination = resolve(bundledBinDir, `helmor-cli-${triple}`);
+	const cliDestination = resolve(
+		bundledBinDir,
+		`helmor-cli-${triple}${exeSuffix}`,
+	);
 
 	if (!existsSync(sidecarSource)) {
 		throw new Error(

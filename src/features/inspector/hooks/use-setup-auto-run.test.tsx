@@ -31,6 +31,7 @@ function renderHook(args: Partial<Args> = {}) {
 		workspaceId: "ws-1",
 		workspaceState: "setup_pending",
 		setupScript: "echo hi",
+		shell: "powershell",
 		scriptsLoaded: true,
 		...args,
 	};
@@ -57,6 +58,7 @@ describe("useSetupAutoRun", () => {
 			"setup",
 			expect.any(Function),
 			"ws-1",
+			"powershell",
 		);
 	});
 

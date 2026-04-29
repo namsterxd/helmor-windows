@@ -163,6 +163,7 @@ pub struct AgentStreamStartResponse {
 pub struct AgentSendRequest {
     pub provider: String,
     pub model_id: String,
+    pub agent_target: Option<String>,
     pub prompt: String,
     /// Hidden preamble prepended to `prompt` before sending to the agent
     /// (e.g. the user's "general preferences"). Persisted user-prompt
@@ -855,6 +856,7 @@ mod tests {
         let request = AgentSendRequest {
             provider: "claude".to_string(),
             model_id: "opus-1m".to_string(),
+            agent_target: None,
             prompt: String::new(),
             prompt_prefix: None,
             resume_only: true,
@@ -891,6 +893,7 @@ mod tests {
         let request = AgentSendRequest {
             provider: "claude".to_string(),
             model_id: "opus-1m".to_string(),
+            agent_target: None,
             prompt: String::new(),
             prompt_prefix: None,
             resume_only: true,

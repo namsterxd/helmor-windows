@@ -40,6 +40,7 @@ const defaults = {
 	repoId: "repo-1",
 	workspaceId: "ws-1" as string | null,
 	setupScript: "echo hello" as string | null,
+	shell: "powershell" as const,
 	isActive: true,
 	onOpenSettings: vi.fn(),
 };
@@ -121,6 +122,7 @@ describe("SetupTab", () => {
 			"setup",
 			expect.any(Function),
 			"ws-1",
+			"powershell",
 		);
 	});
 

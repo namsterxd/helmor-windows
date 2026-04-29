@@ -114,6 +114,12 @@ export function parseProvider(value: unknown): Provider {
 	throw new Error(`unknown provider: ${String(value)}`);
 }
 
+function parseAgentTarget(value: unknown): "powershell" | "wsl" | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (value === "powershell" || value === "wsl") return value;
+	throw new Error(`unknown agent target: ${String(value)}`);
+}
+
 export function parseSendMessageParams(
 	params: Record<string, unknown>,
 ): SendMessageParams {
@@ -126,6 +132,7 @@ export function parseSendMessageParams(
 		permissionMode: optionalString(params, "permissionMode"),
 		effortLevel: optionalString(params, "effortLevel"),
 		fastMode: optionalBoolean(params, "fastMode"),
+		agentTarget: parseAgentTarget(params.agentTarget),
 		claudeEnvironment: parseOptionalStringRecord(params, "claudeEnvironment"),
 		additionalDirectories: parseOptionalStringArray(
 			params,
@@ -178,6 +185,7 @@ export function parseListSlashCommandsParams(
 ): ListSlashCommandsParams {
 	return {
 		cwd: optionalString(params, "cwd"),
+		agentTarget: parseAgentTarget(params.agentTarget),
 		additionalDirectories: parseOptionalStringArray(
 			params,
 			"additionalDirectories",

@@ -49,6 +49,7 @@ export type OnError = (error: Error) => void;
 
 export interface CodexAppServerOptions {
 	binaryPath: string;
+	args?: readonly string[];
 	cwd: string;
 	onNotification: OnNotification;
 	onRequest: OnRequest;
@@ -88,7 +89,7 @@ export class CodexAppServer {
 		this.onNotification = opts.onNotification;
 		this.onRequest = opts.onRequest;
 
-		this.child = spawn(opts.binaryPath, buildCodexAppServerArgs(), {
+		this.child = spawn(opts.binaryPath, [...(opts.args ?? buildCodexAppServerArgs())], {
 			cwd: opts.cwd,
 			stdio: ["pipe", "pipe", "pipe"],
 		});

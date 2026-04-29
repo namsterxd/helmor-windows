@@ -126,6 +126,14 @@ export function useForgeCliConnect(
 				await finishReady(cached);
 				return;
 			}
+			const fresh = await queryClient.fetchQuery({
+				...forgeCliStatusQueryOptions(provider, host),
+				staleTime: 0,
+			});
+			if (fresh.status === "ready") {
+				await finishReady(fresh);
+				return;
+			}
 			await openForgeCliAuthTerminal(provider, host);
 			toast("Complete the login in Terminal.");
 			pollUntilReady();

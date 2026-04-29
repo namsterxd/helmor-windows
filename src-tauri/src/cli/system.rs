@@ -1,11 +1,7 @@
 //! `helmor` / `helmor-dev` meta / system commands.
 //!
-//! `install_cli` is intentionally omitted: the installer copies the
-//! currently-running binary to `/usr/local/bin/helmor` (or `helmor-dev` in
-//! debug builds), which is how the
-//! desktop Settings UI already handles it. From the CLI, the analogous
-//! operation is just `cp "$(command -v helmor)" /usr/local/bin/<name>`
-//! and we shouldn't invite accidental privilege escalation.
+//! `install_cli` is intentionally omitted: the desktop Settings UI owns
+//! platform-specific installation.
 
 use std::io::Write;
 
@@ -28,7 +24,7 @@ struct CliStatusPayload {
 }
 
 pub fn cli_status(cli: &Cli) -> Result<()> {
-    let install_path = std::path::PathBuf::from(format!("/usr/local/bin/{}", installed_cli_name()));
+    let install_path = cli_install_path();
     let installed = install_path.exists();
     let current = std::env::current_exe()
         .ok()
@@ -86,6 +82,23 @@ fn installed_cli_name() -> &'static str {
     }
 }
 
+fn cli_install_path() -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        crate::data_dir::data_dir()
+            .unwrap_or_else(|_| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            })
+            .join("bin")
+            .join(format!("{}.exe", installed_cli_name()))
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::path::PathBuf::from(format!("/usr/local/bin/{}", installed_cli_name()))
+    }
+}
+
 /// Tell the running app to shut down.
 ///
 /// Without a daemon / HTTP bridge, CLI-driven shutdown isn't possible:
@@ -96,7 +109,7 @@ pub fn quit() -> Result<()> {
     if service::is_app_running() {
         anyhow::bail!(
             "Helmor is running but the CLI cannot stop it remotely yet. \
-             Close the app from the menu bar (Helmor → Quit) or press ⌘Q."
+             Close the app from the app menu."
         );
     }
     println!("Helmor is not running.");

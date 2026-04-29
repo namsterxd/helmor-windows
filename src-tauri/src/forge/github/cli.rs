@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
@@ -116,6 +116,10 @@ pub fn refresh_github_cli_status() -> Result<GithubCliStatus> {
     status_cache::refresh_cached(&SYSTEM_GH_STATUS_CACHE, GITHUB_HOST, || {
         get_github_cli_status_with(&SystemGhRunner)
     })
+}
+
+pub fn get_github_wsl_cli_status() -> Result<GithubCliStatus> {
+    get_github_cli_status_with(&SystemWslGhRunner)
 }
 
 pub fn get_github_cli_user() -> Result<Option<GithubCliUser>> {
@@ -244,17 +248,25 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
             );
             anyhow!("Failed to decode GitHub CLI auth status: {err}")
         })?;
-    let host_entry = parsed
-        .hosts
-        .get(GITHUB_HOST)
-        .and_then(|entries| {
-            entries
-                .iter()
-                .find(|entry| entry.active.unwrap_or(false))
-                .or_else(|| entries.first())
-        })
-        .cloned()
-        .context("GitHub CLI did not return auth status for github.com")?;
+    let host_entry = match parsed.hosts.get(GITHUB_HOST).and_then(|entries| {
+        entries
+            .iter()
+            .find(|entry| entry.active.unwrap_or(false))
+            .or_else(|| entries.first())
+    }) {
+        Some(entry) => entry.clone(),
+        None => {
+            tracing::warn!(
+                stdout = %auth_output.stdout,
+                "GitHub CLI auth status JSON did not include github.com"
+            );
+            return Ok(GithubCliStatus::Unauthenticated {
+                host: GITHUB_HOST.to_string(),
+                version,
+                message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            });
+        }
+    };
 
     let host = host_entry.host.unwrap_or_else(|| GITHUB_HOST.to_string());
     let login = host_entry.login.unwrap_or_default();
@@ -473,6 +485,84 @@ impl GhCommandRunner for SystemGhRunner {
     }
 }
 
+struct SystemWslGhRunner;
+
+impl GhCommandRunner for SystemWslGhRunner {
+    fn run<I, S>(&self, args: I) -> std::result::Result<GhCommandOutput, GhCommandError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let args: Vec<OsString> = args
+            .into_iter()
+            .map(|arg| arg.as_ref().to_os_string())
+            .collect();
+        match run_wsl_gh_command(&args, false) {
+            Err(error) if wsl_gh_missing_in_output(&error) => run_wsl_gh_command(&args, true),
+            result => result,
+        }
+    }
+}
+
+fn run_wsl_gh_command(
+    args: &[OsString],
+    login_shell: bool,
+) -> std::result::Result<GhCommandOutput, GhCommandError> {
+    let mut wsl_args = if login_shell {
+        let script = std::iter::once("gh".to_string())
+            .chain(
+                args.iter()
+                    .map(|arg| shell_quote_arg(&arg.to_string_lossy())),
+            )
+            .collect::<Vec<_>>()
+            .join(" ");
+        vec![
+            OsString::from("--"),
+            OsString::from("zsh"),
+            OsString::from("-lc"),
+            OsString::from(script),
+        ]
+    } else {
+        vec![OsString::from("--"), OsString::from("gh")]
+    };
+    wsl_args.extend(args.iter().cloned());
+    let output = run_command("wsl.exe", wsl_args).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            GhCommandError::NotFound
+        } else {
+            GhCommandError::Other(error.to_string())
+        }
+    })?;
+
+    if output.success {
+        return Ok(GhCommandOutput {
+            stdout: output.stdout,
+        });
+    }
+
+    Err(GhCommandError::Failed {
+        stdout: output.stdout,
+        stderr: output.stderr,
+        code: output.status,
+    })
+}
+
+fn shell_quote_arg(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn wsl_gh_missing_in_output(error: &GhCommandError) -> bool {
+    match error {
+        GhCommandError::Failed { stdout, stderr, .. } => {
+            let detail = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+            detail.contains("command not found")
+                || detail.contains("not recognized")
+                || detail.contains("executable file not found")
+        }
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct GhAuthStatusResponse {
     hosts: HashMap<String, Vec<GhHostStatusEntry>>,
@@ -633,6 +723,31 @@ mod tests {
                 stderr: "You are not logged into any GitHub hosts. To log in, run: gh auth login"
                     .to_string(),
                 code: Some(1),
+            },
+        ]);
+
+        let status = get_github_cli_status_with(&runner).unwrap();
+
+        assert_eq!(
+            status,
+            GithubCliStatus::Unauthenticated {
+                host: "github.com".to_string(),
+                version: Some("2.88.1".to_string()),
+                message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn get_github_cli_status_returns_unauthenticated_when_json_has_no_host() {
+        let runner = MockGhRunner::new([
+            MockRunnerResponse::Success {
+                stdout: "gh version 2.88.1 (2026-03-12)\n".to_string(),
+                stderr: String::new(),
+            },
+            MockRunnerResponse::Success {
+                stdout: r#"{"hosts":{}}"#.to_string(),
+                stderr: String::new(),
             },
         ]);
 

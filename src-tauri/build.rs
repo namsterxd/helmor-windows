@@ -37,6 +37,11 @@ fn ensure_external_bin_placeholders() {
     let Ok(target) = env::var("TARGET") else {
         return;
     };
+    let exe_suffix = if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"));
@@ -44,15 +49,19 @@ fn ensure_external_bin_placeholders() {
         manifest_dir
             .join("target")
             .join("bundled")
-            .join(format!("helmor-cli-{target}")),
+            .join(format!("helmor-cli-{target}{exe_suffix}")),
     );
 
     if let Some(repo_root) = manifest_dir.parent() {
+        let vendor_dir = repo_root.join("sidecar").join("dist").join("vendor");
+        let _ = fs::create_dir_all(&vendor_dir);
+        let _ = fs::write(vendor_dir.join(".gitkeep"), "");
+
         ensure_executable_placeholder(
             repo_root
                 .join("sidecar")
                 .join("dist")
-                .join(format!("helmor-sidecar-{target}")),
+                .join(format!("helmor-sidecar-{target}{exe_suffix}")),
         );
     }
 }
@@ -65,7 +74,12 @@ fn ensure_executable_placeholder(path: PathBuf) {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let _ = fs::write(&path, "#!/bin/sh\nexit 0\n");
+    let bytes: &[u8] = if path.extension().and_then(|ext| ext.to_str()) == Some("exe") {
+        b""
+    } else {
+        b"#!/bin/sh\nexit 0\n"
+    };
+    let _ = fs::write(&path, bytes);
 
     #[cfg(unix)]
     {

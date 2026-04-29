@@ -40,6 +40,7 @@ const defaults = {
 	repoId: "repo-1",
 	workspaceId: "ws-1",
 	runScript: "npm test" as string | null,
+	shell: "powershell" as const,
 	isActive: true,
 	onOpenSettings: vi.fn(),
 };
@@ -118,6 +119,7 @@ describe("RunTab", () => {
 			"run",
 			expect.any(Function),
 			"ws-1",
+			"powershell",
 		);
 	});
 

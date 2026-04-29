@@ -1,10 +1,10 @@
 //! Slash-command cache.
 //!
 //! Two-tier cache:
-//! 1. **Workspace tier** — keyed by `(provider, cwd, linked-dir-signature)`.
+//! 1. **Workspace tier** — keyed by `(provider+target, cwd, linked-dir-signature)`.
 //!    Primary cache — an exact hit returns instantly and we revalidate in the
 //!    background.
-//! 2. **Repo tier** — keyed by `(provider, repo_id)`. Fallback used when the
+//! 2. **Repo tier** — keyed by `(provider+target, repo_id)`. Fallback used when the
 //!    workspace tier misses. Different workspaces on the same repo usually
 //!    share the same `~/.claude/skills/` and `.claude/commands/`, so we can
 //!    show stale-but-plausible commands while the real scan runs.
@@ -14,8 +14,8 @@ use std::sync::{Mutex, RwLock};
 
 use super::queries::SlashCommandEntry;
 
-pub type WorkspaceKey = (String, String, String); // (provider, cwd, linked-dir-signature)
-pub type RepoKey = (String, String); // (provider, repo_id)
+pub type WorkspaceKey = (String, String, String); // (provider+target, cwd, linked-dir-signature)
+pub type RepoKey = (String, String); // (provider+target, repo_id)
 
 pub fn workspace_key(
     provider: &str,

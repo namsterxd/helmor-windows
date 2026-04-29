@@ -47,6 +47,7 @@ import {
 	shareMessages,
 } from "@/lib/session-thread-cache";
 import type { FollowUpBehavior } from "@/lib/settings";
+import type { AgentRuntimeTarget } from "@/lib/settings";
 import type { SubmitQueueApi } from "@/lib/use-submit-queue";
 import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import {
@@ -57,6 +58,10 @@ import { useWorkspaceToast } from "@/lib/workspace-toast-context";
 
 const EMPTY_IMAGES: string[] = [];
 const EMPTY_FILES: string[] = [];
+const DEFAULT_AGENT_TARGETS: Record<"claude" | "codex", AgentRuntimeTarget> = {
+	claude: "powershell",
+	codex: "powershell",
+};
 
 function buildTitleSeed(prompt: string): string {
 	const normalized = prompt
@@ -124,6 +129,7 @@ type UseConversationStreamingArgs = {
 	 *  as a new turn once the agent finishes; `'steer'` injects into
 	 *  the active turn (provider-native mid-turn steer). */
 	followUpBehavior: FollowUpBehavior;
+	agentTargets?: Record<"claude" | "codex", AgentRuntimeTarget>;
 	/** App-level queue handle (read + mutate). Shared across session /
 	 *  workspace switches so the queue survives navigation. */
 	submitQueue: SubmitQueueApi;
@@ -145,6 +151,7 @@ export function useConversationStreaming({
 	displayedSelectedModelId,
 	selectionPending,
 	followUpBehavior,
+	agentTargets = DEFAULT_AGENT_TARGETS,
 	submitQueue,
 	onSendingWorkspacesChange,
 	onSendingSessionsChange,
@@ -785,6 +792,7 @@ export function useConversationStreaming({
 					{
 						provider: deferred.provider,
 						modelId: resumeModelId,
+						agentTarget: agentTargets[deferred.provider],
 						prompt: "",
 						resumeOnly: true,
 						sessionId: deferred.providerSessionId,
@@ -1322,6 +1330,7 @@ export function useConversationStreaming({
 					{
 						provider: model.provider,
 						modelId: model.id,
+						agentTarget: agentTargets[model.provider],
 						prompt: trimmedPrompt,
 						promptPrefix,
 						sessionId: providerSessionId,

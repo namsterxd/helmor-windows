@@ -94,6 +94,7 @@ fn base_input<'a>(session_id: Option<&'a str>) -> BuildSendMessageParamsInput<'a
         cwd: "/abs/workspace",
         resume_session_id: None,
         provider: "claude",
+        agent_target: None,
         effort_level: Some("high"),
         permission_mode: Some("bypassPermissions"),
         fast_mode: false,

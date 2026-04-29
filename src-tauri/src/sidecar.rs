@@ -131,11 +131,14 @@ impl SidecarProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
 
-        // Put the sidecar in its own process group so SIGTERM/SIGKILL
-        // reaches all child processes (Claude CLI, Codex CLI) instead
-        // of only hitting the Bun parent.
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
+        // Put the sidecar in its own process group on Unix so SIGTERM/SIGKILL
+        // reaches all child processes (Claude CLI, Codex CLI) instead of only
+        // hitting the Bun parent. Windows teardown uses `taskkill /T`.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
 
         // Pass log config to the sidecar process
         if let Ok(dir) = crate::data_dir::logs_dir() {
@@ -240,13 +243,24 @@ impl SidecarProcess {
         self.child.id()
     }
 
-    /// Force-kill (SIGKILL) the sidecar and its entire process group.
+    /// Force-kill the sidecar and its children.
     /// Last-resort cleanup; the cooperative shutdown ladder lives in
-    /// `ManagedSidecar::shutdown`. Kill the whole process group first so
-    /// child CLIs don't get reparented to launchd as orphans.
+    /// `ManagedSidecar::shutdown`.
     fn kill(&mut self) {
-        unsafe {
-            libc::kill(-(self.pid() as libc::pid_t), libc::SIGKILL);
+        #[cfg(unix)]
+        {
+            // Kill the whole process group first so child CLIs don't get
+            // reparented as orphans.
+            unsafe {
+                libc::kill(-(self.pid() as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        #[cfg(windows)]
+        {
+            let pid = self.pid().to_string();
+            let _ = Command::new("taskkill")
+                .args(["/PID", pid.as_str(), "/T", "/F"])
+                .status();
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -270,14 +284,25 @@ impl SidecarProcess {
         }
     }
 
-    /// Send SIGTERM to the sidecar's process group. Targeting the group
-    /// (negative PID) ensures child CLIs spawned by Bun also receive the
-    /// signal.
+    /// Ask the sidecar tree to terminate after cooperative shutdown times out.
     fn send_sigterm(&self) {
-        // SAFETY: `pid()` is the live child's PID (== PGID since we set
-        // process_group(0) at spawn). Negative PID targets the whole group.
-        unsafe {
-            libc::kill(-(self.pid() as libc::pid_t), libc::SIGTERM);
+        #[cfg(unix)]
+        {
+            // SAFETY: `pid()` is the live child's PID (== PGID since we set
+            // process_group(0) at spawn). Negative PID targets the whole group.
+            unsafe {
+                libc::kill(-(self.pid() as libc::pid_t), libc::SIGTERM);
+            }
+        }
+        #[cfg(windows)]
+        {
+            // Windows has no SIGTERM equivalent for a console-less bundled
+            // sidecar. `taskkill /T` without `/F` is the closest escalation
+            // before the final forced kill.
+            let pid = self.pid().to_string();
+            let _ = Command::new("taskkill")
+                .args(["/PID", pid.as_str(), "/T"])
+                .status();
         }
     }
 }

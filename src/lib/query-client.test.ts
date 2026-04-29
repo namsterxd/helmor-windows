@@ -222,17 +222,14 @@ describe("forgeActionStatusRefetchInterval", () => {
 });
 
 describe("workspaceForgeRefetchInterval", () => {
-	it("keeps probing supported forges so CLI install state can change", () => {
-		expect(workspaceForgeRefetchInterval(undefined)).toBe(60_000);
+	it("does not poll forge detection in the background", () => {
+		expect(workspaceForgeRefetchInterval(undefined)).toBe(false);
 		expect(
 			workspaceForgeRefetchInterval(forgeDetection({ provider: "github" })),
-		).toBe(60_000);
+		).toBe(false);
 		expect(
 			workspaceForgeRefetchInterval(forgeDetection({ provider: "gitlab" })),
-		).toBe(60_000);
-	});
-
-	it("stops probing unknown remotes", () => {
+		).toBe(false);
 		expect(
 			workspaceForgeRefetchInterval(forgeDetection({ provider: "unknown" })),
 		).toBe(false);

@@ -1,5 +1,6 @@
 import {
 	executeRepoScript,
+	type LoginShell,
 	resizeRepoScript,
 	type ScriptEvent,
 	stopRepoScript,
@@ -95,6 +96,7 @@ export function startScript(
 	repoId: string,
 	scriptType: "setup" | "run",
 	workspaceId: string,
+	shell: LoginShell = "powershell",
 ) {
 	const k = key(workspaceId, scriptType);
 
@@ -187,6 +189,7 @@ export function startScript(
 			}
 		},
 		workspaceId,
+		shell,
 	).catch((err) => {
 		if (entries.get(k) !== entry) return;
 		const msg = `\r\n\x1b[31mFailed to start: ${err}\x1b[0m\r\n`;

@@ -1,7 +1,13 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { AgentLoginProvider } from "@/lib/api";
+import {
+	type AgentLoginProvider,
+	type AgentLoginStatusResult,
+	getAgentLoginStatus,
+	type LoginShell,
+} from "@/lib/api";
+import { type AppSettings, useSettings } from "@/lib/settings";
 import { AgentStatusAction } from "../components/agent-status-action";
 import { LoginTerminalPreview } from "../components/login-terminal-preview";
 import type { AgentLoginItem, OnboardingStep } from "../types";
@@ -19,6 +25,7 @@ export function AgentLoginStep({
 	onNext: () => void;
 	onRefreshLoginItems: () => void;
 }) {
+	const { settings, updateSettings } = useSettings();
 	const [primedLoginProvider, setPrimedLoginProvider] =
 		useState<AgentLoginProvider | null>(null);
 	const [activeLoginProvider, setActiveLoginProvider] =
@@ -26,26 +33,71 @@ export function AgentLoginStep({
 	const [loginInstanceId, setLoginInstanceId] = useState<string | null>(null);
 	const [waitingProvider, setWaitingProvider] =
 		useState<AgentLoginProvider | null>(null);
+	const [activeLoginShell, setActiveLoginShell] = useState<LoginShell>(
+		providerShell("codex", settings),
+	);
 	const terminalProvider = activeLoginProvider ?? primedLoginProvider;
 	const terminalActive = activeLoginProvider !== null;
 
-	const startLogin = useCallback((provider: AgentLoginProvider) => {
-		setPrimedLoginProvider(provider);
-		setActiveLoginProvider(provider);
-		setWaitingProvider(provider);
-		setLoginInstanceId(crypto.randomUUID());
-	}, []);
+	const pollLoginReady = useCallback(
+		async (provider: AgentLoginProvider, shell: LoginShell) => {
+			for (let attempt = 0; attempt < 12; attempt += 1) {
+				const status = await getAgentLoginStatus().catch(() => null);
+				onRefreshLoginItems();
+				if (agentReadyForShell(status, provider, shell)) {
+					setPrimedLoginProvider(provider);
+					setActiveLoginProvider(null);
+					setWaitingProvider((current) =>
+						current === provider ? null : current,
+					);
+					return true;
+				}
+				await new Promise((resolve) => window.setTimeout(resolve, 500));
+			}
+			setWaitingProvider((current) => (current === provider ? null : current));
+			return false;
+		},
+		[onRefreshLoginItems],
+	);
+
+	const startLogin = useCallback(
+		async (provider: AgentLoginProvider, shell: LoginShell) => {
+			setWaitingProvider(provider);
+			void updateSettings(
+				provider === "codex"
+					? { codexAgentTarget: shell }
+					: { claudeAgentTarget: shell },
+			);
+			const status = await getAgentLoginStatus().catch(() => null);
+			onRefreshLoginItems();
+			if (agentReadyForShell(status, provider, shell)) {
+				setPrimedLoginProvider(provider);
+				setActiveLoginProvider(null);
+				setWaitingProvider((current) => (current === provider ? null : current));
+				return;
+			}
+			setPrimedLoginProvider(provider);
+			setActiveLoginProvider(provider);
+			setActiveLoginShell(shell);
+			setLoginInstanceId(crypto.randomUUID());
+		},
+		[onRefreshLoginItems, updateSettings],
+	);
 
 	const handleTerminalExit = useCallback(
 		(code: number | null) => {
 			onRefreshLoginItems();
+			if (activeLoginProvider) {
+				void pollLoginReady(activeLoginProvider, activeLoginShell);
+				return;
+			}
 			if (code !== 0) {
 				setWaitingProvider((current) =>
 					current === activeLoginProvider ? null : current,
 				);
 			}
 		},
-		[activeLoginProvider, onRefreshLoginItems],
+		[activeLoginProvider, activeLoginShell, onRefreshLoginItems, pollLoginReady],
 	);
 
 	const handleTerminalError = useCallback(() => {
@@ -82,7 +134,15 @@ export function AgentLoginStep({
 
 					<div className="mt-7 flex w-full flex-col gap-3">
 						{loginItems.map(
-							({ icon: Icon, provider, label, description, status }) => (
+							({
+								icon: Icon,
+								provider,
+								label,
+								description,
+								status,
+								windowsReady,
+								wslReady,
+							}) => (
 								<div
 									key={label}
 									className="flex min-h-20 items-center gap-3 rounded-lg border border-border/55 bg-card px-4 py-3"
@@ -101,6 +161,12 @@ export function AgentLoginStep({
 									<AgentStatusAction
 										provider={provider}
 										status={status}
+										selectedShell={providerShell(provider, settings)}
+										targetReady={
+											providerShell(provider, settings) === "wsl"
+												? Boolean(wslReady)
+												: Boolean(windowsReady)
+										}
 										waiting={waitingProvider === provider}
 										onPrimeLogin={setPrimedLoginProvider}
 										onStartLogin={startLogin}
@@ -137,10 +203,32 @@ export function AgentLoginStep({
 					provider={terminalProvider}
 					instanceId={loginInstanceId}
 					active={terminalActive}
+					shell={activeLoginShell}
 					onExit={handleTerminalExit}
 					onError={handleTerminalError}
 				/>
 			</div>
 		</section>
 	);
+}
+
+function providerShell(
+	provider: AgentLoginProvider,
+	settings: AppSettings,
+): LoginShell {
+	return provider === "codex"
+		? settings.codexAgentTarget
+		: settings.claudeAgentTarget;
+}
+
+function agentReadyForShell(
+	status: AgentLoginStatusResult | null,
+	provider: AgentLoginProvider,
+	shell: LoginShell,
+) {
+	if (!status) return false;
+	if (provider === "codex") {
+		return shell === "wsl" ? Boolean(status.codexWsl) : status.codex;
+	}
+	return shell === "wsl" ? Boolean(status.claudeWsl) : status.claude;
 }

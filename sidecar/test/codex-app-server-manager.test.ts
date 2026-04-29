@@ -70,6 +70,7 @@ class MockCodexAppServer {
 }
 
 mock.module("../src/codex-app-server.js", () => ({
+	buildCodexAppServerArgs: () => ["app-server"],
 	CodexAppServer: MockCodexAppServer,
 }));
 

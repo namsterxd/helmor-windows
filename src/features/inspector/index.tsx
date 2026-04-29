@@ -103,6 +103,12 @@ export function WorkspaceInspectorSidebar({
 		workspaceId: workspaceId ?? null,
 		repoId: repoId ?? null,
 	});
+	const { settings: appSettings } = useSettings();
+	const preferredTerminalShell =
+		appSettings.codexAgentTarget === "wsl" ||
+		appSettings.claudeAgentTarget === "wsl"
+			? "wsl"
+			: "powershell";
 
 	// Fire setup auto-run / auto-complete at the sidebar level so it runs even
 	// when the Setup tab isn't mounted (tabsOpen=false).
@@ -111,6 +117,7 @@ export function WorkspaceInspectorSidebar({
 		workspaceId: workspaceId ?? null,
 		workspaceState: workspaceState ?? null,
 		setupScript: repoScripts?.setupScript ?? null,
+		shell: preferredTerminalShell,
 		scriptsLoaded,
 	});
 
@@ -159,12 +166,11 @@ export function WorkspaceInspectorSidebar({
 		!!repoId &&
 		!!workspaceId &&
 		terminalInstances.length < TERMINAL_INSTANCE_LIMIT;
-
 	const handleAddTerminal = useCallback(() => {
 		if (!repoId || !workspaceId) return;
-		const next = createTerminal(repoId, workspaceId);
+		const next = createTerminal(repoId, workspaceId, preferredTerminalShell);
 		if (next) setActiveTab(next.id);
-	}, [repoId, workspaceId, setActiveTab]);
+	}, [repoId, workspaceId, preferredTerminalShell, setActiveTab]);
 
 	const handleCloseTerminal = useCallback(
 		(instanceId: string) => {
@@ -200,7 +206,6 @@ export function WorkspaceInspectorSidebar({
 		},
 		[terminalInstances, activeTab, setActiveTab],
 	);
-	const { settings: appSettings } = useSettings();
 	// App-scoped smart toggle for the terminal panel.
 	//
 	// Target selection: if the user is already on a terminal tab (either
@@ -425,6 +430,7 @@ export function WorkspaceInspectorSidebar({
 					repoId={repoId ?? null}
 					workspaceId={workspaceId ?? null}
 					setupScript={repoScripts?.setupScript ?? null}
+					shell={preferredTerminalShell}
 					isActive={activeTab === "setup"}
 					onOpenSettings={handleOpenSettings}
 				/>
@@ -432,6 +438,7 @@ export function WorkspaceInspectorSidebar({
 					repoId={repoId ?? null}
 					workspaceId={workspaceId ?? null}
 					runScript={repoScripts?.runScript ?? null}
+					shell={preferredTerminalShell}
 					isActive={activeTab === "run"}
 					onOpenSettings={handleOpenSettings}
 					onStatusChange={setRunStatus}

@@ -88,7 +88,9 @@ describe("useForgeCliConnect", () => {
 
 	it("opens the terminal, polls until ready, then fans out invalidations and fires onReady", async () => {
 		vi.useFakeTimers();
-		apiMocks.getForgeCliStatus.mockResolvedValue(readyStatus);
+		apiMocks.getForgeCliStatus
+			.mockResolvedValueOnce(unauthStatus)
+			.mockResolvedValueOnce(readyStatus);
 		const { client, wrapper } = makeWrapper();
 		const invalidateSpy = vi.spyOn(client, "invalidateQueries");
 		const onReady = vi.fn();
@@ -194,6 +196,33 @@ describe("useForgeCliConnect", () => {
 		});
 
 		expect(apiMocks.openForgeCliAuthTerminal).toHaveBeenCalledOnce();
+	});
+
+	it("freshly probes before opening a terminal so WSL-ready auth can satisfy the app", async () => {
+		apiMocks.getForgeCliStatus.mockResolvedValue(readyStatus);
+		const { wrapper } = makeWrapper();
+		const onReady = vi.fn();
+
+		const { result } = renderHook(
+			() =>
+				useForgeCliConnect("github", "github.com", {
+					onReady,
+					hintedStatus: unauthStatus,
+				}),
+			{ wrapper },
+		);
+
+		await act(async () => {
+			await result.current.connect();
+		});
+
+		expect(apiMocks.getForgeCliStatus).toHaveBeenCalledWith(
+			"github",
+			"github.com",
+		);
+		expect(apiMocks.openForgeCliAuthTerminal).not.toHaveBeenCalled();
+		expect(onReady).toHaveBeenCalledWith(readyStatus);
+		expect(toastMocks.success).toHaveBeenCalledWith("gh connected");
 	});
 
 	it("times out after the poll budget, leaving connecting=false and no onReady", async () => {

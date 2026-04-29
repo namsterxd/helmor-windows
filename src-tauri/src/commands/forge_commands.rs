@@ -8,7 +8,11 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::{ipc::Channel, State};
 
-use super::common::{run_blocking, CmdResult};
+#[cfg(windows)]
+use super::common::login_terminal_shell;
+use super::common::{
+    login_terminal_command, login_terminal_initial_input, run_blocking, CmdResult, LoginShell,
+};
 
 /// Per-workspace marker for "we already published Unauthenticated for this
 /// workspace". The action-status poll fires every ~60s while not OK; without
@@ -29,8 +33,19 @@ pub async fn get_workspace_forge(workspace_id: String) -> CmdResult<ForgeDetecti
 pub async fn get_forge_cli_status(
     provider: ForgeProvider,
     host: Option<String>,
+    shell: Option<LoginShell>,
 ) -> CmdResult<ForgeCliStatus> {
-    run_blocking(move || forge::get_forge_cli_status(provider, host.as_deref())).await
+    run_blocking(move || {
+        if let Some(shell) = shell {
+            return forge::get_forge_cli_status_for_shell(
+                provider,
+                host.as_deref(),
+                matches!(shell, LoginShell::Wsl),
+            );
+        }
+        forge::get_forge_cli_status(provider, host.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -41,8 +56,16 @@ pub async fn open_forge_cli_auth_terminal(
     run_blocking(move || forge::open_forge_cli_auth_terminal(provider, host.as_deref())).await
 }
 
-fn forge_cli_auth_script_type(provider: ForgeProvider, host: &str, instance_id: &str) -> String {
-    format!("forge-cli-auth:{provider:?}:{host}:{instance_id}")
+fn forge_cli_auth_script_type(
+    provider: ForgeProvider,
+    host: &str,
+    shell: LoginShell,
+    instance_id: &str,
+) -> String {
+    format!(
+        "forge-cli-auth:{provider:?}:{host}:{}:{instance_id}",
+        shell.as_script_key()
+    )
 }
 
 const FORGE_CLI_AUTH_REPO_ID: &str = "__helmor_onboarding_forge__";
@@ -53,10 +76,15 @@ pub async fn spawn_forge_cli_auth_terminal(
     provider: ForgeProvider,
     host: Option<String>,
     instance_id: String,
+    shell: LoginShell,
     channel: Channel<ScriptEvent>,
 ) -> CmdResult<()> {
     let host = host.unwrap_or_else(|| "gitlab.com".to_string());
-    let command = forge::forge_cli_auth_command(provider, Some(&host))?;
+    let command = login_terminal_command(
+        shell,
+        forge::forge_cli_auth_command(provider, Some(&host))?,
+        forge::forge_cli_wsl_auth_command(provider, Some(&host))?,
+    );
     let working_dir = std::env::var("HOME")
         .ok()
         .filter(|home| !home.trim().is_empty())
@@ -73,7 +101,7 @@ pub async fn spawn_forge_cli_auth_terminal(
         default_branch: None,
     };
     let mgr = manager.inner().clone();
-    let script_type = forge_cli_auth_script_type(provider, &host, &instance_id);
+    let script_type = forge_cli_auth_script_type(provider, &host, shell, &instance_id);
 
     tauri::async_runtime::spawn_blocking(move || {
         let key = (
@@ -81,7 +109,7 @@ pub async fn spawn_forge_cli_auth_terminal(
             script_type.clone(),
             None::<String>,
         );
-        let command_to_send = format!("{command}; exit\n");
+        let command_to_send = login_terminal_initial_input(shell, &command);
         let stdin_manager = mgr.clone();
         std::thread::spawn(move || {
             for _ in 0..80 {
@@ -97,11 +125,10 @@ pub async fn spawn_forge_cli_auth_terminal(
             tracing::debug!("Forge CLI auth terminal was not ready for initial command");
         });
 
-        if let Err(error) = crate::workspace::scripts::run_terminal_session(
+        if let Err(error) = run_forge_cli_auth_terminal_session(
             &mgr,
-            FORGE_CLI_AUTH_REPO_ID,
             &script_type,
-            None,
+            shell,
             &working_dir,
             &context,
             channel.clone(),
@@ -115,17 +142,58 @@ pub async fn spawn_forge_cli_auth_terminal(
     Ok(())
 }
 
+fn run_forge_cli_auth_terminal_session(
+    manager: &ScriptProcessManager,
+    script_type: &str,
+    shell: LoginShell,
+    working_dir: &str,
+    context: &ScriptContext,
+    channel: Channel<ScriptEvent>,
+) -> anyhow::Result<Option<i32>> {
+    #[cfg(windows)]
+    {
+        let (shell_path, shell_args) = login_terminal_shell(shell);
+        return crate::workspace::scripts::run_script_with_shell(
+            manager,
+            FORGE_CLI_AUTH_REPO_ID,
+            script_type,
+            None,
+            None,
+            working_dir,
+            context,
+            channel,
+            shell_path,
+            shell_args,
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = shell;
+        crate::workspace::scripts::run_terminal_session(
+            manager,
+            FORGE_CLI_AUTH_REPO_ID,
+            script_type,
+            None,
+            working_dir,
+            context,
+            channel,
+        )
+    }
+}
+
 #[tauri::command]
 pub async fn stop_forge_cli_auth_terminal(
     manager: State<'_, ScriptProcessManager>,
     provider: ForgeProvider,
     host: Option<String>,
     instance_id: String,
+    shell: LoginShell,
 ) -> CmdResult<bool> {
     let host = host.unwrap_or_else(|| "gitlab.com".to_string());
     let key = (
         FORGE_CLI_AUTH_REPO_ID.to_string(),
-        forge_cli_auth_script_type(provider, &host, &instance_id),
+        forge_cli_auth_script_type(provider, &host, shell, &instance_id),
         None,
     );
     Ok(manager.kill(&key))
@@ -137,12 +205,13 @@ pub async fn write_forge_cli_auth_terminal_stdin(
     provider: ForgeProvider,
     host: Option<String>,
     instance_id: String,
+    shell: LoginShell,
     data: String,
 ) -> CmdResult<bool> {
     let host = host.unwrap_or_else(|| "gitlab.com".to_string());
     let key = (
         FORGE_CLI_AUTH_REPO_ID.to_string(),
-        forge_cli_auth_script_type(provider, &host, &instance_id),
+        forge_cli_auth_script_type(provider, &host, shell, &instance_id),
         None,
     );
     Ok(manager.write_stdin(&key, data.as_bytes())?)
@@ -154,13 +223,14 @@ pub async fn resize_forge_cli_auth_terminal(
     provider: ForgeProvider,
     host: Option<String>,
     instance_id: String,
+    shell: LoginShell,
     cols: u16,
     rows: u16,
 ) -> CmdResult<bool> {
     let host = host.unwrap_or_else(|| "gitlab.com".to_string());
     let key = (
         FORGE_CLI_AUTH_REPO_ID.to_string(),
-        forge_cli_auth_script_type(provider, &host, &instance_id),
+        forge_cli_auth_script_type(provider, &host, shell, &instance_id),
         None,
     );
     Ok(manager.resize(&key, cols, rows)?)

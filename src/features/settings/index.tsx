@@ -525,6 +525,27 @@ export const SettingsDialog = memo(function SettingsDialog({
 											</div>
 										</div>
 									</SettingsRow>
+									<SettingsRow
+										title="Agent runtime"
+										description="Choose where Helmor runs local agent CLIs"
+									>
+										<div className="flex w-[360px] items-center gap-2">
+											<AgentRuntimeMenu
+												label="Claude"
+												value={settings.claudeAgentTarget}
+												onChange={(target) =>
+													updateSettings({ claudeAgentTarget: target })
+												}
+											/>
+											<AgentRuntimeMenu
+												label="Codex"
+												value={settings.codexAgentTarget}
+												onChange={(target) =>
+													updateSettings({ codexAgentTarget: target })
+												}
+											/>
+										</div>
+									</SettingsRow>
 									<ClaudeCustomProvidersPanel />
 								</SettingsGroup>
 							)}
@@ -668,6 +689,38 @@ function RadioOption({
 function effortLabel(level: string): string {
 	if (level === "xhigh") return "Extra High";
 	return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
+function AgentRuntimeMenu({
+	label,
+	value,
+	onChange,
+}: {
+	label: string;
+	value: "powershell" | "wsl";
+	onChange: (target: "powershell" | "wsl") => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				className={cn(
+					"flex h-8 cursor-pointer items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
+					"min-w-0 flex-1 gap-1.5",
+				)}
+			>
+				<span className="min-w-0 truncate whitespace-nowrap">
+					{label}: {value === "wsl" ? "WSL" : "Windows"}
+				</span>
+				<ChevronDown className="size-3 shrink-0 opacity-40" />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" sideOffset={4} className="min-w-36">
+				<DropdownMenuItem onClick={() => onChange("powershell")}>
+					Windows
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => onChange("wsl")}>WSL</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }
 
 export function SettingsButton({

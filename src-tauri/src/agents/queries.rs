@@ -455,6 +455,7 @@ pub struct ListSlashCommandsRequest {
     pub provider: String,
     pub working_directory: Option<String>,
     pub workspace_id: Option<String>,
+    pub agent_target: Option<String>,
     /// Repo id of the workspace — used to serve a repo-level fallback when the
     /// exact workspace cache is cold (different workspaces on the same repo
     /// usually share the same skill directories).
@@ -488,6 +489,7 @@ pub async fn list_slash_commands(
 ) -> CmdResult<SlashCommandsResponse> {
     let cwd = request.working_directory.as_deref().unwrap_or("");
     let repo_id = request.repo_id.as_deref().unwrap_or("");
+    let cache_provider = slash_command_cache_provider(&request);
     let additional_directories =
         lookup_workspace_linked_directories_for_commands(request.workspace_id.as_deref());
     tracing::debug!(
@@ -508,7 +510,7 @@ pub async fn list_slash_commands(
             "list_slash_commands: cwd missing, returning empty (cached repo fallback may still apply)"
         );
         if additional_directories.is_empty() && !repo_id.is_empty() {
-            let rkey = super::slash_commands::repo_key(&request.provider, repo_id);
+            let rkey = super::slash_commands::repo_key(&cache_provider, repo_id);
             if let Some(commands) = cache.get_repo(&rkey) {
                 return Ok(SlashCommandsResponse { commands });
             }
@@ -519,7 +521,7 @@ pub async fn list_slash_commands(
     }
 
     let ws_key = super::slash_commands::workspace_key(
-        &request.provider,
+        &cache_provider,
         request.working_directory.as_deref(),
         &additional_directories,
     );
@@ -532,7 +534,7 @@ pub async fn list_slash_commands(
 
     // 2. Repo-level fallback → return stale-but-plausible + SWR refresh.
     if additional_directories.is_empty() && !repo_id.is_empty() {
-        let rkey = super::slash_commands::repo_key(&request.provider, repo_id);
+        let rkey = super::slash_commands::repo_key(&cache_provider, repo_id);
         if let Some(commands) = cache.get_repo(&rkey) {
             tracing::debug!(
                 provider = %request.provider,
@@ -664,9 +666,11 @@ fn dispatch_prewarm_for(app: &AppHandle, workspace_id: &str, root_path: &str, re
             working_directory: Some(root_path.to_string()),
             workspace_id: Some(workspace_id.to_string()),
             repo_id: Some(repo_id.to_string()),
+            agent_target: agent_target_for_provider(provider),
         };
+        let cache_provider = slash_command_cache_provider(&request);
         let ws_key = super::slash_commands::workspace_key(
-            provider,
+            &cache_provider,
             Some(root_path),
             &additional_directories,
         );
@@ -680,6 +684,24 @@ fn dispatch_prewarm_for(app: &AppHandle, workspace_id: &str, root_path: &str, re
         );
         spawn_background_refresh(app, &cache, &request, ws_key);
     }
+}
+
+fn slash_command_cache_provider(request: &ListSlashCommandsRequest) -> String {
+    let target = request.agent_target.as_deref().unwrap_or("powershell");
+    format!("{}:{target}", request.provider)
+}
+
+fn agent_target_for_provider(provider: &str) -> Option<String> {
+    let key = match provider {
+        "claude" => "app.claude_agent_target",
+        "codex" => "app.codex_agent_target",
+        _ => return None,
+    };
+    crate::models::settings::load_setting_value(key)
+        .ok()
+        .flatten()
+        .filter(|value| matches!(value.as_str(), "powershell" | "wsl"))
+        .or_else(|| Some("powershell".to_string()))
 }
 
 /// Blocking sidecar call for `listSlashCommands`. Used by both the
@@ -707,6 +729,9 @@ fn fetch_from_sidecar(
                     .collect(),
             ),
         );
+    }
+    if let Some(agent_target) = request.agent_target.as_ref() {
+        params.insert("agentTarget".into(), Value::String(agent_target.clone()));
     }
 
     let sidecar_req = crate::sidecar::SidecarRequest {

@@ -9,6 +9,7 @@
 
 import crypto from "node:crypto";
 import {
+	buildCodexAppServerArgs,
 	CodexAppServer,
 	type JsonRpcNotification,
 	type JsonRpcRequest,
@@ -33,8 +34,31 @@ import {
 	parseTitleAndBranch,
 	TITLE_GENERATION_TIMEOUT_MS,
 } from "./title.js";
+import {
+	buildWslResolvedCliCommand,
+	isWslTarget,
+	windowsPathToWsl,
+	wslShellCommand,
+} from "./wsl.js";
 
 const CODEX_BIN_PATH = process.env.HELMOR_CODEX_BIN_PATH || "codex";
+
+function codexServerOptions(
+	cwd: string,
+	agentTarget: "powershell" | "wsl" | undefined,
+): { binaryPath: string; args?: string[]; cwd: string } {
+	if (!isWslTarget(agentTarget)) {
+		return { binaryPath: CODEX_BIN_PATH, cwd };
+	}
+	const wslCwd = windowsPathToWsl(cwd) ?? cwd;
+	const command = buildWslResolvedCliCommand(
+		"codex",
+		["$HOME/.npm-global/bin/codex", "$HOME/.bun/bin/codex", "$HOME/.local/bin/codex"],
+		buildCodexAppServerArgs(),
+		wslCwd,
+	);
+	return { ...wslShellCommand(command), cwd: process.cwd() };
+}
 
 const HELMOR_CLIENT_INFO = {
 	clientInfo: {
@@ -73,6 +97,7 @@ interface PendingApproval {
 
 interface AppServerContext {
 	server: CodexAppServer;
+	agentTarget: "powershell" | "wsl";
 	providerThreadId: string | null;
 	activeTurnId: string | null;
 	turnResolve: (() => void) | null;
@@ -204,30 +229,38 @@ export class CodexAppServerManager implements SessionManager {
 			permissionMode,
 			fastMode,
 			additionalDirectories,
+			agentTarget,
 		} = params;
 		const workDir = cwd ?? process.cwd();
+		const providerWorkDir = isWslTarget(agentTarget)
+			? (windowsPathToWsl(workDir) ?? workDir)
+			: workDir;
 		const effectiveFastMode =
 			fastMode === true && modelSupportsFastMode("codex", model);
 		const resolvedAdditionalDirectories = await mergeAdditionalDirectories(
 			workDir,
 			additionalDirectories,
 		);
+		const providerAdditionalDirectories = isWslTarget(agentTarget)
+			? resolvedAdditionalDirectories.map((dir) => windowsPathToWsl(dir) ?? dir)
+			: resolvedAdditionalDirectories;
 
 		logger.debug(`[${requestId}] codex sendMessage`, {
 			sessionId,
 			model: model ?? "(default)",
-			cwd: workDir,
+			cwd: providerWorkDir,
 			resume: resume ?? "(none)",
 			promptLen: prompt.length,
 		});
 
 		const ctx = await this.ensureContext(
 			sessionId,
-			workDir,
+			providerWorkDir,
 			resume,
 			model,
 			permissionMode,
 			effectiveFastMode,
+			agentTarget,
 		);
 		// Codex usage notifications do not include a model id.
 		if (model) ctx.lastSentModel = model;
@@ -242,7 +275,7 @@ export class CodexAppServerManager implements SessionManager {
 		// because `--add-dir` covers both facets in the CLI.
 		const promptWithContext = prependLinkedDirectoriesContext(
 			prompt,
-			resolvedAdditionalDirectories,
+			providerAdditionalDirectories,
 		);
 		const isCompactCommand = prompt.trim() === "/compact";
 		const input = buildTurnInput(promptWithContext);
@@ -264,8 +297,8 @@ export class CodexAppServerManager implements SessionManager {
 		// without reopening the thread.
 		const sandboxPolicy = buildTurnSandboxPolicy(
 			permissionMode,
-			workDir,
-			resolvedAdditionalDirectories,
+			providerWorkDir,
+			providerAdditionalDirectories,
 		);
 		turnStartParams.sandboxPolicy = sandboxPolicy;
 
@@ -558,9 +591,11 @@ export class CodexAppServerManager implements SessionManager {
 		params: ListSlashCommandsParams,
 	): Promise<readonly SlashCommandInfo[]> {
 		const cwd = params.cwd ?? process.cwd();
+		const providerCwd = isWslTarget(params.agentTarget)
+			? (windowsPathToWsl(cwd) ?? cwd)
+			: cwd;
 		const server = new CodexAppServer({
-			binaryPath: CODEX_BIN_PATH,
-			cwd,
+			...codexServerOptions(cwd, params.agentTarget),
 			onNotification: () => {},
 			onRequest: () => {},
 			onExit: () => {},
@@ -575,11 +610,11 @@ export class CodexAppServerManager implements SessionManager {
 			// providers fail the same way when their CLI is missing/slow.
 			const result = await server.sendRequest<Record<string, unknown>>(
 				"skills/list",
-				{ cwds: [cwd] },
+				{ cwds: [providerCwd] },
 				20_000,
 			);
 
-			return parseSkillsResponse(result, cwd);
+			return parseSkillsResponse(result, providerCwd);
 		} finally {
 			server.kill();
 		}
@@ -746,13 +781,23 @@ export class CodexAppServerManager implements SessionManager {
 		model?: string,
 		permissionMode?: string,
 		fastMode?: boolean,
+		agentTarget?: "powershell" | "wsl",
 	): Promise<AppServerContext> {
+		const target = agentTarget ?? "powershell";
 		const existing = this.sessions.get(sessionId);
-		if (existing && !existing.server.killed) return existing;
+		if (existing && !existing.server.killed) {
+			const existingTarget = existing.agentTarget ?? "powershell";
+			if (existingTarget === target) {
+				return existing;
+			}
+		}
+		if (existing && !existing.server.killed) {
+			existing.server.kill();
+			this.sessions.delete(sessionId);
+		}
 
 		const server = new CodexAppServer({
-			binaryPath: CODEX_BIN_PATH,
-			cwd,
+			...codexServerOptions(cwd, target),
 			onNotification: () => {},
 			onRequest: () => {},
 			onExit: () => {
@@ -812,6 +857,7 @@ export class CodexAppServerManager implements SessionManager {
 
 		const ctx: AppServerContext = {
 			server,
+			agentTarget: target,
 			providerThreadId: threadId,
 			activeTurnId: null,
 			turnResolve: null,

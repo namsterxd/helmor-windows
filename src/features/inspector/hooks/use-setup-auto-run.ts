@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { completeWorkspaceSetup } from "@/lib/api";
+import type { LoginShell } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { getScriptState, startScript } from "../script-store";
 
@@ -9,6 +10,7 @@ type UseSetupAutoRunArgs = {
 	workspaceId: string | null;
 	workspaceState: string | null;
 	setupScript: string | null;
+	shell: LoginShell;
 	scriptsLoaded: boolean;
 };
 
@@ -23,6 +25,7 @@ export function useSetupAutoRun({
 	workspaceId,
 	workspaceState,
 	setupScript,
+	shell,
 	scriptsLoaded,
 }: UseSetupAutoRunArgs) {
 	const queryClient = useQueryClient();
@@ -43,8 +46,8 @@ export function useSetupAutoRun({
 		if (getScriptState(workspaceId, "setup")) {
 			return;
 		}
-		startScript(repoId, "setup", workspaceId);
-	}, [workspaceState, hasScript, repoId, workspaceId]);
+		startScript(repoId, "setup", workspaceId, shell);
+	}, [workspaceState, hasScript, repoId, workspaceId, shell]);
 
 	// Auto-complete if workspace is pending but no script is configured.
 	useEffect(() => {

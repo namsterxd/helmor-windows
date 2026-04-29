@@ -39,6 +39,12 @@ import {
 	parseTitleAndBranch,
 	TITLE_GENERATION_TIMEOUT_MS,
 } from "./title.js";
+import {
+	buildWslResolvedCliCommand,
+	isWslTarget,
+	spawnWslShell,
+	windowsPathToWsl,
+} from "./wsl.js";
 
 /**
  * Hard upper bound on how long `listSlashCommands` will wait for the SDK's
@@ -117,6 +123,50 @@ function executableOptions(): {
 } {
 	if (!CLAUDE_EXECUTABLE_OVERRIDE) return {};
 	return { executable: CLAUDE_EXECUTABLE_OVERRIDE as "bun" };
+}
+
+function claudeProcessOptions(
+	target: "powershell" | "wsl" | undefined,
+	cwd: string | undefined,
+	env: Readonly<Record<string, string | undefined>> | undefined,
+): {
+	pathToClaudeCodeExecutable: string;
+	executable?: "bun" | "deno" | "node";
+	spawnClaudeCodeProcess?: (spawn: {
+		command: string;
+		args: string[];
+		cwd?: string;
+		env: Record<string, string | undefined>;
+	}) => ReturnType<typeof spawnWslShell>;
+	cwd?: string;
+	env?: Readonly<Record<string, string | undefined>>;
+} {
+	if (!isWslTarget(target)) {
+		return {
+			pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
+			...executableOptions(),
+			cwd: cwd || undefined,
+			...(env ? { env } : {}),
+		};
+	}
+	return {
+		pathToClaudeCodeExecutable: "claude",
+		cwd: windowsPathToWsl(cwd) || cwd || undefined,
+		spawnClaudeCodeProcess: ({ args, cwd: spawnCwd }) =>
+			spawnWslShell(
+				buildWslResolvedCliCommand(
+					"claude",
+					[
+						"$HOME/.npm-global/bin/claude",
+						"$HOME/.bun/bin/claude",
+						"$HOME/.local/bin/claude",
+					],
+					args,
+					spawnCwd,
+					env,
+				),
+			),
+	};
 }
 
 interface LiveSession {
@@ -396,9 +446,14 @@ export class ClaudeSessionManager implements SessionManager {
 			effortLevel,
 			fastMode,
 			claudeEnvironment,
+			agentTarget,
 		} = params;
 		const abortController = new AbortController();
-		const additionalDirectories = [...(params.additionalDirectories ?? [])];
+		const additionalDirectories = isWslTarget(agentTarget)
+			? [...(params.additionalDirectories ?? [])].map(
+					(dir) => windowsPathToWsl(dir) ?? dir,
+				)
+			: [...(params.additionalDirectories ?? [])];
 		logger.info(`[${requestId}] claude additionalDirectories resolved`, {
 			directories: additionalDirectories,
 			cwd: cwd ?? "(none)",
@@ -454,9 +509,7 @@ export class ClaudeSessionManager implements SessionManager {
 			prompt: isResumeOnly ? "" : promptSource,
 			options: {
 				abortController,
-				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
-				...executableOptions(),
-				cwd: cwd || undefined,
+				...claudeProcessOptions(agentTarget, cwd, queryEnv),
 				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 				...(queryEnv ? { env: queryEnv } : {}),
 				model: model || undefined,
@@ -813,9 +866,13 @@ export class ClaudeSessionManager implements SessionManager {
 	private async listSlashCommandsOnce(
 		params: ListSlashCommandsParams,
 	): Promise<readonly SlashCommandInfo[]> {
-		const { cwd } = params;
+		const { cwd, agentTarget } = params;
 		const abortController = new AbortController();
-		const additionalDirectories = [...(params.additionalDirectories ?? [])];
+		const additionalDirectories = isWslTarget(agentTarget)
+			? [...(params.additionalDirectories ?? [])].map(
+					(dir) => windowsPathToWsl(dir) ?? dir,
+				)
+			: [...(params.additionalDirectories ?? [])];
 		const additionalDirectoryEnv =
 			additionalDirectories.length > 0
 				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
@@ -844,11 +901,8 @@ export class ClaudeSessionManager implements SessionManager {
 			prompt: promptIter,
 			options: {
 				abortController,
-				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
-				...executableOptions(),
-				cwd: cwd || undefined,
+				...claudeProcessOptions(agentTarget, cwd, additionalDirectoryEnv),
 				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
-				...(additionalDirectoryEnv ? { env: additionalDirectoryEnv } : {}),
 				permissionMode: "bypassPermissions",
 				allowDangerouslySkipPermissions: true,
 				includePartialMessages: false,

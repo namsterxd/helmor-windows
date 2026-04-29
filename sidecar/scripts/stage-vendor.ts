@@ -1,11 +1,13 @@
 // Stage claude-code + codex + bun + gh + glab into `sidecar/dist/vendor/`
-// for Tauri to ship as bundle resources. macOS host only.
+// for Tauri to ship as bundle resources.
 
 import { execFileSync, execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	chmodSync,
 	cpSync,
 	existsSync,
+	readFileSync,
 	mkdirSync,
 	readdirSync,
 	realpathSync,
@@ -27,16 +29,19 @@ const GH_VERSION = "2.91.0";
 const GH_SHA256 = {
 	arm64: "20446cd714d9fa1b69fbd410deade3731f38fe09a2b980c8488aa388dd320ada",
 	amd64: "8806784f93603fe6d3f95c3583a08df38f175df9ebc123dc8b15f919329980e2",
+	winArm64: "ae0333d2f9b13fc28f785ca7379514f9a1cea382cd4726abb6e6f4d2a874dd15",
+	winAmd64: "ced3e6f4bb5a9865056b594b7ad0cf42137dc92c494346f1ca705b5dbf14c88e",
 } as const;
 
 const GLAB_VERSION = "1.93.0";
 const GLAB_SHA256 = {
 	arm64: "6d6ffa97d430b5e7ff912e64dbac14703acc57967df654be1950ae71858d5b6f",
 	amd64: "79d1a4f933919689c5fb7774feb1dd08f30b9c896dff4283b4a7387689ee0531",
+	winAmd64: "e07ea21f9a3df8eac5e1c16136c186154769504355a44195b47c44e410a39097",
 } as const;
 
 // ---------------------------------------------------------------------------
-// Platform detection — macOS only, arch varies (arm64 / x64)
+// Platform detection
 // ---------------------------------------------------------------------------
 
 type NodeArch = "arm64" | "x64";
@@ -49,39 +54,68 @@ interface TargetInfo {
 	/** Target triple used as the subdir inside the codex platform package. */
 	codexTriple: string;
 	/** `gh` release uses `arm64` / `amd64`. */
-	ghArch: "arm64" | "amd64";
+	ghArch: "arm64" | "amd64" | "winArm64" | "winAmd64";
 	/** `glab` release uses `arm64` / `amd64`. */
-	glabArch: "arm64" | "amd64";
+	glabArch: "arm64" | "amd64" | "winAmd64";
+	binaryExt: "" | ".exe";
 }
 
 function detectTarget(): TargetInfo {
-	if (process.platform !== "darwin") {
-		throw new Error(
-			`[stage-vendor] Helmor only builds on macOS; host platform is ${process.platform}`,
-		);
-	}
 	const arch = process.arch as NodeArch;
 
-	switch (arch) {
-		case "arm64":
-			return {
-				ccVendorArch: "arm64-darwin",
-				codexPkg: "@openai/codex-darwin-arm64",
-				codexTriple: "aarch64-apple-darwin",
-				ghArch: "arm64",
-				glabArch: "arm64",
-			};
-		case "x64":
-			return {
-				ccVendorArch: "x64-darwin",
-				codexPkg: "@openai/codex-darwin-x64",
-				codexTriple: "x86_64-apple-darwin",
-				ghArch: "amd64",
-				glabArch: "amd64",
-			};
-		default:
-			throw new Error(`[stage-vendor] Unsupported macOS arch: ${arch}`);
+	if (process.platform === "darwin") {
+		switch (arch) {
+			case "arm64":
+				return {
+					ccVendorArch: "arm64-darwin",
+					codexPkg: "@openai/codex-darwin-arm64",
+					codexTriple: "aarch64-apple-darwin",
+					ghArch: "arm64",
+					glabArch: "arm64",
+					binaryExt: "",
+				};
+			case "x64":
+				return {
+					ccVendorArch: "x64-darwin",
+					codexPkg: "@openai/codex-darwin-x64",
+					codexTriple: "x86_64-apple-darwin",
+					ghArch: "amd64",
+					glabArch: "amd64",
+					binaryExt: "",
+				};
+			default:
+				throw new Error(`[stage-vendor] Unsupported macOS arch: ${arch}`);
+		}
 	}
+
+	if (process.platform === "win32") {
+		switch (arch) {
+			case "arm64":
+				return {
+					ccVendorArch: "arm64-win32",
+					codexPkg: "@openai/codex-win32-arm64",
+					codexTriple: "aarch64-pc-windows-msvc",
+					ghArch: "winArm64",
+					glabArch: "winAmd64",
+					binaryExt: ".exe",
+				};
+			case "x64":
+				return {
+					ccVendorArch: "x64-win32",
+					codexPkg: "@openai/codex-win32-x64",
+					codexTriple: "x86_64-pc-windows-msvc",
+					ghArch: "winAmd64",
+					glabArch: "winAmd64",
+					binaryExt: ".exe",
+				};
+			default:
+				throw new Error(`[stage-vendor] Unsupported Windows arch: ${arch}`);
+		}
+	}
+
+	throw new Error(
+		`[stage-vendor] Helmor vendor staging supports macOS and Windows; host platform is ${process.platform}`,
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,12 +178,7 @@ function ensureCacheDir(): void {
 }
 
 function sha256OfFile(path: string): string {
-	const out = execFileSync("shasum", ["-a", "256", path], {
-		encoding: "utf8",
-	});
-	const digest = out.split(/\s+/)[0];
-	if (!digest) throw new Error(`[stage-vendor] empty shasum for ${path}`);
-	return digest;
+	return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function downloadAndVerify(
@@ -186,11 +215,21 @@ function freshExtractDir(path: string): void {
 }
 
 function stageGhBinary(arch: "arm64" | "amd64"): string {
-	ensureCacheDir();
 	const slug = `gh_${GH_VERSION}_macOS_${arch}`;
+	return stageGhZip(slug, GH_SHA256[arch], "gh");
+}
+
+function stageGhWindowsBinary(arch: "winArm64" | "winAmd64"): string {
+	const releaseArch = arch === "winArm64" ? "arm64" : "amd64";
+	const slug = `gh_${GH_VERSION}_windows_${releaseArch}`;
+	return stageGhZip(slug, GH_SHA256[arch], "gh.exe");
+}
+
+function stageGhZip(slug: string, expectedSha256: string, binaryName: string): string {
+	ensureCacheDir();
 	const archive = join(BUNDLE_CACHE, `${slug}.zip`);
 	const url = `https://github.com/cli/cli/releases/download/v${GH_VERSION}/${slug}.zip`;
-	downloadAndVerify(url, archive, GH_SHA256[arch]);
+	downloadAndVerify(url, archive, expectedSha256);
 
 	// Unzip into a dedicated temp dir, then locate `bin/gh` regardless of
 	// whether the archive carries an internal wrapper directory. We strip
@@ -198,19 +237,39 @@ function stageGhBinary(arch: "arm64" | "amd64"): string {
 	// don't silently leave stale files in BUNDLE_CACHE.
 	const extractDir = join(BUNDLE_CACHE, slug);
 	freshExtractDir(extractDir);
-	execFileSync("unzip", ["-q", "-o", archive, "-d", extractDir], {
-		stdio: "inherit",
-	});
+	extractZip(archive, extractDir);
 
-	const binSrc = locateExtractedBin(extractDir, "gh");
-	const binDest = join(DIST_VENDOR, "gh", "gh");
+	const binSrc = locateExtractedBin(extractDir, binaryName);
+	const binDest = join(DIST_VENDOR, "gh", binaryName);
 	copyFile(binSrc, binDest);
-	chmodSync(binDest, 0o755);
+	if (process.platform !== "win32") chmodSync(binDest, 0o755);
 	maybeSignMacBinary(binDest, false);
 	return binDest;
 }
 
 /// Find `bin/<name>` either at the archive root or one wrapper level deep.
+function extractZip(archive: string, dest: string): void {
+	if (process.platform === "win32") {
+		execFileSync(
+			"powershell.exe",
+			[
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"& { param($archive, $dest) Expand-Archive -LiteralPath $archive -DestinationPath $dest -Force }",
+				archive,
+				dest,
+			],
+			{ stdio: "inherit" },
+		);
+		return;
+	}
+	execFileSync("unzip", ["-q", "-o", archive, "-d", dest], {
+		stdio: "inherit",
+	});
+}
+
 function locateExtractedBin(extractDir: string, name: string): string {
 	const direct = join(extractDir, "bin", name);
 	if (existsSync(direct)) return direct;
@@ -250,7 +309,25 @@ function stageGlabBinary(arch: "arm64" | "amd64"): string {
 	return binDest;
 }
 
+function stageGlabWindowsBinary(): string {
+	ensureCacheDir();
+	const slug = `glab_${GLAB_VERSION}_windows_amd64`;
+	const archive = join(BUNDLE_CACHE, `${slug}.zip`);
+	const url = `https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${slug}.zip`;
+	downloadAndVerify(url, archive, GLAB_SHA256.winAmd64);
+
+	const extractDir = join(BUNDLE_CACHE, slug);
+	freshExtractDir(extractDir);
+	extractZip(archive, extractDir);
+
+	const binSrc = locateExtractedBin(extractDir, "glab.exe");
+	const binDest = join(DIST_VENDOR, "glab", "glab.exe");
+	copyFile(binSrc, binDest);
+	return binDest;
+}
+
 function maybeSignMacBinary(path: string, withEntitlements: boolean): void {
+	if (process.platform !== "darwin") return;
 	const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
 	if (!identity) return;
 
@@ -285,7 +362,7 @@ function maybeSignMacBinary(path: string, withEntitlements: boolean): void {
 const target = detectTarget();
 
 console.log(
-	`[stage-vendor] host=darwin/${process.arch} ccArch=${target.ccVendorArch} codexPkg=${target.codexPkg}`,
+	`[stage-vendor] host=${process.platform}/${process.arch} ccArch=${target.ccVendorArch} codexPkg=${target.codexPkg}`,
 );
 
 // Clean
@@ -317,18 +394,25 @@ const codexSrc = join(
 	"vendor",
 	target.codexTriple,
 	"codex",
-	"codex",
+	`codex${target.binaryExt}`,
 );
 ensureExists(codexSrc, `${target.codexPkg} codex binary`);
 
-const codexDest = join(DIST_VENDOR, "codex", "codex");
+const codexDest = join(DIST_VENDOR, "codex", `codex${target.binaryExt}`);
 copyFile(codexSrc, codexDest);
-chmodSync(codexDest, 0o755);
+if (process.platform !== "win32") chmodSync(codexDest, 0o755);
 maybeSignMacBinary(codexDest, false);
 
 // ----- Bun (JS runtime for cli.js) -----
 function locateHostBun(): string {
 	try {
+		if (process.platform === "win32") {
+			const raw = execSync("where bun", { encoding: "utf8" })
+				.trim()
+				.split(/\r?\n/)[0] ?? "";
+			if (!raw) throw new Error("empty output");
+			return realpathSync(raw);
+		}
 		const raw =
 			execSync("which bun", { encoding: "utf8" }).trim().split("\n")[0] ?? "";
 		if (!raw) throw new Error("empty output");
@@ -344,13 +428,13 @@ function locateHostBun(): string {
 }
 
 const bunSrc = locateHostBun();
-const bunDest = join(DIST_VENDOR, "bun", "bun");
+const bunDest = join(DIST_VENDOR, "bun", `bun${target.binaryExt}`);
 copyFile(bunSrc, bunDest);
-chmodSync(bunDest, 0o755);
+if (process.platform !== "win32") chmodSync(bunDest, 0o755);
 maybeSignMacBinary(bunDest, true);
 
 for (const rel of [
-	join(ccDest, "vendor", "ripgrep", target.ccVendorArch, "rg"),
+	join(ccDest, "vendor", "ripgrep", target.ccVendorArch, `rg${target.binaryExt}`),
 	join(
 		ccDest,
 		"vendor",
@@ -365,8 +449,13 @@ for (const rel of [
 }
 
 // ----- gh + glab (forge CLIs) -----
-stageGhBinary(target.ghArch);
-stageGlabBinary(target.glabArch);
+if (process.platform === "win32") {
+	stageGhWindowsBinary(target.ghArch as "winArm64" | "winAmd64");
+	stageGlabWindowsBinary();
+} else {
+	stageGhBinary(target.ghArch as "arm64" | "amd64");
+	stageGlabBinary(target.glabArch as "arm64" | "amd64");
+}
 
 // ----- Summary -----
 console.log(`[stage-vendor] ✓ staged → ${DIST_VENDOR}`);

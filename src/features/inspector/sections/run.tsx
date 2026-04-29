@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/hover-card";
 import { getShortcut } from "@/features/shortcuts/registry";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import type { LoginShell } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { extractPort } from "../detect-urls";
@@ -32,6 +33,7 @@ type RunTabProps = {
 	repoId: string | null;
 	workspaceId: string | null;
 	runScript: string | null;
+	shell: LoginShell;
 	isActive: boolean;
 	onOpenSettings: () => void;
 	onStatusChange?: (status: ScriptStatus) => void;
@@ -140,6 +142,7 @@ export function RunTab({
 	repoId,
 	workspaceId,
 	runScript,
+	shell,
 	isActive,
 	onOpenSettings,
 	onStatusChange,
@@ -207,8 +210,8 @@ export function RunTab({
 		termRef.current?.clear();
 		setStatus("running");
 		setHasRun(true);
-		startScript(repoId, "run", workspaceId);
-	}, [repoId, workspaceId]);
+		startScript(repoId, "run", workspaceId, shell);
+	}, [repoId, workspaceId, shell]);
 
 	const handleStop = useCallback(() => {
 		if (!repoId || !workspaceId) return;

@@ -1,8 +1,10 @@
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type TerminalHandle,
 	TerminalOutput,
 } from "@/components/terminal-output";
+import { isWindows } from "@/lib/platform";
 import {
 	attach,
 	detach,
@@ -30,6 +32,21 @@ function drainXtermQueue() {
 		if (cb) cb();
 		drainXtermQueue();
 	});
+}
+
+function echoTerminalInput(term: TerminalHandle | null, data: string) {
+	if (!term) return;
+	if (data === "\r") {
+		term.write("\r\n");
+		return;
+	}
+	if (data === "\u007f" || data === "\b") {
+		term.write("\b \b");
+		return;
+	}
+	if (/^[\x20-\x7e]+$/.test(data)) {
+		term.write(data);
+	}
 }
 function scheduleXtermMount(callback: () => void): () => void {
 	let cancelled = false;
@@ -131,6 +148,7 @@ export function TerminalInstancePanel({
 	const handleData = useCallback(
 		(data: string) => {
 			if (!repoId || !workspaceId) return;
+			if (isWindows()) echoTerminalInput(termRef.current, data);
 			writeStdin(repoId, workspaceId, instanceId, data);
 		},
 		[repoId, workspaceId, instanceId],
@@ -161,7 +179,11 @@ export function TerminalInstancePanel({
 					onData={handleData}
 					onResize={handleResize}
 				/>
-			) : null}
+			) : (
+				<div className="flex h-full items-center justify-center text-muted-foreground">
+					<Loader2 className="size-4 animate-spin" aria-label="Loading terminal" />
+				</div>
+			)}
 		</div>
 	);
 }

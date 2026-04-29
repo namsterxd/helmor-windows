@@ -11,11 +11,18 @@ import { toast } from "sonner";
 import { GitlabBrandIcon } from "@/components/brand-icon";
 import type { TerminalHandle } from "@/components/terminal-output";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
 	type ForgeCliStatus,
 	type ForgeProvider,
 	getForgeCliStatus,
+	type LoginShell,
 	resizeForgeCliAuthTerminal,
 	type ScriptEvent,
 	spawnForgeCliAuthTerminal,
@@ -38,6 +45,7 @@ type ActiveTerminal = {
 	provider: RepoCliProvider;
 	host: string;
 	instanceId: string;
+	shell: LoginShell;
 };
 
 type CliState = {
@@ -80,8 +88,8 @@ export function RepositoryCliStep({
 	}, []);
 
 	const refreshStatus = useCallback(
-		async (provider: RepoCliProvider, host: string) => {
-			const next = await getForgeCliStatus(provider, host);
+		async (provider: RepoCliProvider, host: string, shell?: LoginShell) => {
+			const next = await getForgeCliStatus(provider, host, shell);
 			if (provider === "github") {
 				setGithub({ status: next, checking: false });
 			} else {
@@ -128,11 +136,16 @@ export function RepositoryCliStep({
 	useEffect(() => clearPoll, [clearPoll]);
 
 	const pollUntilReady = useCallback(
-		(provider: RepoCliProvider, host: string, startedAt = Date.now()) => {
+		(
+			provider: RepoCliProvider,
+			host: string,
+			shell?: LoginShell,
+			startedAt = Date.now(),
+		) => {
 			clearPoll();
 			pollTimerRef.current = setTimeout(async () => {
 				try {
-					const next = await refreshStatus(provider, host);
+					const next = await refreshStatus(provider, host, shell);
 					if (next.status === "ready") {
 						setWaitingProvider(null);
 						toast.success(`${next.cliName} connected`);
@@ -148,20 +161,21 @@ export function RepositoryCliStep({
 					);
 					return;
 				}
-				pollUntilReady(provider, host, startedAt);
+				pollUntilReady(provider, host, shell, startedAt);
 			}, CLI_AUTH_POLL_INTERVAL_MS);
 		},
 		[clearPoll, refreshStatus],
 	);
 
 	const openTerminal = useCallback(
-		(provider: RepoCliProvider, host: string) => {
+		(provider: RepoCliProvider, host: string, shell: LoginShell) => {
 			clearPoll();
 			setWaitingProvider(provider);
 			setActiveGitlabPanel(null);
 			setActiveTerminal({
 				provider,
 				host,
+				shell,
 				instanceId: crypto.randomUUID(),
 			});
 		},
@@ -171,12 +185,20 @@ export function RepositoryCliStep({
 	const handleTerminalExit = useCallback(
 		(code: number | null) => {
 			if (!activeTerminal) return;
-			void refreshStatus(activeTerminal.provider, activeTerminal.host);
+			void refreshStatus(
+				activeTerminal.provider,
+				activeTerminal.host,
+				activeTerminal.shell,
+			);
 			if (code !== 0) {
 				setWaitingProvider(null);
 				return;
 			}
-			pollUntilReady(activeTerminal.provider, activeTerminal.host);
+			pollUntilReady(
+				activeTerminal.provider,
+				activeTerminal.host,
+				activeTerminal.shell,
+			);
 		},
 		[activeTerminal, pollUntilReady, refreshStatus],
 	);
@@ -185,10 +207,20 @@ export function RepositoryCliStep({
 		setWaitingProvider(null);
 	}, []);
 
-	const handleGithubSetUp = useCallback(() => {
-		if (github.status?.status === "ready") return;
-		openTerminal("github", "github.com");
-	}, [github.status, openTerminal]);
+	const handleGithubSetUp = useCallback(
+		async (shell: LoginShell) => {
+			if (github.status?.status === "ready") return;
+			setWaitingProvider("github");
+			const next = await refreshStatus("github", "github.com", shell);
+			if (next.status === "ready") {
+				setWaitingProvider(null);
+				toast.success(`${next.cliName} already connected`);
+				return;
+			}
+			openTerminal("github", "github.com", shell);
+		},
+		[github.status, openTerminal, refreshStatus],
+	);
 
 	const handleGitlabSetUp = useCallback(() => {
 		clearPoll();
@@ -222,7 +254,7 @@ export function RepositoryCliStep({
 		} catch {
 			// Fall through to the terminal so the user can finish auth manually.
 		}
-		openTerminal("gitlab", host);
+		openTerminal("gitlab", host, "powershell");
 	}, [clearPoll, gitlabHost, openTerminal, refreshStatus]);
 
 	return (
@@ -330,7 +362,7 @@ function RepositoryCliSetupItem({
 	status: ForgeCliStatus | null;
 	checking: boolean;
 	waiting: boolean;
-	onSetUp: () => void;
+	onSetUp: (shell: LoginShell) => void;
 }) {
 	const ready = status?.status === "ready";
 	const readyLogin = ready ? status.login.trim() : "";
@@ -342,10 +374,42 @@ function RepositoryCliSetupItem({
 			label={displayLabel}
 			description={description}
 			actionLabel={checking ? "Checking" : waiting ? "Waiting" : "Set up"}
-			onAction={onSetUp}
+			action={
+				<LoginShellMenu
+					label={waiting ? "Restart" : "Set up"}
+					disabled={checking}
+					onSelect={onSetUp}
+				/>
+			}
 			busy={checking || waiting}
 			ready={ready}
 		/>
+	);
+}
+
+function LoginShellMenu({
+	label,
+	disabled,
+	onSelect,
+}: {
+	label: string;
+	disabled: boolean;
+	onSelect: (shell: LoginShell) => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild disabled={disabled}>
+				<Button type="button" size="sm" className="h-7 shrink-0 px-2 text-xs">
+					{label}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" sideOffset={4} className="min-w-32">
+				<DropdownMenuItem onClick={() => onSelect("powershell")}>
+					PowerShell
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => onSelect("wsl")}>WSL</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -501,6 +565,7 @@ function ForgeCliTerminalPreview({
 			terminal.provider,
 			terminal.host,
 			terminal.instanceId,
+			terminal.shell,
 			(event: ScriptEvent) => {
 				if (cancelled) return;
 				switch (event.type) {
@@ -533,6 +598,7 @@ function ForgeCliTerminalPreview({
 				terminal.provider,
 				terminal.host,
 				terminal.instanceId,
+				terminal.shell,
 			);
 		};
 	}, [active, terminal, onExit, onError]);
@@ -544,6 +610,7 @@ function ForgeCliTerminalPreview({
 				terminal.provider,
 				terminal.host,
 				terminal.instanceId,
+				terminal.shell,
 				data,
 			);
 		},
@@ -557,6 +624,7 @@ function ForgeCliTerminalPreview({
 				terminal.provider,
 				terminal.host,
 				terminal.instanceId,
+				terminal.shell,
 				cols,
 				rows,
 			);
@@ -568,8 +636,8 @@ function ForgeCliTerminalPreview({
 
 	const title =
 		terminal.provider === "gitlab"
-			? `GitLab CLI login · ${terminal.host}`
-			: "GitHub CLI login";
+			? `GitLab CLI login · ${terminal.host} · ${shellLabel(terminal.shell)}`
+			: `GitHub CLI login · ${shellLabel(terminal.shell)}`;
 
 	return (
 		<OnboardingTerminalPreview
@@ -592,4 +660,8 @@ function normalizeGitlabHost(value: string) {
 		.replace(/^https?:\/\//i, "")
 		.split("/")[0]
 		.trim();
+}
+
+function shellLabel(shell: LoginShell) {
+	return shell === "wsl" ? "WSL" : "PowerShell";
 }

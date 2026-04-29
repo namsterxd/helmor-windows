@@ -1,4 +1,5 @@
 import {
+	type LoginShell,
 	resizeTerminal,
 	type ScriptEvent,
 	spawnTerminal,
@@ -14,6 +15,7 @@ export type TerminalStatus = "running" | "exited";
 
 export type TerminalInstance = {
 	id: string;
+	shell: LoginShell;
 	/** Stored on the instance so workspace lifecycle hooks (delete /
 	 * archive) can stop the PTY without the caller threading `repoId`
 	 * separately. */
@@ -112,11 +114,13 @@ export function subscribeToWorkspaceList(
 export function createTerminal(
 	repoId: string,
 	workspaceId: string,
+	shell: LoginShell,
 ): TerminalInstance | null {
 	const list = instancesByWorkspace.get(workspaceId) ?? [];
 	if (list.length >= TERMINAL_INSTANCE_LIMIT) return null;
 	const instance: TerminalInstance = {
 		id: makeId(),
+		shell,
 		repoId,
 		chunks: [],
 		bufferedBytes: 0,
@@ -129,46 +133,58 @@ export function createTerminal(
 	emitListChange(workspaceId);
 
 	const k = listKey(workspaceId, instance.id);
-	void spawnTerminal(repoId, workspaceId, instance.id, (event: ScriptEvent) => {
-		// Drop late events for instances that have been closed and removed.
-		const current = instancesByWorkspace
-			.get(workspaceId)
-			?.find((t) => t.id === instance.id);
-		if (!current) return;
+	void spawnTerminal(
+		repoId,
+		workspaceId,
+		instance.id,
+		shell,
+		(event: ScriptEvent) => {
+			// Drop late events for instances that have been closed and removed.
+			const current = instancesByWorkspace
+				.get(workspaceId)
+				?.find((t) => t.id === instance.id);
+			if (!current) return;
 
-		switch (event.type) {
-			case "started":
-				break;
-			case "stdout":
-			case "stderr": {
-				appendChunk(current, event.data);
-				listeners.get(k)?.onChunk(event.data);
-				break;
+			switch (event.type) {
+				case "started": {
+					const label =
+						current.shell === "wsl" ? "WSL terminal" : "PowerShell terminal";
+					const msg = `\x1b[2m[Started ${label}]\x1b[0m\r\n`;
+					appendChunk(current, msg);
+					listeners.get(k)?.onChunk(msg);
+					break;
+				}
+				case "stdout":
+				case "stderr": {
+					appendChunk(current, event.data);
+					listeners.get(k)?.onChunk(event.data);
+					break;
+				}
+				case "exited": {
+					current.status = "exited";
+					current.exitCode = event.code;
+					const tail = `\r\n\x1b[2m[Process exited with code ${
+						event.code ?? "?"
+					}]\x1b[0m\r\n`;
+					appendChunk(current, tail);
+					listeners.get(k)?.onChunk(tail);
+					listeners.get(k)?.onStatusChange("exited", event.code);
+					emitListChange(workspaceId);
+					break;
+				}
+				case "error": {
+					const msg = `\r\n\x1b[31m${event.message}\x1b[0m\r\n`;
+					appendChunk(current, msg);
+					current.status = "exited";
+					current.exitCode = current.exitCode ?? 1;
+					listeners.get(k)?.onChunk(msg);
+					listeners.get(k)?.onStatusChange("exited", current.exitCode);
+					emitListChange(workspaceId);
+					break;
+				}
 			}
-			case "exited": {
-				current.status = "exited";
-				current.exitCode = event.code;
-				const tail = `\r\n\x1b[2m[Process exited with code ${
-					event.code ?? "?"
-				}]\x1b[0m\r\n`;
-				appendChunk(current, tail);
-				listeners.get(k)?.onChunk(tail);
-				listeners.get(k)?.onStatusChange("exited", event.code);
-				emitListChange(workspaceId);
-				break;
-			}
-			case "error": {
-				const msg = `\r\n\x1b[31m${event.message}\x1b[0m\r\n`;
-				appendChunk(current, msg);
-				current.status = "exited";
-				current.exitCode = current.exitCode ?? 1;
-				listeners.get(k)?.onChunk(msg);
-				listeners.get(k)?.onStatusChange("exited", current.exitCode);
-				emitListChange(workspaceId);
-				break;
-			}
-		}
-	}).catch((err) => {
+		},
+	).catch((err) => {
 		const current = instancesByWorkspace
 			.get(workspaceId)
 			?.find((t) => t.id === instance.id);

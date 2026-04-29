@@ -1,10 +1,12 @@
+import { isMac } from "@/lib/platform";
+
 const KEY_LABELS: Record<string, string> = {
-	Mod: "command",
+	Mod: isMac() ? "command" : "control",
 	Meta: "command",
 	Command: "command",
 	Cmd: "command",
-	Alt: "option",
-	Option: "option",
+	Alt: isMac() ? "option" : "alt",
+	Option: isMac() ? "option" : "alt",
 	Control: "control",
 	Ctrl: "control",
 	Shift: "shift",
@@ -28,15 +30,15 @@ const KEY_LABELS: Record<string, string> = {
 };
 
 const INLINE_KEY_LABELS: Record<string, string> = {
-	Mod: "⌘",
+	Mod: isMac() ? "⌘" : "Ctrl",
 	Meta: "⌘",
 	Command: "⌘",
 	Cmd: "⌘",
-	Alt: "⌥",
-	Option: "⌥",
-	Control: "⌃",
-	Ctrl: "⌃",
-	Shift: "⇧",
+	Alt: isMac() ? "⌥" : "Alt",
+	Option: isMac() ? "⌥" : "Alt",
+	Control: isMac() ? "⌃" : "Ctrl",
+	Ctrl: isMac() ? "⌃" : "Ctrl",
+	Shift: isMac() ? "⇧" : "Shift",
 	Escape: "Esc",
 	Enter: "↩",
 	Return: "↩",
@@ -107,8 +109,13 @@ export function normalizeShortcutEvent(event: KeyboardEvent): string | null {
 	if (!key) return null;
 
 	const parts: string[] = [];
-	if (event.metaKey) parts.push("Mod");
-	if (event.ctrlKey) parts.push("Control");
+	if (isMac()) {
+		if (event.metaKey) parts.push("Mod");
+		if (event.ctrlKey) parts.push("Control");
+	} else {
+		if (event.ctrlKey) parts.push("Mod");
+		if (event.metaKey) parts.push("Meta");
+	}
 	if (event.altKey) parts.push("Alt");
 	if (event.shiftKey) parts.push("Shift");
 

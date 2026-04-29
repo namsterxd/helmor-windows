@@ -1,10 +1,10 @@
-use tauri::ipc::Channel;
 use tauri::State;
+use tauri::ipc::Channel;
 
 use crate::repos;
 use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager};
 
-use super::common::CmdResult;
+use super::common::{CmdResult, LoginShell};
 
 /// Internal `script_type` namespace for Terminal-tab PTY sessions.
 ///
@@ -30,6 +30,7 @@ pub async fn spawn_terminal(
     repo_id: String,
     workspace_id: String,
     instance_id: String,
+    shell: LoginShell,
     channel: Channel<ScriptEvent>,
 ) -> CmdResult<()> {
     let (repo, workspace) = tauri::async_runtime::spawn_blocking({
@@ -68,15 +69,33 @@ pub async fn spawn_terminal(
     let script_type = make_script_type(&instance_id);
 
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(e) = crate::workspace::scripts::run_terminal_session(
+        #[cfg(windows)]
+        let result = run_windows_terminal_session(
             &mgr,
             &repo_id,
             &script_type,
-            Some(&workspace_id),
+            &workspace_id,
             &working_dir,
             &context,
             channel.clone(),
-        ) {
+            shell,
+        );
+
+        #[cfg(not(windows))]
+        let result = {
+            let _ = shell;
+            crate::workspace::scripts::run_terminal_session(
+                &mgr,
+                &repo_id,
+                &script_type,
+                Some(&workspace_id),
+                &working_dir,
+                &context,
+                channel.clone(),
+            )
+        };
+
+        if let Err(e) = result {
             let _ = channel.send(ScriptEvent::Error {
                 message: e.to_string(),
             });
@@ -120,4 +139,63 @@ pub async fn resize_terminal(
 ) -> CmdResult<bool> {
     let key = (repo_id, make_script_type(&instance_id), Some(workspace_id));
     Ok(manager.resize(&key, cols, rows)?)
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn run_windows_terminal_session(
+    mgr: &ScriptProcessManager,
+    repo_id: &str,
+    script_type: &str,
+    workspace_id: &str,
+    working_dir: &str,
+    context: &ScriptContext,
+    channel: Channel<ScriptEvent>,
+    shell: LoginShell,
+) -> anyhow::Result<Option<i32>> {
+    let (shell_path, shell_args): (&str, Vec<String>) = match shell {
+        LoginShell::Powershell => (
+            "powershell.exe",
+            vec![
+                "-NoLogo".into(),
+                "-NoProfile".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
+                "-NoExit".into(),
+            ],
+        ),
+        LoginShell::Wsl => {
+            let wsl_dir =
+                windows_path_to_wsl(working_dir).unwrap_or_else(|| working_dir.replace('\\', "/"));
+            ("wsl.exe", vec!["--cd".into(), wsl_dir])
+        }
+    };
+    let shell_arg_refs = shell_args.iter().map(String::as_str).collect::<Vec<_>>();
+
+    crate::workspace::scripts::run_script_with_shell(
+        mgr,
+        repo_id,
+        script_type,
+        Some(workspace_id),
+        None,
+        working_dir,
+        context,
+        channel,
+        shell_path,
+        &shell_arg_refs,
+    )
+}
+
+#[cfg(windows)]
+fn windows_path_to_wsl(path: &str) -> Option<String> {
+    let bytes = path.as_bytes();
+    if bytes.len() < 3 || bytes[1] != b':' || (bytes[2] != b'\\' && bytes[2] != b'/') {
+        return None;
+    }
+    let drive = (bytes[0] as char).to_ascii_lowercase();
+    if !drive.is_ascii_alphabetic() {
+        return None;
+    }
+    let rest = path[3..].replace('\\', "/");
+    Some(format!("/mnt/{drive}/{rest}"))
 }

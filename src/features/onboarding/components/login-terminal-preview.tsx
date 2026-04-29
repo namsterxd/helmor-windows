@@ -5,6 +5,7 @@ import {
 } from "@/components/terminal-output";
 import {
 	type AgentLoginProvider,
+	type LoginShell,
 	resizeAgentLoginTerminal,
 	type ScriptEvent,
 	spawnAgentLoginTerminal,
@@ -86,12 +87,14 @@ export function LoginTerminalPreview({
 	provider,
 	instanceId,
 	active,
+	shell,
 	onExit,
 	onError,
 }: {
 	provider: AgentLoginProvider | null;
 	instanceId: string | null;
 	active: boolean;
+	shell: LoginShell;
 	onExit: (code: number | null) => void;
 	onError: (message: string) => void;
 }) {
@@ -110,24 +113,29 @@ export function LoginTerminalPreview({
 		if (termRef.current) replay();
 		else requestAnimationFrame(replay);
 
-		void spawnAgentLoginTerminal(provider, instanceId, (event: ScriptEvent) => {
-			if (cancelled) return;
-			switch (event.type) {
-				case "stdout":
-				case "stderr":
-					termRef.current?.write(event.data);
-					break;
-				case "error":
-					termRef.current?.write(`\r\n${event.message}\r\n`);
-					onError(event.message);
-					break;
-				case "exited":
-					onExit(event.code);
-					break;
-				case "started":
-					break;
-			}
-		}).catch((error) => {
+		void spawnAgentLoginTerminal(
+			provider,
+			instanceId,
+			shell,
+			(event: ScriptEvent) => {
+				if (cancelled) return;
+				switch (event.type) {
+					case "stdout":
+					case "stderr":
+						termRef.current?.write(event.data);
+						break;
+					case "error":
+						termRef.current?.write(`\r\n${event.message}\r\n`);
+						onError(event.message);
+						break;
+					case "exited":
+						onExit(event.code);
+						break;
+					case "started":
+						break;
+				}
+			},
+		).catch((error) => {
 			if (cancelled) return;
 			const message =
 				error instanceof Error ? error.message : "Unable to start login.";
@@ -137,29 +145,31 @@ export function LoginTerminalPreview({
 
 		return () => {
 			cancelled = true;
-			void stopAgentLoginTerminal(provider, instanceId);
+			void stopAgentLoginTerminal(provider, instanceId, shell);
 		};
-	}, [active, provider, instanceId, onExit, onError]);
+	}, [active, provider, instanceId, shell, onExit, onError]);
 
 	const handleData = useCallback(
 		(data: string) => {
 			if (!provider || !instanceId) return;
-			void writeAgentLoginTerminalStdin(provider, instanceId, data);
+			void writeAgentLoginTerminalStdin(provider, instanceId, shell, data);
 		},
-		[provider, instanceId],
+		[provider, instanceId, shell],
 	);
 
 	const handleResize = useCallback(
 		(cols: number, rows: number) => {
 			if (!provider || !instanceId) return;
-			void resizeAgentLoginTerminal(provider, instanceId, cols, rows);
+			void resizeAgentLoginTerminal(provider, instanceId, shell, cols, rows);
 		},
-		[provider, instanceId],
+		[provider, instanceId, shell],
 	);
 
 	return (
 		<OnboardingTerminalPreview
-			title={`${providerLabels[resolvedProvider]} login`}
+			title={`${providerLabels[resolvedProvider]} login · ${
+				shell === "wsl" ? "WSL" : "PowerShell"
+			}`}
 			active={active}
 			terminalRef={termRef}
 			onData={handleData}

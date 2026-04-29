@@ -124,6 +124,7 @@ pub(super) fn stream_via_sidecar(
         cwd: &working_directory.display().to_string(),
         resume_session_id: resume_session_id.as_deref(),
         provider: &model.provider,
+        agent_target: request.agent_target.as_deref(),
         effort_level: request.effort_level.as_deref(),
         permission_mode: request.permission_mode.as_deref(),
         fast_mode: request.fast_mode.unwrap_or(false),

@@ -1,17 +1,24 @@
 //! `gh` / `glab` status probing + Connect terminal flow.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
+#[cfg(any(target_os = "macos", windows))]
+use anyhow::Context;
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::github_cli;
 
 use super::bundled;
-use super::command::{command_detail, run_command, run_command_with_timeout};
+use super::command::{command_detail, run_command};
+#[cfg(target_os = "macos")]
+use super::command::run_command_with_timeout;
 use super::status_cache::{self, CacheableStatus, CachedEntry};
 use super::types::{ForgeCliStatus, ForgeLabels, ForgeProvider};
 
+#[cfg(target_os = "macos")]
 const OPEN_TERMINAL_TIMEOUT: Duration = Duration::from_secs(10);
 const GITLAB_CLI_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
 const GITLAB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(600);
@@ -46,6 +53,18 @@ pub fn get_forge_cli_status(provider: ForgeProvider, host: Option<&str>) -> Resu
     }
 }
 
+pub fn get_forge_cli_status_for_shell(
+    provider: ForgeProvider,
+    host: Option<&str>,
+    wsl: bool,
+) -> Result<ForgeCliStatus> {
+    match (provider, wsl) {
+        (ForgeProvider::Github, false) => github_status_native(),
+        (ForgeProvider::Github, true) => github_status_wsl(),
+        _ => get_forge_cli_status(provider, host),
+    }
+}
+
 pub fn open_forge_cli_auth_terminal(provider: ForgeProvider, host: Option<&str>) -> Result<()> {
     let command = forge_cli_auth_command(provider, host)?;
     open_terminal_with_command(&command)
@@ -73,6 +92,50 @@ pub(crate) fn forge_cli_auth_command(
     })
 }
 
+pub(crate) fn forge_cli_wsl_auth_command(
+    provider: ForgeProvider,
+    host: Option<&str>,
+) -> Result<String> {
+    Ok(match provider {
+        ForgeProvider::Github => wsl_checked_cli_command(
+            "gh",
+            "gh auth status --hostname github.com >/dev/null 2>&1 || exec gh auth login",
+            &[
+                "GitHub CLI is not installed inside WSL.",
+                "Install it in WSL, then run this again:",
+                "  sudo apt update && sudo apt install gh",
+            ],
+        ),
+        ForgeProvider::Gitlab => {
+            let host = host.unwrap_or("gitlab.com");
+            if host.contains(['\n', '\r']) {
+                bail!("Invalid hostname (contains newline): {host:?}");
+            }
+            wsl_checked_cli_command(
+                "glab",
+                &format!("glab auth login --hostname {host}"),
+                &[
+                    "GitLab CLI is not installed inside WSL.",
+                    "Install it in WSL, then run this again.",
+                ],
+            )
+        }
+        ForgeProvider::Unknown => bail!("Unknown forge provider."),
+    })
+}
+
+fn wsl_checked_cli_command(binary: &str, command: &str, missing_lines: &[&str]) -> String {
+    let mut script = format!("if ! command -v {binary} >/dev/null 2>&1; then ");
+    for line in missing_lines {
+        script.push_str("printf '%s\\n' ");
+        script.push_str(&shell_single_quote(line));
+        script.push_str("; ");
+    }
+    script.push_str("exit 127; fi; ");
+    script.push_str(command);
+    script
+}
+
 /// Absolute bundled path (shell-quoted). In release builds, missing the
 /// bundled binary means the .app payload is broken — fail loudly rather
 /// than spawning a Terminal session that immediately dies on
@@ -80,7 +143,7 @@ pub(crate) fn forge_cli_auth_command(
 /// `bun run dev` keeps working without a full bundle.
 fn bundled_program_token(program: &str) -> Result<String> {
     if let Some(path) = bundled::bundled_path_for(program) {
-        return Ok(shell_single_quote(&path.display().to_string()));
+        return Ok(shell_command_arg(&path.display().to_string()));
     }
     if cfg!(debug_assertions) {
         return Ok(program.to_string());
@@ -88,7 +151,17 @@ fn bundled_program_token(program: &str) -> Result<String> {
     bail!("Bundled `{program}` is missing; reinstall Helmor to recover")
 }
 
-/// `'foo'\''bar'`-style single quoting safe for /bin/sh.
+fn shell_command_arg(value: &str) -> String {
+    if cfg!(windows) {
+        return windows_double_quote(value);
+    }
+    shell_single_quote(value)
+}
+
+fn windows_double_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
 fn shell_single_quote(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('\'');
@@ -130,7 +203,43 @@ pub(crate) fn labels_for(provider: ForgeProvider) -> ForgeLabels {
 }
 
 pub(crate) fn github_status() -> Result<ForgeCliStatus> {
+    let native = github_status_native()?;
+    if matches!(native, ForgeCliStatus::Ready { .. }) || !cfg!(windows) {
+        return Ok(native);
+    }
+
+    match github_status_wsl() {
+        Ok(ready @ ForgeCliStatus::Ready { .. }) => Ok(ready),
+        Ok(_) => Ok(native),
+        Err(error) => {
+            tracing::debug!(%error, "GitHub CLI WSL status fallback failed");
+            Ok(native)
+        }
+    }
+}
+
+pub(crate) fn github_status_native() -> Result<ForgeCliStatus> {
     github_status_from(github_cli::get_github_cli_status()?)
+}
+
+pub(crate) fn github_status_wsl() -> Result<ForgeCliStatus> {
+    match github_status_from(github_cli::get_github_wsl_cli_status()?)? {
+        ForgeCliStatus::Ready {
+            provider,
+            host,
+            login,
+            version,
+            ..
+        } => Ok(ForgeCliStatus::Ready {
+            provider,
+            host,
+            cli_name: "gh (WSL)".to_string(),
+            login: login.clone(),
+            version,
+            message: format!("GitHub CLI ready in WSL as {login}."),
+        }),
+        status => Ok(status),
+    }
 }
 
 fn github_status_from(status: github_cli::GithubCliStatus) -> Result<ForgeCliStatus> {
@@ -312,10 +421,28 @@ end tell"#,
 }
 
 #[cfg(not(target_os = "macos"))]
+#[cfg(not(windows))]
 fn open_terminal_with_command(_command: &str) -> Result<()> {
     bail!("Opening a terminal for forge CLI auth is only supported on macOS right now.")
 }
 
+#[cfg(windows)]
+fn open_terminal_with_command(command: &str) -> Result<()> {
+    Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-NoExit",
+            "-Command",
+            command,
+        ])
+        .spawn()
+        .context("Failed to open PowerShell")?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn applescript_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }

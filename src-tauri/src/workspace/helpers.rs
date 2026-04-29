@@ -285,8 +285,6 @@ pub fn copy_dir_all(source: &Path, destination: &Path) -> Result<()> {
 }
 
 pub fn copy_symlink(source: &Path, destination: &Path) -> Result<()> {
-    use std::os::unix::fs::symlink;
-
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!(
@@ -298,13 +296,27 @@ pub fn copy_symlink(source: &Path, destination: &Path) -> Result<()> {
 
     let link_target = fs::read_link(source)
         .with_context(|| format!("Failed to read symlink {}", source.display()))?;
-    symlink(&link_target, destination).with_context(|| {
+    create_symlink(&link_target, destination).with_context(|| {
         format!(
             "Failed to copy symlink {} to {}",
             source.display(),
             destination.display()
         )
     })
+}
+
+#[cfg(unix)]
+fn create_symlink(link_target: &Path, destination: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(link_target, destination)
+}
+
+#[cfg(windows)]
+fn create_symlink(link_target: &Path, destination: &Path) -> std::io::Result<()> {
+    if link_target.is_dir() {
+        std::os::windows::fs::symlink_dir(link_target, destination)
+    } else {
+        std::os::windows::fs::symlink_file(link_target, destination)
+    }
 }
 
 // ---- Branch / directory name helpers ----

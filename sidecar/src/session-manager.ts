@@ -8,6 +8,7 @@
 import type { SidecarEmitter } from "./emitter.js";
 
 export type Provider = "claude" | "codex";
+export type AgentTarget = "powershell" | "wsl";
 
 export interface SendMessageParams {
 	readonly sessionId: string;
@@ -18,6 +19,7 @@ export interface SendMessageParams {
 	readonly permissionMode: string | undefined;
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
+	readonly agentTarget?: AgentTarget;
 	readonly claudeEnvironment?: Readonly<Record<string, string>>;
 	/**
 	 * Extra directories the user linked via `/add-dir`. Passed to Claude as
@@ -31,6 +33,7 @@ export interface SendMessageParams {
 
 export interface ListSlashCommandsParams {
 	readonly cwd: string | undefined;
+	readonly agentTarget?: AgentTarget;
 	readonly additionalDirectories?: readonly string[];
 }
 

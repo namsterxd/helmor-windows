@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ScriptEvent } from "@/lib/api";
+import type { LoginShell, ScriptEvent } from "@/lib/api";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 // Capture the event callback each `startScript` passes to `executeRepoScript`
@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
 				scriptType: "setup" | "run",
 				onEvent: (event: ScriptEvent) => void,
 				workspaceId?: string,
+				shell?: LoginShell,
 			) => Promise<void>
 		>(),
 	stopRepoScript: vi.fn(),

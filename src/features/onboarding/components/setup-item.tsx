@@ -8,6 +8,7 @@ export function SetupItem({
 	label,
 	description,
 	actionLabel = "Set up",
+	action,
 	onAction,
 	disabled = false,
 	busy = false,
@@ -18,6 +19,7 @@ export function SetupItem({
 	label: string;
 	description: ReactNode;
 	actionLabel?: string;
+	action?: ReactNode;
 	onAction?: () => void;
 	disabled?: boolean;
 	busy?: boolean;
@@ -54,6 +56,8 @@ export function SetupItem({
 			</div>
 			{ready ? (
 				<ReadyStatus />
+			) : action ? (
+				action
 			) : (
 				<Button
 					type="button"

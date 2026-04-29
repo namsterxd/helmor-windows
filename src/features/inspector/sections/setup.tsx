@@ -6,6 +6,7 @@ import {
 	TerminalOutput,
 } from "@/components/terminal-output";
 import { Button } from "@/components/ui/button";
+import type { LoginShell } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { TABS_EASING, TABS_HOVER_TRANSITION_MS, useTabsZoom } from "../layout";
@@ -25,6 +26,7 @@ type SetupTabProps = {
 	repoId: string | null;
 	workspaceId: string | null;
 	setupScript: string | null;
+	shell: LoginShell;
 	isActive: boolean;
 	onOpenSettings: () => void;
 };
@@ -33,6 +35,7 @@ export function SetupTab({
 	repoId,
 	workspaceId,
 	setupScript,
+	shell,
 	isActive,
 	onOpenSettings,
 }: SetupTabProps) {
@@ -90,8 +93,8 @@ export function SetupTab({
 		termRef.current?.clear();
 		setStatus("running");
 		setHasRun(true);
-		startScript(repoId, "setup", workspaceId);
-	}, [repoId, workspaceId]);
+		startScript(repoId, "setup", workspaceId, shell);
+	}, [repoId, workspaceId, shell]);
 
 	const handleStop = useCallback(() => {
 		if (!repoId || !workspaceId) return;

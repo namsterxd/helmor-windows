@@ -36,12 +36,12 @@ import {
 	type PrSyncState,
 	refreshWorkspaceChangeRequest,
 } from "./api";
+import type { AgentRuntimeTarget } from "./settings";
 import { parsePrUrl } from "./pr-url";
 
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
 const CHANGES_REFETCH_INTERVAL = 10_000;
-const WORKSPACE_FORGE_REFETCH_INTERVAL = 60_000;
 const DEFAULT_GC_TIME = 30 * 60_000;
 const SESSION_GC_TIME = 60 * 60_000;
 const PERSIST_GC_TIME = 24 * 60 * 60_000; // 24h — persisted entries live this long
@@ -99,12 +99,14 @@ export const helmorQueryKeys = {
 		provider: AgentProvider,
 		workingDirectory: string | null,
 		workspaceId: string | null,
+		agentTarget: AgentRuntimeTarget | null,
 	) =>
 		[
 			"slashCommands",
 			provider,
 			workingDirectory ?? "",
 			workspaceId ?? "",
+			agentTarget ?? "powershell",
 		] as const,
 	workspaceLinkedDirectories: (workspaceId: string) =>
 		["workspaceLinkedDirectories", workspaceId] as const,
@@ -234,8 +236,8 @@ export function workspaceForgeQueryOptions(workspaceId: string) {
 		queryKey: helmorQueryKeys.workspaceForge(workspaceId),
 		queryFn: () => getWorkspaceForge(workspaceId),
 		staleTime: 30_000,
-		refetchOnWindowFocus: "always",
-		refetchInterval: (query) => workspaceForgeRefetchInterval(query.state.data),
+		refetchOnWindowFocus: false,
+		refetchInterval: false,
 	});
 }
 
@@ -374,12 +376,14 @@ export function slashCommandsQueryOptions(
 	workingDirectory: string | null,
 	repoId: string | null,
 	workspaceId: string | null,
+	agentTarget: AgentRuntimeTarget,
 ) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.slashCommands(
 			provider,
 			workingDirectory,
 			workspaceId,
+			agentTarget,
 		),
 		queryFn: () =>
 			listSlashCommands({
@@ -387,6 +391,7 @@ export function slashCommandsQueryOptions(
 				workingDirectory,
 				repoId,
 				workspaceId,
+				agentTarget,
 			}),
 		// The backend owns slash-command caching and background refresh. Keep
 		// the frontend layer as a thin request shell only.
@@ -544,10 +549,8 @@ export function workspaceForgeActionStatusQueryOptions(workspaceId: string) {
 export function workspaceForgeRefetchInterval(
 	data: ForgeDetection | undefined,
 ): number | false {
-	if (!data) return WORKSPACE_FORGE_REFETCH_INTERVAL;
-	return data.provider === "github" || data.provider === "gitlab"
-		? WORKSPACE_FORGE_REFETCH_INTERVAL
-		: false;
+	void data;
+	return false;
 }
 
 export function workspaceChangesQueryOptions(workspaceRootPath: string) {

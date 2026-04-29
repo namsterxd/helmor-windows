@@ -30,6 +30,7 @@ pub struct EditorSpec {
     pub id: &'static str,
     pub name: &'static str,
     /// macOS `CFBundleIdentifier`s. Multiple entries cover stable/preview/CE variants.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pub bundle_ids: &'static [&'static str],
     /// Well-known install paths. `$HOME` is expanded at runtime.
     pub known_paths: &'static [&'static str],
@@ -293,6 +294,42 @@ fn resolve_via_known_paths(spec: &EditorSpec, home: &str) -> Option<String> {
     None
 }
 
+#[cfg(windows)]
+fn windows_command_candidates(spec: &EditorSpec) -> &'static [&'static str] {
+    match spec.id {
+        "cursor" => &["cursor.cmd", "cursor.exe"],
+        "vscode" => &["code.cmd", "code.exe"],
+        "vscode-insiders" => &["code-insiders.cmd", "code-insiders.exe"],
+        "windsurf" => &["windsurf.cmd", "windsurf.exe"],
+        "zed" => &["zed.exe", "zed.cmd"],
+        "sublime" => &["subl.exe", "sublime_text.exe"],
+        "gitkraken" => &["gitkraken.exe"],
+        "terminal" => &["powershell.exe"],
+        _ => &[],
+    }
+}
+
+#[cfg(windows)]
+fn resolve_via_windows_path(spec: &EditorSpec) -> Option<String> {
+    for candidate in windows_command_candidates(spec) {
+        let output = std::process::Command::new("where.exe")
+            .arg(candidate)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            continue;
+        }
+        if let Some(path) = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+        {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
 /// macOS Spotlight fallback: one batched `mdfind` over every bundle ID in the
 /// catalog's unresolved set. Returns a map from `.app` filename → resolved path.
 ///
@@ -385,7 +422,12 @@ pub(crate) fn detect_installed_editors_blocking() -> anyhow::Result<Vec<Detected
     let mut missing: Vec<&EditorSpec> = Vec::new();
 
     for spec in CATALOG {
-        match resolve_via_known_paths(spec, &home) {
+        #[cfg(windows)]
+        let resolved = resolve_via_windows_path(spec).or_else(|| resolve_via_known_paths(spec, &home));
+        #[cfg(not(windows))]
+        let resolved = resolve_via_known_paths(spec, &home);
+
+        match resolved {
             Some(path) => detected.push(DetectedEditor {
                 id: spec.id.to_string(),
                 name: spec.name.to_string(),
@@ -426,6 +468,10 @@ pub(crate) fn detect_installed_editors_blocking() -> anyhow::Result<Vec<Detected
 /// Resolve a single spec's path on demand (used by the launcher).
 fn resolve_single(spec: &EditorSpec) -> Option<String> {
     let home = std::env::var("HOME").unwrap_or_default();
+    #[cfg(windows)]
+    if let Some(p) = resolve_via_windows_path(spec) {
+        return Some(p);
+    }
     if let Some(p) = resolve_via_known_paths(spec, &home) {
         return Some(p);
     }
@@ -448,17 +494,37 @@ fn launch_with_open(
     cmd.spawn().map(|_| ()).context("open command failed")
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn launch_with_open(
+    app_path: Option<&str>,
+    app_name: &str,
+    dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    let Some(app_path) = app_path else {
+        anyhow::bail!("{app_name} was not found on PATH")
+    };
+    let mut command = std::process::Command::new(app_path);
+    if app_name == "Terminal" {
+        command
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit"])
+            .current_dir(dir);
+    } else {
+        command.arg(dir);
+    }
+    command.spawn().map(|_| ()).context("launch command failed")
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn launch_with_open(
     _app_path: Option<&str>,
     _app_name: &str,
     _dir: &std::path::Path,
 ) -> anyhow::Result<()> {
-    anyhow::bail!("Opening third-party editors is only supported on macOS")
+    anyhow::bail!("Opening third-party editors is not supported on this platform")
 }
 
 #[cfg(target_os = "macos")]
-fn reveal_in_finder(dir: &std::path::Path) -> anyhow::Result<()> {
+fn reveal_in_file_manager(dir: &std::path::Path) -> anyhow::Result<()> {
     std::process::Command::new("open")
         .arg(dir)
         .spawn()
@@ -466,9 +532,18 @@ fn reveal_in_finder(dir: &std::path::Path) -> anyhow::Result<()> {
         .context("open command failed")
 }
 
-#[cfg(not(target_os = "macos"))]
-fn reveal_in_finder(_dir: &std::path::Path) -> anyhow::Result<()> {
-    anyhow::bail!("Opening Finder is only supported on macOS")
+#[cfg(windows)]
+fn reveal_in_file_manager(dir: &std::path::Path) -> anyhow::Result<()> {
+    std::process::Command::new("explorer.exe")
+        .arg(dir)
+        .spawn()
+        .map(|_| ())
+        .context("explorer.exe command failed")
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn reveal_in_file_manager(_dir: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("Opening the file manager is not supported on this platform")
 }
 
 #[tauri::command]
@@ -518,7 +593,7 @@ pub async fn open_workspace_in_finder(workspace_id: String) -> CmdResult<()> {
             ));
         }
 
-        reveal_in_finder(&workspace_dir).context("Failed to open Finder")
+        reveal_in_file_manager(&workspace_dir).context("Failed to open workspace folder")
     })
     .await
 }

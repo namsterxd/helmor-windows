@@ -11,6 +11,7 @@ import { flushSync } from "react-dom";
 import { loadRepoScripts, type RepoScripts } from "@/lib/api";
 import type { InspectorFileItem } from "@/lib/editor-session";
 import { workspaceChangesQueryOptions } from "@/lib/query-client";
+import { useSettings } from "@/lib/settings";
 import {
 	DEFAULT_TABS_BODY_HEIGHT,
 	MIN_SECTION_HEIGHT,
@@ -51,6 +52,11 @@ export function useWorkspaceInspectorSidebar({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const tabsWrapperRef = useRef<HTMLDivElement>(null);
 	const actionsRef = useRef<HTMLElement>(null);
+	const { settings } = useSettings();
+	const preferredScriptShell =
+		settings.codexAgentTarget === "wsl" || settings.claudeAgentTarget === "wsl"
+			? "wsl"
+			: "powershell";
 
 	useEffect(() => {
 		const element = containerRef.current;
@@ -89,12 +95,12 @@ export function useWorkspaceInspectorSidebar({
 			if (state?.status === "running") {
 				stopScript(repoId, "run", workspaceId);
 			} else {
-				startScript(repoId, "run", workspaceId);
+				startScript(repoId, "run", workspaceId, preferredScriptShell);
 			}
 		};
 		window.addEventListener("helmor:run-script", handler);
 		return () => window.removeEventListener("helmor:run-script", handler);
-	}, [repoId, workspaceId, repoScripts]);
+	}, [repoId, workspaceId, repoScripts, preferredScriptShell]);
 
 	const isResizing = resizeState !== null;
 	const isActionsResizing = resizeState?.target === "actions";

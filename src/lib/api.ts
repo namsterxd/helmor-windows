@@ -138,6 +138,7 @@ export type AgentModelSection = {
 export type AgentSendRequest = {
 	provider: AgentProvider;
 	modelId: string;
+	agentTarget?: LoginShell | null;
 	prompt: string;
 	/** Hidden preamble prepended to `prompt` only on the wire to the agent
 	 *  (e.g. the user's "general preferences"). Persisted user-prompt
@@ -619,11 +620,13 @@ export async function getWorkspaceForge(
 export async function getForgeCliStatus(
 	provider: ForgeProvider,
 	host?: string | null,
+	shell?: LoginShell,
 ): Promise<ForgeCliStatus> {
 	try {
 		return await invoke<ForgeCliStatus>("get_forge_cli_status", {
 			provider,
 			host,
+			shell,
 		});
 	} catch (error) {
 		throw new Error(
@@ -631,6 +634,8 @@ export async function getForgeCliStatus(
 		);
 	}
 }
+
+export type LoginShell = "powershell" | "wsl";
 
 export async function openForgeCliAuthTerminal(
 	provider: ForgeProvider,
@@ -652,6 +657,7 @@ export async function spawnForgeCliAuthTerminal(
 	provider: ForgeProvider,
 	host: string | null,
 	instanceId: string,
+	shell: LoginShell,
 	onEvent: (event: ScriptEvent) => void,
 ): Promise<void> {
 	const channel = new Channel<ScriptEvent>();
@@ -660,6 +666,7 @@ export async function spawnForgeCliAuthTerminal(
 		provider,
 		host,
 		instanceId,
+		shell,
 		channel,
 	});
 }
@@ -668,11 +675,13 @@ export async function stopForgeCliAuthTerminal(
 	provider: ForgeProvider,
 	host: string | null,
 	instanceId: string,
+	shell: LoginShell,
 ): Promise<boolean> {
 	return invoke<boolean>("stop_forge_cli_auth_terminal", {
 		provider,
 		host,
 		instanceId,
+		shell,
 	});
 }
 
@@ -680,12 +689,14 @@ export async function writeForgeCliAuthTerminalStdin(
 	provider: ForgeProvider,
 	host: string | null,
 	instanceId: string,
+	shell: LoginShell,
 	data: string,
 ): Promise<boolean> {
 	return invoke<boolean>("write_forge_cli_auth_terminal_stdin", {
 		provider,
 		host,
 		instanceId,
+		shell,
 		data,
 	});
 }
@@ -694,6 +705,7 @@ export async function resizeForgeCliAuthTerminal(
 	provider: ForgeProvider,
 	host: string | null,
 	instanceId: string,
+	shell: LoginShell,
 	cols: number,
 	rows: number,
 ): Promise<boolean> {
@@ -701,6 +713,7 @@ export async function resizeForgeCliAuthTerminal(
 		provider,
 		host,
 		instanceId,
+		shell,
 		cols,
 		rows,
 	});
@@ -727,6 +740,8 @@ export async function getCliStatus(): Promise<CliStatus> {
 
 export type HelmorSkillsStatus = {
 	installed: boolean;
+	windowsInstalled: boolean;
+	wslInstalled: boolean;
 	claude: boolean;
 	codex: boolean;
 	command: string;
@@ -772,13 +787,15 @@ export async function listenAppUpdateStatus(
 	);
 }
 
-export async function installCli(): Promise<CliStatus> {
-	return await invoke<CliStatus>("install_cli");
+export async function installCli(shell?: LoginShell): Promise<CliStatus> {
+	return await invoke<CliStatus>("install_cli", { shell });
 }
 
-export async function installHelmorSkills(): Promise<HelmorSkillsStatus> {
+export async function installHelmorSkills(
+	shell?: LoginShell,
+): Promise<HelmorSkillsStatus> {
 	try {
-		return await invoke<HelmorSkillsStatus>("install_helmor_skills");
+		return await invoke<HelmorSkillsStatus>("install_helmor_skills", { shell });
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to install Helmor skills."),
@@ -799,6 +816,8 @@ export type AgentLoginProvider = "claude" | "codex";
 export type AgentLoginStatusResult = {
 	claude: boolean;
 	codex: boolean;
+	claudeWsl?: boolean;
+	codexWsl?: boolean;
 };
 
 export async function getAgentLoginStatus(): Promise<AgentLoginStatusResult> {
@@ -814,6 +833,7 @@ export async function openAgentLoginTerminal(
 export async function spawnAgentLoginTerminal(
 	provider: AgentLoginProvider,
 	instanceId: string,
+	shell: LoginShell,
 	onEvent: (event: ScriptEvent) => void,
 ): Promise<void> {
 	const channel = new Channel<ScriptEvent>();
@@ -821,6 +841,7 @@ export async function spawnAgentLoginTerminal(
 	await invoke("spawn_agent_login_terminal", {
 		provider,
 		instanceId,
+		shell,
 		channel,
 	});
 }
@@ -828,21 +849,25 @@ export async function spawnAgentLoginTerminal(
 export async function stopAgentLoginTerminal(
 	provider: AgentLoginProvider,
 	instanceId: string,
+	shell: LoginShell,
 ): Promise<boolean> {
 	return invoke<boolean>("stop_agent_login_terminal", {
 		provider,
 		instanceId,
+		shell,
 	});
 }
 
 export async function writeAgentLoginTerminalStdin(
 	provider: AgentLoginProvider,
 	instanceId: string,
+	shell: LoginShell,
 	data: string,
 ): Promise<boolean> {
 	return invoke<boolean>("write_agent_login_terminal_stdin", {
 		provider,
 		instanceId,
+		shell,
 		data,
 	});
 }
@@ -850,12 +875,14 @@ export async function writeAgentLoginTerminalStdin(
 export async function resizeAgentLoginTerminal(
 	provider: AgentLoginProvider,
 	instanceId: string,
+	shell: LoginShell,
 	cols: number,
 	rows: number,
 ): Promise<boolean> {
 	return invoke<boolean>("resize_agent_login_terminal", {
 		provider,
 		instanceId,
+		shell,
 		cols,
 		rows,
 	});
@@ -987,6 +1014,7 @@ export async function listSlashCommands(input: {
 	workingDirectory?: string | null;
 	repoId?: string | null;
 	workspaceId?: string | null;
+	agentTarget?: LoginShell | null;
 }): Promise<SlashCommandsResponse> {
 	try {
 		return await invoke<SlashCommandsResponse>("list_slash_commands", {
@@ -995,6 +1023,7 @@ export async function listSlashCommands(input: {
 				workingDirectory: input.workingDirectory ?? null,
 				repoId: input.repoId ?? null,
 				workspaceId: input.workspaceId ?? null,
+				agentTarget: input.agentTarget ?? null,
 			},
 		});
 	} catch (error) {
@@ -2534,6 +2563,7 @@ export async function executeRepoScript(
 	scriptType: "setup" | "run",
 	onEvent: (event: ScriptEvent) => void,
 	workspaceId?: string | null,
+	shell?: LoginShell,
 ): Promise<void> {
 	const channel = new Channel<ScriptEvent>();
 	channel.onmessage = onEvent;
@@ -2541,6 +2571,7 @@ export async function executeRepoScript(
 		repoId,
 		scriptType,
 		workspaceId: workspaceId ?? null,
+		shell: shell ?? "powershell",
 		channel,
 	});
 }
@@ -2616,6 +2647,7 @@ export async function spawnTerminal(
 	repoId: string,
 	workspaceId: string,
 	instanceId: string,
+	shell: LoginShell,
 	onEvent: (event: ScriptEvent) => void,
 ): Promise<void> {
 	const channel = new Channel<ScriptEvent>();
@@ -2624,6 +2656,7 @@ export async function spawnTerminal(
 		repoId,
 		workspaceId,
 		instanceId,
+		shell,
 		channel,
 	});
 }
