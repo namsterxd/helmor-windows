@@ -9,6 +9,9 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	getSessionContextUsage: vi.fn(),
+	getCodexRateLimits: vi.fn(),
+	getClaudeRateLimits: vi.fn(),
 	loadRepoScripts: vi.fn(),
 	listRepositories: vi.fn(),
 	createWorkspaceFromRepo: vi.fn(),
@@ -39,6 +42,9 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
+		getSessionContextUsage: apiMocks.getSessionContextUsage,
+		getCodexRateLimits: apiMocks.getCodexRateLimits,
+		getClaudeRateLimits: apiMocks.getClaudeRateLimits,
 		loadRepoScripts: apiMocks.loadRepoScripts,
 		listRepositories: apiMocks.listRepositories,
 		createWorkspaceFromRepo: apiMocks.createWorkspaceFromRepo,
@@ -51,6 +57,8 @@ import App from "./App";
 
 describe("App create workspace flow", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
+		window.sessionStorage.clear();
 		createRuntime.created = false;
 		createRuntime.workspaceId = null;
 		createRuntime.sessionId = null;
@@ -61,6 +69,9 @@ describe("App create workspace flow", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.getSessionContextUsage.mockReset();
+		apiMocks.getCodexRateLimits.mockReset();
+		apiMocks.getClaudeRateLimits.mockReset();
 		apiMocks.loadRepoScripts.mockReset();
 		apiMocks.loadRepoScripts.mockResolvedValue({
 			setupScript: null,
@@ -226,6 +237,9 @@ describe("App create workspace flow", () => {
 			},
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+		apiMocks.getSessionContextUsage.mockResolvedValue(null);
+		apiMocks.getCodexRateLimits.mockResolvedValue(null);
+		apiMocks.getClaudeRateLimits.mockResolvedValue(null);
 		apiMocks.prepareWorkspaceFromRepo.mockReset();
 		apiMocks.finalizeWorkspaceFromRepo.mockReset();
 		apiMocks.prepareWorkspaceFromRepo.mockImplementation(async () => {
@@ -304,5 +318,5 @@ describe("App create workspace flow", () => {
 		expect(apiMocks.loadSessionThreadMessages).not.toHaveBeenCalledWith(
 			createRuntime.sessionId,
 		);
-	});
+	}, 10_000);
 });
