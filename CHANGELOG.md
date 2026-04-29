@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.12.0
+
+### Minor Changes
+
+- [#288](https://github.com/dohooo/helmor/pull/288) [`0b97558`](https://github.com/dohooo/helmor/commit/0b97558370e3b5ddc01ab63bb5bb5b40580ca41d) Thanks [@natllian](https://github.com/natllian)! - Add Claude Code custom provider support:
+
+  - Configure built-in third-party providers or a custom Claude-compatible endpoint from Settings with API key shortcuts.
+  - Use configured third-party models alongside official Claude Code models in the composer and default model picker.
+  - Prefer configured Claude-compatible models for automatic session title generation before falling back to official Claude and Codex.
+
+- [#263](https://github.com/dohooo/helmor/pull/263) [`1fb7c6a`](https://github.com/dohooo/helmor/commit/1fb7c6ad8591b6cd6ac94f4f595cd6ec9e66eb59) Thanks [@aidxun](https://github.com/aidxun)! - Add repository-specific branch prefix overrides and clean up the repository settings layout:
+  - Let each repository set a custom branch prefix, with empty values inheriting the global default.
+  - Use the matching GitHub or GitLab account when Helmor generates provider-based branch prefixes for new workspaces.
+  - Show repository settings as divided rows instead of separate cards for a cleaner settings panel.
+
 ## 0.11.4
 
 ### Patch Changes
