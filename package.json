@@ -37,8 +37,8 @@
 		"dev:e2e": "vite --config vite.e2e.config.ts",
 		"typecheck": "tsc --noEmit && cd sidecar && bunx tsc --noEmit",
 		"tauri": "tauri",
-		"lint": "biome check . --config-path=./biome.json && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
-		"lint:fix": "biome check . --write --config-path=./biome.json && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --fix --allow-dirty -- -D warnings && cargo fmt --manifest-path src-tauri/Cargo.toml --all",
+		"lint": "bunx @biomejs/biome check . --config-path=./biome.json && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+		"lint:fix": "bunx @biomejs/biome check . --write --config-path=./biome.json && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --fix --allow-dirty -- -D warnings && cargo fmt --manifest-path src-tauri/Cargo.toml --all",
 		"dev:cli": "cd src-tauri && cargo run --bin helmor-cli --",
 		"dev:cli:build": "cd src-tauri && cargo build --bin helmor-cli",
 		"dev:cli:install": "bun scripts/install-dev-cli.mjs",
@@ -148,7 +148,7 @@
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,css}": [
-			"biome check --write --error-on-warnings --no-errors-on-unmatched --files-ignore-unknown=true --config-path=./biome.json"
+			"bunx @biomejs/biome check --write --error-on-warnings --no-errors-on-unmatched --files-ignore-unknown=true --config-path=./biome.json"
 		],
 		"*.rs": [
 			"bash -c 'cargo fmt --manifest-path src-tauri/Cargo.toml --all'",
