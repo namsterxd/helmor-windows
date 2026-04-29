@@ -16,7 +16,7 @@ use crate::{agents, git_watcher, models::db, service, sidecar};
 #[cfg(windows)]
 use super::common::login_terminal_shell;
 use super::common::{
-    login_terminal_command, login_terminal_initial_input, run_blocking, CmdResult, LoginShell,
+    CmdResult, LoginShell, login_terminal_command, login_terminal_initial_input, run_blocking,
 };
 
 // Best-fit fixed window size for the current onboarding motion layout.
@@ -115,7 +115,7 @@ fn bundled_cli_binary(app_exe: &std::path::Path) -> anyhow::Result<std::path::Pa
         cli_source_binary_name().to_string()
     };
     let sibling = target_dir.join(binary_name);
-    if sibling.is_file() {
+    if is_non_empty_file(&sibling) {
         return Ok(sibling);
     }
 
@@ -138,7 +138,7 @@ fn debug_cli_binary_candidate(app_exe: &std::path::Path) -> Option<std::path::Pa
         cli_source_binary_name().to_string()
     };
     let candidate = exe_dir.join(&binary_name);
-    if candidate.is_file() {
+    if is_non_empty_file(&candidate) {
         return Some(candidate);
     }
 
@@ -149,8 +149,11 @@ fn debug_cli_binary_candidate(app_exe: &std::path::Path) -> Option<std::path::Pa
         "release"
     };
     let candidate = manifest_dir.join("target").join(profile).join(&binary_name);
-    if candidate.is_file() {
+    if is_non_empty_file(&candidate) {
         return Some(candidate);
+    }
+    if candidate.is_file() {
+        let _ = std::fs::remove_file(&candidate);
     }
 
     let status = Command::new("cargo")
@@ -163,7 +166,13 @@ fn debug_cli_binary_candidate(app_exe: &std::path::Path) -> Option<std::path::Pa
         return None;
     }
 
-    candidate.is_file().then_some(candidate)
+    is_non_empty_file(&candidate).then_some(candidate)
+}
+
+fn is_non_empty_file(path: &std::path::Path) -> bool {
+    path.metadata()
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
 }
 
 fn cli_install_remediation(cli_binary: &std::path::Path, install_path: &std::path::Path) -> String {
@@ -354,7 +363,7 @@ fn install_cli_wsl_shim(install_path: &std::path::Path) -> anyhow::Result<()> {
     };
     let command_name = installed_cli_name();
     let script = format!(
-        "mkdir -p ~/.local/bin && cat > ~/.local/bin/{name} <<'EOF'\n#!/bin/sh\nexec {target} \"$@\"\nEOF\nchmod +x ~/.local/bin/{name}",
+        "set -eu\ninstall_dir=\"$HOME/.local/bin\"\nmkdir -p \"$install_dir\"\ncat > \"$install_dir/{name}\" <<'EOF'\n#!/bin/sh\nexec {target} \"$@\"\nEOF\nchmod +x \"$install_dir/{name}\"\n\"$install_dir/{name}\" --help >/dev/null",
         name = command_name,
         target = shell_quote_arg(&wsl_cli_path),
     );
@@ -366,10 +375,15 @@ fn install_cli_wsl_shim(install_path: &std::path::Path) -> anyhow::Result<()> {
     if output.status.success() {
         return Ok(());
     }
-    anyhow::bail!(
-        "WSL CLI install failed: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    )
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let detail = match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => format!("status={}", output.status),
+        (false, true) => format!("status={} stdout={stdout}", output.status),
+        (true, false) => format!("status={} stderr={stderr}", output.status),
+        (false, false) => format!("status={} stdout={stdout} stderr={stderr}", output.status),
+    };
+    anyhow::bail!("WSL CLI install failed: {}", detail)
 }
 
 fn windows_path_to_wsl(path: &std::path::Path) -> Option<String> {
@@ -692,7 +706,11 @@ fn wsl_helmor_skills_status_for_agents(agents: &[&str]) -> (bool, bool, bool) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let claude = stdout.lines().any(|line| line.trim() == "claude=1");
     let codex = stdout.lines().any(|line| line.trim() == "codex=1");
-    (skills_installed_for_agents(agents, claude, codex), claude, codex)
+    (
+        skills_installed_for_agents(agents, claude, codex),
+        claude,
+        codex,
+    )
 }
 
 fn run_wsl_shell_script(script: &str) -> std::io::Result<std::process::Output> {
@@ -743,7 +761,11 @@ fn helmor_skills_status_for_agents(agents: &[&str]) -> HelmorSkillsStatus {
 fn windows_helmor_skills_status_for_agents(agents: &[&str]) -> (bool, bool, bool) {
     let claude = skill_exists(&claude_skills_dir());
     let codex = skill_exists(&codex_skills_dir());
-    (skills_installed_for_agents(agents, claude, codex), claude, codex)
+    (
+        skills_installed_for_agents(agents, claude, codex),
+        claude,
+        codex,
+    )
 }
 
 fn helmor_skills_status_for_login(login: &AgentLoginStatus) -> HelmorSkillsStatus {
@@ -752,8 +774,7 @@ fn helmor_skills_status_for_login(login: &AgentLoginStatus) -> HelmorSkillsStatu
     let wsl_agents = ready_skill_agents_for_shell(login, Some(LoginShell::Wsl));
     let (windows_installed, windows_claude, windows_codex) =
         windows_helmor_skills_status_for_agents(&windows_agents);
-    let (wsl_installed, wsl_claude, wsl_codex) =
-        wsl_helmor_skills_status_for_agents(&wsl_agents);
+    let (wsl_installed, wsl_claude, wsl_codex) = wsl_helmor_skills_status_for_agents(&wsl_agents);
     HelmorSkillsStatus {
         installed: windows_installed || wsl_installed,
         windows_installed,
@@ -1264,8 +1285,11 @@ mod wsl_command_tests {
         assert!(command.starts_with(
             "if [ -x \"$HOME/.npm-global/bin/codex\" ]; then cli=\"$HOME/.npm-global/bin/codex\";"
         ));
-        assert!(command
-            .contains("elif [ -x \"$HOME/.bun/bin/codex\" ]; then cli=\"$HOME/.bun/bin/codex\";"));
+        assert!(
+            command.contains(
+                "elif [ -x \"$HOME/.bun/bin/codex\" ]; then cli=\"$HOME/.bun/bin/codex\";"
+            )
+        );
         assert!(
             command.contains("elif cli=$(command -v codex 2>/dev/null) && [ -n \"\\$cli\" ]; then")
         );
@@ -1276,8 +1300,11 @@ mod wsl_command_tests {
         let command = wsl_resolved_cli_command("codex", &[], "login status", "login", &["missing"]);
 
         assert!(command.contains("case \"\\$cli\" in /mnt/[A-Za-z]/*)"));
-        assert!(command
-            .contains("codex resolved to a Windows interop path; install it inside WSL instead."));
+        assert!(
+            command.contains(
+                "codex resolved to a Windows interop path; install it inside WSL instead."
+            )
+        );
         assert!(command.contains("exec \"\\$cli\" login"));
     }
 }
@@ -1850,6 +1877,18 @@ mod tests {
             classify_cli_install(&install_path, &bundled_cli),
             CliInstallState::Missing
         );
+    }
+
+    #[test]
+    fn is_non_empty_file_rejects_empty_placeholders() {
+        let tmp = tempdir().unwrap();
+        let empty = tmp.path().join("empty-cli");
+        let non_empty = tmp.path().join("real-cli");
+        fs::write(&empty, "").unwrap();
+        fs::write(&non_empty, "#!/bin/sh\n").unwrap();
+
+        assert!(!is_non_empty_file(&empty));
+        assert!(is_non_empty_file(&non_empty));
     }
 
     #[test]
