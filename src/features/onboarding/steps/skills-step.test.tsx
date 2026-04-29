@@ -161,7 +161,9 @@ describe("SkillsStep", () => {
 			expect(apiMocks.installHelmorSkills).toHaveBeenCalledTimes(1);
 		});
 		expect(apiMocks.installHelmorSkills).toHaveBeenCalledWith("powershell");
-		expect(within(skillsItem).getByText("Ready for Windows")).toBeInTheDocument();
+		expect(
+			within(skillsItem).getByText("Ready for Windows"),
+		).toBeInTheDocument();
 	});
 
 	it("shows separate ready states for installed skill targets", async () => {
@@ -237,12 +239,10 @@ describe("SkillsStep", () => {
 
 		await waitFor(() => {
 			expect(
-				within(skillsItem).getByText(/something went wrong/i),
+				within(skillsItem).getByText(
+					"Helmor skills setup failed with a long stack trace.",
+				),
 			).toBeInTheDocument();
 		});
-		expect(within(skillsItem).getByText(/don't worry/i)).toBeInTheDocument();
-		expect(
-			within(skillsItem).queryByText(/long stack trace/i),
-		).not.toBeInTheDocument();
 	});
 });

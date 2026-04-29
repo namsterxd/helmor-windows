@@ -101,6 +101,17 @@ describe("GitSectionHeader forge onboarding", () => {
 		apiMocks.getWorkspaceForge.mockReset();
 		apiMocks.getForgeCliStatus.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockReset();
+		apiMocks.getForgeCliStatus.mockImplementation((provider, host) =>
+			Promise.resolve({
+				status: "unauthenticated",
+				provider,
+				host,
+				cliName: provider === "gitlab" ? "glab" : "gh",
+				version: "test",
+				message: "Run auth login.",
+				loginCommand: "auth login",
+			}),
+		);
 		apiMocks.openForgeCliAuthTerminal.mockResolvedValue(undefined);
 	});
 
@@ -174,8 +185,7 @@ describe("GitSectionHeader forge onboarding", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("refreshes MR and forge status after Terminal auth becomes ready", async () => {
-		vi.useFakeTimers();
+	it("refreshes MR and forge status after connect observes CLI ready", async () => {
 		const unauthenticatedDetection = gitlabDetection({
 			cli: {
 				status: "unauthenticated",
@@ -214,21 +224,18 @@ describe("GitSectionHeader forge onboarding", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Connect GitLab" }));
 
-		await vi.advanceTimersByTimeAsync(0);
-		expect(apiMocks.openForgeCliAuthTerminal).toHaveBeenCalledWith(
-			"gitlab",
-			"gitlab.com",
-		);
-		await vi.advanceTimersByTimeAsync(2000);
-
-		expect(apiMocks.getForgeCliStatus).toHaveBeenCalledWith(
-			"gitlab",
-			"gitlab.com",
-		);
+		await waitFor(() => {
+			expect(apiMocks.getForgeCliStatus).toHaveBeenCalledWith(
+				"gitlab",
+				"gitlab.com",
+			);
+		});
 		// Hook fans out: forgeCliStatusAll + every workspaceForge entry,
 		// onReady adds the workspace-scoped change request + action status.
-		expect(invalidateQueries).toHaveBeenCalledWith({
-			queryKey: helmorQueryKeys.forgeCliStatusAll,
+		await waitFor(() => {
+			expect(invalidateQueries).toHaveBeenCalledWith({
+				queryKey: helmorQueryKeys.forgeCliStatusAll,
+			});
 		});
 		expect(invalidateQueries).toHaveBeenCalledWith(
 			expect.objectContaining({ predicate: expect.any(Function) }),

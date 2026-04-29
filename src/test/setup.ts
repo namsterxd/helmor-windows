@@ -9,6 +9,61 @@ import { vi } from "vitest";
 // is unchanged.
 configure({ asyncUtilTimeout: 3000 });
 
+class MemoryStorage implements Storage {
+	#items = new Map<string, string>();
+
+	get length() {
+		return this.#items.size;
+	}
+
+	clear() {
+		this.#items.clear();
+	}
+
+	getItem(key: string) {
+		return this.#items.get(key) ?? null;
+	}
+
+	key(index: number) {
+		return Array.from(this.#items.keys())[index] ?? null;
+	}
+
+	removeItem(key: string) {
+		this.#items.delete(key);
+	}
+
+	setItem(key: string, value: string) {
+		this.#items.set(key, String(value));
+	}
+}
+
+function installMemoryStorage(name: "localStorage" | "sessionStorage") {
+	if (typeof window === "undefined") return;
+	const storage = window[name];
+	if (
+		storage &&
+		typeof storage.getItem === "function" &&
+		typeof storage.setItem === "function" &&
+		typeof storage.removeItem === "function" &&
+		typeof storage.clear === "function"
+	) {
+		return;
+	}
+
+	const memoryStorage = new MemoryStorage();
+	Object.defineProperty(window, name, {
+		configurable: true,
+		value: memoryStorage,
+	});
+	Object.defineProperty(globalThis, name, {
+		configurable: true,
+		value: memoryStorage,
+	});
+}
+
+installMemoryStorage("localStorage");
+installMemoryStorage("sessionStorage");
+
 // React 19.2's dev build schedules passive-effect work through
 // `setImmediate`, and its callback reads `window.event` (react-dom's
 // `schedulerEvent = window.event;` at react-dom-client.development.js L17920).

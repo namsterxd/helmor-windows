@@ -115,16 +115,16 @@ describe("RepositoryCliStep", () => {
 		await user.click(
 			within(githubItem).getByRole("button", { name: "Set up" }),
 		);
+		await user.click(screen.getByRole("menuitem", { name: "PowerShell" }));
 
 		await waitFor(() => {
-			expect(apiMocks.spawnForgeCliAuthTerminal).toHaveBeenCalledWith(
+			expect(apiMocks.getForgeCliStatus).toHaveBeenLastCalledWith(
 				"github",
 				"github.com",
-				expect.any(String),
-				expect.any(Function),
+				"powershell",
 			);
 		});
-		expect(screen.getByText("GitHub CLI login")).toBeInTheDocument();
+		expect(screen.getByText(/GitHub CLI login/)).toBeInTheDocument();
 	});
 
 	it("asks for a GitLab domain before opening the embedded auth terminal", async () => {
@@ -154,6 +154,7 @@ describe("RepositoryCliStep", () => {
 		await user.click(
 			within(gitlabItem).getByRole("button", { name: "Set up" }),
 		);
+		await user.click(screen.getByRole("menuitem", { name: "PowerShell" }));
 
 		const input = screen.getByRole("textbox", { name: "GitLab domain" });
 		expect(input).toHaveValue("gitlab.com");
@@ -163,15 +164,13 @@ describe("RepositoryCliStep", () => {
 		await user.click(screen.getByRole("button", { name: /log in/i }));
 
 		await waitFor(() => {
-			expect(apiMocks.spawnForgeCliAuthTerminal).toHaveBeenCalledWith(
+			expect(apiMocks.getForgeCliStatus).toHaveBeenCalledWith(
 				"gitlab",
 				"gitlab.example.com",
-				expect.any(String),
-				expect.any(Function),
 			);
 		});
 		expect(
-			screen.getByText("GitLab CLI login · gitlab.example.com"),
+			screen.getByText(/GitLab CLI login · gitlab\.example\.com/),
 		).toBeInTheDocument();
 	});
 });

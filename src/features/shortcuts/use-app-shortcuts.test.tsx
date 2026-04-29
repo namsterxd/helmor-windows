@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isMac } from "@/lib/platform";
 import { _resetActiveScopeForTesting } from "./focus-scope";
 import {
 	beginShortcutRecording,
@@ -20,7 +21,20 @@ function fireModT() {
 		new KeyboardEvent("keydown", {
 			key: "t",
 			code: "KeyT",
-			metaKey: true,
+			ctrlKey: !isMac(),
+			metaKey: isMac(),
+		}),
+	);
+}
+
+function fireModAltT() {
+	window.dispatchEvent(
+		new KeyboardEvent("keydown", {
+			key: "t",
+			code: "KeyT",
+			altKey: true,
+			ctrlKey: !isMac(),
+			metaKey: isMac(),
 		}),
 	);
 }
@@ -39,26 +53,12 @@ describe("useAppShortcuts", () => {
 		render(<ShortcutHarness onTrigger={onTrigger} />);
 
 		beginShortcutRecording();
-		window.dispatchEvent(
-			new KeyboardEvent("keydown", {
-				key: "t",
-				code: "KeyT",
-				metaKey: true,
-				altKey: true,
-			}),
-		);
+		fireModAltT();
 
 		expect(onTrigger).not.toHaveBeenCalled();
 		endShortcutRecording();
 
-		window.dispatchEvent(
-			new KeyboardEvent("keydown", {
-				key: "t",
-				code: "KeyT",
-				metaKey: true,
-				altKey: true,
-			}),
-		);
+		fireModAltT();
 
 		expect(onTrigger).toHaveBeenCalledTimes(1);
 	});
@@ -200,14 +200,7 @@ describe("useAppShortcuts", () => {
 		(getByTestId("terminal-input") as HTMLInputElement).focus();
 
 		// Mod+Alt+T is the theme.toggle default and is in scope "app".
-		window.dispatchEvent(
-			new KeyboardEvent("keydown", {
-				key: "t",
-				code: "KeyT",
-				metaKey: true,
-				altKey: true,
-			}),
-		);
+		fireModAltT();
 
 		expect(themeToggle).toHaveBeenCalledTimes(1);
 	});

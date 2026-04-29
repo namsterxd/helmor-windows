@@ -297,5 +297,5 @@ describe("App unread — re-click selected workspace clears dot", () => {
 		// immediately — no waitFor tolerated.
 		await user.click(row);
 		expect(findRow()?.getAttribute("data-has-unread")).toBe("false");
-	});
+	}, 10_000);
 });

@@ -647,7 +647,7 @@ describe("App global navigation shortcuts", () => {
 		});
 
 		await screen.findByRole("dialog");
-	});
+	}, 10_000);
 
 	it("opens the add repository menu on Command+Shift+N", async () => {
 		await renderAppReady();

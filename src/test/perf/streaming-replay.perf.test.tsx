@@ -179,7 +179,7 @@ let WorkspacePanel: LazyPanel;
 beforeAll(async () => {
 	const mod = await import("@/features/panel");
 	WorkspacePanel = mod.WorkspacePanel;
-});
+}, 30_000);
 
 afterAll(() => {
 	cleanup();

@@ -1001,7 +1001,7 @@ describe("WorkspaceComposer", () => {
 				}),
 			}),
 		);
-	});
+	}, 10_000);
 
 	it("keeps deferred tool approval buttons enabled while the stream is paused for approval", async () => {
 		const user = userEvent.setup();

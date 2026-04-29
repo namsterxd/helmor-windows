@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isMac } from "@/lib/platform";
 import {
 	normalizeShortcutEvent,
 	shortcutToInlineLabel,
@@ -17,12 +18,15 @@ describe("shortcut formatting", () => {
 	});
 
 	it("keeps legacy macOS Option glyphs readable", () => {
-		expect(shortcutToKeys("Alt+˙")).toEqual(["option", "H"]);
-		expect(shortcutToKeys("Alt+¬")).toEqual(["option", "L"]);
+		const altLabel = isMac() ? "option" : "alt";
+		expect(shortcutToKeys("Alt+˙")).toEqual([altLabel, "H"]);
+		expect(shortcutToKeys("Alt+¬")).toEqual([altLabel, "L"]);
 	});
 
 	it("formats compact tooltip labels", () => {
-		expect(shortcutToInlineLabel("Mod+,")).toBe("⌘,");
-		expect(shortcutToInlineLabel("Mod+Alt+ArrowRight")).toBe("⌘⌥→");
+		expect(shortcutToInlineLabel("Mod+,")).toBe(isMac() ? "⌘," : "Ctrl,");
+		expect(shortcutToInlineLabel("Mod+Alt+ArrowRight")).toBe(
+			isMac() ? "⌘⌥→" : "CtrlAlt→",
+		);
 	});
 });

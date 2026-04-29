@@ -36,8 +36,8 @@ import {
 	type PrSyncState,
 	refreshWorkspaceChangeRequest,
 } from "./api";
-import type { AgentRuntimeTarget } from "./settings";
 import { parsePrUrl } from "./pr-url";
+import type { AgentRuntimeTarget } from "./settings";
 
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
@@ -127,14 +127,20 @@ export function createHelmorQueryClient() {
 		let unlistenFocus: (() => void) | undefined;
 		let unlistenBlur: (() => void) | undefined;
 
-		void import("@tauri-apps/api/event").then(({ listen }) => {
-			void listen("tauri://focus", () => handleFocus(true)).then((fn) => {
-				unlistenFocus = fn;
-			});
-			void listen("tauri://blur", () => handleFocus(false)).then((fn) => {
-				unlistenBlur = fn;
-			});
-		});
+		void import("@tauri-apps/api/event")
+			.then(({ listen }) => {
+				void listen("tauri://focus", () => handleFocus(true))
+					.then((fn) => {
+						unlistenFocus = fn;
+					})
+					.catch(() => {});
+				void listen("tauri://blur", () => handleFocus(false))
+					.then((fn) => {
+						unlistenBlur = fn;
+					})
+					.catch(() => {});
+			})
+			.catch(() => {});
 
 		return () => {
 			unlistenFocus?.();
