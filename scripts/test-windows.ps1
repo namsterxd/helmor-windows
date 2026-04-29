@@ -116,6 +116,18 @@ function Invoke-ProcessWithHeartbeat {
 	}
 }
 
+function Join-ProcessArguments {
+	param([string[]]$ArgumentList)
+	$escaped = foreach ($argument in $ArgumentList) {
+		if ($argument -match '^[A-Za-z0-9_/:=+.,@%-]+$') {
+			$argument
+		} else {
+			'"' + ($argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+		}
+	}
+	$escaped -join " "
+}
+
 function Invoke-NativeCommandLogged {
 	param(
 		[string]$FilePath,
@@ -125,15 +137,28 @@ function Invoke-NativeCommandLogged {
 
 	$commandLine = "$FilePath $($ArgumentList -join ' ')"
 	Write-Host "$ $commandLine"
+	$resolvedCommand = Get-Command $FilePath -ErrorAction Stop
+	$resolvedFilePath = $resolvedCommand.Source
 	$stdoutPath = [System.IO.Path]::GetTempFileName()
 	$stderrPath = [System.IO.Path]::GetTempFileName()
 	try {
-		$process = Start-Process `
-			-FilePath $FilePath `
-			-ArgumentList $ArgumentList `
-			-RedirectStandardOutput $stdoutPath `
-			-RedirectStandardError $stderrPath `
-			-PassThru
+		$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+		$startInfo.FileName = $resolvedFilePath
+		$startInfo.Arguments = Join-ProcessArguments $ArgumentList
+		$startInfo.WorkingDirectory = (Get-Location).Path
+		$startInfo.UseShellExecute = $false
+		$startInfo.RedirectStandardOutput = $true
+		$startInfo.RedirectStandardError = $true
+		$startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+		$startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+
+		$process = [System.Diagnostics.Process]::new()
+		$process.StartInfo = $startInfo
+		if (-not $process.Start()) {
+			throw "Failed to start $commandLine"
+		}
+		$stdoutTask = $process.StandardOutput.ReadToEndAsync()
+		$stderrTask = $process.StandardError.ReadToEndAsync()
 		$sw = [Diagnostics.Stopwatch]::StartNew()
 		while (-not $process.HasExited) {
 			Start-Sleep -Seconds $HeartbeatSeconds
@@ -143,8 +168,11 @@ function Invoke-NativeCommandLogged {
 			}
 		}
 		$process.WaitForExit()
-		$process.Refresh()
 		$sw.Stop()
+		$stdoutTask.Wait()
+		$stderrTask.Wait()
+		[System.IO.File]::WriteAllText($stdoutPath, $stdoutTask.Result, [System.Text.Encoding]::UTF8)
+		[System.IO.File]::WriteAllText($stderrPath, $stderrTask.Result, [System.Text.Encoding]::UTF8)
 
 		foreach ($line in Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue) {
 			Write-Host $line
