@@ -1891,6 +1891,7 @@ mod tests {
         assert!(is_non_empty_file(&non_empty));
     }
 
+    #[cfg(unix)]
     #[test]
     fn classify_cli_install_reports_managed_for_matching_symlink() {
         let tmp = tempdir().unwrap();
