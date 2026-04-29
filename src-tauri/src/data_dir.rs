@@ -161,7 +161,7 @@ fn dirs_home() -> Option<PathBuf> {
             std::env::var_os("HOMEPATH"),
         ) {
             if !drive.is_empty() && !path.is_empty() {
-                let mut home = std::ffi::OsString::from(drive);
+                let mut home = drive;
                 home.push(path);
                 return Some(PathBuf::from(home));
             }

@@ -1,10 +1,18 @@
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(unix)]
+use anyhow::Context;
+use anyhow::Result;
+use tauri::{AppHandle, Runtime};
+#[cfg(unix)]
+use tauri::Manager;
 
-use super::{events::UiMutationEnvelope, manager::UiSyncManager};
+#[cfg(any(test, unix))]
+use super::events::UiMutationEnvelope;
+#[cfg(unix)]
+use super::manager::UiSyncManager;
 
 const SOCKET_FILENAME: &str = "ui-sync.sock";
 

@@ -153,7 +153,7 @@ fn run_forge_cli_auth_terminal_session(
     #[cfg(windows)]
     {
         let (shell_path, shell_args) = login_terminal_shell(shell);
-        return crate::workspace::scripts::run_script_with_shell(
+        crate::workspace::scripts::run_script_with_shell(
             manager,
             FORGE_CLI_AUTH_REPO_ID,
             script_type,
@@ -164,7 +164,7 @@ fn run_forge_cli_auth_terminal_session(
             channel,
             shell_path,
             shell_args,
-        );
+        )
     }
 
     #[cfg(not(windows))]
