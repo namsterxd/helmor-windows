@@ -35,6 +35,11 @@ fn main() {
 }
 
 fn emit_windows_test_manifest_dependency() {
+    println!("cargo:rerun-if-env-changed=HELMOR_WINDOWS_TEST_MANIFEST");
+    if env::var_os("HELMOR_WINDOWS_TEST_MANIFEST").is_none() {
+        return;
+    }
+
     let Ok(target) = env::var("TARGET") else {
         return;
     };
@@ -67,11 +72,8 @@ fn emit_windows_test_manifest_dependency() {
         return;
     }
 
-    println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
-    println!(
-        "cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}",
-        manifest_path.display()
-    );
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED,ID=1");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest_path.display());
 }
 
 fn ensure_external_bin_placeholders() {

@@ -91,6 +91,13 @@ function makeFakeServer() {
 			p?.resolve(value);
 			return true;
 		},
+		async waitForRequest(method: string): Promise<boolean> {
+			for (let i = 0; i < 20; i++) {
+				if (pending.some((p) => p.method === method)) return true;
+				await new Promise((r) => setTimeout(r, 0));
+			}
+			return false;
+		},
 		rejectNext(method: string, err: Error): boolean {
 			const idx = pending.findIndex((p) => p.method === method);
 			if (idx < 0) return false;
@@ -144,8 +151,7 @@ async function driveToSendMessage(sessionId: string) {
 	// Let `sendMessage` run until it calls `sendRequest("turn/start")`
 	// and parks. At this point `setHandlers` has been called with the
 	// real handleNotification/handleRequest closures.
-	await new Promise((r) => setTimeout(r, 0));
-	await new Promise((r) => setTimeout(r, 0));
+	expect(await fake.waitForRequest("turn/start")).toBe(true);
 
 	// Reply to turn/start with a valid turn id so ctx.activeTurnId
 	// populates — `steer()` won't proceed without it.

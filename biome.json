@@ -17,6 +17,7 @@
 			"!CLAUDE.md",
 			"!!**/coverage",
 			"!**/.local-data",
+			"!**/.bundle-cache",
 			"!src-tauri/gen",
 			"!src-tauri/target"
 		]

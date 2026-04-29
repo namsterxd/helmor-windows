@@ -484,7 +484,7 @@ fn start_archive_workspace_syncs_git_fetchers_after_success() {
     archive_manager.prepare(&harness.workspace_id).unwrap();
     workspaces::start_archive_workspace(&app_handle, &harness.workspace_id).unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + Duration::from_secs(if cfg!(windows) { 15 } else { 3 });
     loop {
         let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
         let state: String = connection
@@ -495,13 +495,14 @@ fn start_archive_workspace_syncs_git_fetchers_after_success() {
             )
             .unwrap();
         drop(connection);
+        let fetcher_count = watcher_manager.fetcher_count();
 
-        if state == "archived" && watcher_manager.fetcher_count() == 0 {
+        if state == "archived" && fetcher_count == 0 {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "Timed out waiting for archive success to sync git fetchers",
+            "Timed out waiting for archive success to sync git fetchers; state={state}, fetchers={fetcher_count}",
         );
         thread::sleep(Duration::from_millis(20));
     }

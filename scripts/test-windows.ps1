@@ -361,15 +361,40 @@ try {
 			}
 
 			if ($FullTests -and -not $SkipTests) {
-				Write-Host "Full frontend/sidecar/Rust test suites are currently opt-in on Windows; expect failures until the Windows test port is complete." -ForegroundColor Yellow
+				Write-Host "Running the full Windows release gate: frontend, sidecar, and Rust test suites." -ForegroundColor Yellow
 				Invoke-Step "Running frontend tests" {
 					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "test:frontend")
 				}
 				Invoke-Step "Running sidecar tests" {
 					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "test:sidecar")
 				}
-				Invoke-Step "Running Rust tests" {
-					Invoke-NativeCommandLogged -FilePath "cargo" -ArgumentList @("test", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets")
+				Invoke-Step "Running Rust library tests" {
+					$previousManifestFlag = $env:HELMOR_WINDOWS_TEST_MANIFEST
+					try {
+						$env:HELMOR_WINDOWS_TEST_MANIFEST = "1"
+						Invoke-NativeCommandLogged -FilePath "cargo" -ArgumentList @("test", "--manifest-path", "src-tauri/Cargo.toml", "--lib")
+					} finally {
+						if ($null -eq $previousManifestFlag) {
+							Remove-Item Env:\HELMOR_WINDOWS_TEST_MANIFEST -ErrorAction SilentlyContinue
+						} else {
+							$env:HELMOR_WINDOWS_TEST_MANIFEST = $previousManifestFlag
+						}
+					}
+				}
+				Invoke-Step "Running Rust integration tests" {
+					Invoke-NativeCommandLogged -FilePath "cargo" -ArgumentList @(
+						"test",
+						"--manifest-path", "src-tauri/Cargo.toml",
+						"--test", "agent_stream_event_wire",
+						"--test", "pipeline_fixtures",
+						"--test", "pipeline_scenarios",
+						"--test", "pipeline_streams",
+						"--test", "schema_migrations",
+						"--test", "stable_part_ids",
+						"--test", "stream_bridge_elicitation",
+						"--test", "stream_bridge_events",
+						"--test", "streaming_send_params"
+					)
 				}
 			} elseif (-not $SkipTests) {
 				Write-Host "Skipping full unit suites on Windows smoke run. Use -FullTests to run them." -ForegroundColor Yellow

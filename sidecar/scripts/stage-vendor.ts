@@ -22,9 +22,12 @@ const NODE_MODULES = join(SIDECAR_ROOT, "node_modules");
 const DIST_VENDOR = join(SIDECAR_ROOT, "dist", "vendor");
 const BUNDLE_CACHE = join(SIDECAR_ROOT, ".bundle-cache");
 
-// Bumping: update version + sha256, wipe sidecar/.bundle-cache. Checksums:
-//   gh:   github.com/cli/cli/releases/download/v$VER/gh_${VER}_checksums.txt
-//   glab: gitlab.com/gitlab-org/cli/-/releases/v$VER/downloads/checksums.txt
+// Bumping any version: update SHA256 below + wipe sidecar/.bundle-cache.
+//   gh:    github.com/cli/cli/releases/download/v$VER/gh_${VER}_checksums.txt
+//   glab:  gitlab.com/gitlab-org/cli/-/releases/v$VER/downloads/checksums.txt
+//   bun:   github.com/oven-sh/bun/releases/download/bun-v$VER/SHASUMS256.txt
+//   codex: shasum -a 256 of the npm tarball at
+//          registry.npmjs.org/@openai/codex/-/codex-$VER-darwin-{arm64,x64}.tgz
 const GH_VERSION = "2.91.0";
 const GH_SHA256 = {
 	arm64: "20446cd714d9fa1b69fbd410deade3731f38fe09a2b980c8488aa388dd320ada",
@@ -40,19 +43,42 @@ const GLAB_SHA256 = {
 	winAmd64: "e07ea21f9a3df8eac5e1c16136c186154769504355a44195b47c44e410a39097",
 } as const;
 
+const BUN_VERSION = "1.3.2";
+const BUN_SHA256 = {
+	arm64: "d85847982db574518130a45582bcf14d8e2be9610b66cb5046c20348578b0fe2",
+	x64: "78d4f0c8637427ac0be55639a697ff6a025e8eb940a6920ca508603c41a5a7b0",
+} as const;
+
+// Codex version is whatever sidecar/package.json pulled in. The SHAs below
+// must match THAT version; they are used when macOS CI stages a non-host arch.
+const CODEX_SHA256: Readonly<Record<string, { arm64: string; x64: string }>> = {
+	"0.124.0": {
+		arm64: "8221653b5f1592007ff19a756cfd00afaa4005b3e944412a3ca2372d0abb3b5a",
+		x64: "eb9c0cf46fc9aa58592cd103f0cbc9535667087eb3369d0b99ae62b49f9133da",
+	},
+};
+
 // ---------------------------------------------------------------------------
-// Platform detection
+// Target detection. macOS honors TAURI_TARGET_TRIPLE so universal release CI
+// stages vendor binaries for the bundle target, not just the runner host.
 // ---------------------------------------------------------------------------
 
 type NodeArch = "arm64" | "x64";
+type DarwinArch = "arm64" | "x64";
 
 interface TargetInfo {
+	platform: "darwin" | "win32";
+	arch: NodeArch;
 	/** `@anthropic-ai/claude-code` uses `<arch>-darwin` naming. */
 	ccVendorArch: string;
 	/** `@openai/codex-darwin-<arch>` is the npm optional-dep package. */
 	codexPkg: string;
 	/** Target triple used as the subdir inside the codex platform package. */
 	codexTriple: string;
+	/** Codex npm tarball suffix for macOS cross-arch fallback downloads. */
+	codexNpmSuffix?: "darwin-arm64" | "darwin-x64";
+	/** `bun` release naming for macOS pinned downloads. */
+	bunArch?: "aarch64" | "x64";
 	/** `gh` release uses `arm64` / `amd64`. */
 	ghArch: "arm64" | "amd64" | "winArm64" | "winAmd64";
 	/** `glab` release uses `arm64` / `amd64`. */
@@ -60,38 +86,62 @@ interface TargetInfo {
 	binaryExt: "" | ".exe";
 }
 
-function detectTarget(): TargetInfo {
-	const arch = process.arch as NodeArch;
+function macTargetForArch(arch: DarwinArch): TargetInfo {
+	if (arch === "arm64") {
+		return {
+			platform: "darwin",
+			arch,
+			ccVendorArch: "arm64-darwin",
+			codexPkg: "@openai/codex-darwin-arm64",
+			codexTriple: "aarch64-apple-darwin",
+			codexNpmSuffix: "darwin-arm64",
+			bunArch: "aarch64",
+			ghArch: "arm64",
+			glabArch: "arm64",
+			binaryExt: "",
+		};
+	}
+	return {
+		platform: "darwin",
+		arch,
+		ccVendorArch: "x64-darwin",
+		codexPkg: "@openai/codex-darwin-x64",
+		codexTriple: "x86_64-apple-darwin",
+		codexNpmSuffix: "darwin-x64",
+		bunArch: "x64",
+		ghArch: "amd64",
+		glabArch: "amd64",
+		binaryExt: "",
+	};
+}
 
+function detectTarget(): TargetInfo {
 	if (process.platform === "darwin") {
-		switch (arch) {
-			case "arm64":
-				return {
-					ccVendorArch: "arm64-darwin",
-					codexPkg: "@openai/codex-darwin-arm64",
-					codexTriple: "aarch64-apple-darwin",
-					ghArch: "arm64",
-					glabArch: "arm64",
-					binaryExt: "",
-				};
-			case "x64":
-				return {
-					ccVendorArch: "x64-darwin",
-					codexPkg: "@openai/codex-darwin-x64",
-					codexTriple: "x86_64-apple-darwin",
-					ghArch: "amd64",
-					glabArch: "amd64",
-					binaryExt: "",
-				};
-			default:
-				throw new Error(`[stage-vendor] Unsupported macOS arch: ${arch}`);
+		const triple =
+			process.env.TAURI_TARGET_TRIPLE?.trim() ||
+			process.env.TAURI_ENV_TARGET_TRIPLE?.trim() ||
+			process.env.CARGO_BUILD_TARGET?.trim();
+
+		if (triple) {
+			if (triple === "aarch64-apple-darwin") return macTargetForArch("arm64");
+			if (triple === "x86_64-apple-darwin") return macTargetForArch("x64");
+			throw new Error(
+				`[stage-vendor] unsupported TAURI_TARGET_TRIPLE for macOS: ${triple}`,
+			);
 		}
+
+		const arch = process.arch;
+		if (arch === "arm64" || arch === "x64") return macTargetForArch(arch);
+		throw new Error(`[stage-vendor] Unsupported macOS arch: ${arch}`);
 	}
 
 	if (process.platform === "win32") {
+		const arch = process.arch as NodeArch;
 		switch (arch) {
 			case "arm64":
 				return {
+					platform: "win32",
+					arch,
 					ccVendorArch: "arm64-win32",
 					codexPkg: "@openai/codex-win32-arm64",
 					codexTriple: "aarch64-pc-windows-msvc",
@@ -101,6 +151,8 @@ function detectTarget(): TargetInfo {
 				};
 			case "x64":
 				return {
+					platform: "win32",
+					arch,
 					ccVendorArch: "x64-win32",
 					codexPkg: "@openai/codex-win32-x64",
 					codexTriple: "x86_64-pc-windows-msvc",
@@ -330,6 +382,138 @@ function stageGlabWindowsBinary(): string {
 	return binDest;
 }
 
+function stageBunMacBinary(target: TargetInfo): string {
+	if (target.platform !== "darwin" || !target.bunArch) {
+		throw new Error("[stage-vendor] stageBunMacBinary called for non-macOS target");
+	}
+	ensureCacheDir();
+	const slug = `bun-darwin-${target.bunArch}`;
+	const archive = join(BUNDLE_CACHE, `${slug}-${BUN_VERSION}.zip`);
+	const url = `https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${slug}.zip`;
+	downloadAndVerify(url, archive, BUN_SHA256[target.arch]);
+
+	const extractDir = join(BUNDLE_CACHE, `bun-${BUN_VERSION}-${target.bunArch}`);
+	freshExtractDir(extractDir);
+	extractZip(archive, extractDir);
+
+	const binSrc = join(extractDir, slug, "bun");
+	if (!existsSync(binSrc)) {
+		throw new Error(
+			`[stage-vendor] bun binary missing after extract: ${binSrc}`,
+		);
+	}
+	const binDest = join(DIST_VENDOR, "bun", "bun");
+	copyFile(binSrc, binDest);
+	chmodSync(binDest, 0o755);
+	maybeSignMacBinary(binDest, true);
+	return binDest;
+}
+
+function locateHostBun(): string {
+	try {
+		if (process.platform === "win32") {
+			const raw =
+				execSync("where bun", { encoding: "utf8" }).trim().split(/\r?\n/)[0] ??
+				"";
+			if (!raw) throw new Error("empty output");
+			return realpathSync(raw);
+		}
+		const raw =
+			execSync("which bun", { encoding: "utf8" }).trim().split("\n")[0] ?? "";
+		if (!raw) throw new Error("empty output");
+		return realpathSync(raw);
+	} catch {
+		throw new Error(
+			"[stage-vendor] bun not found on PATH — install Bun (https://bun.sh) on the build host. " +
+				"The Claude Agent SDK needs a JS runtime to execute cli.js, and app bundles cannot rely " +
+				"on the user's PATH.",
+		);
+	}
+}
+
+function stageHostBunBinary(target: TargetInfo): string {
+	const bunSrc = locateHostBun();
+	const bunDest = join(DIST_VENDOR, "bun", `bun${target.binaryExt}`);
+	copyFile(bunSrc, bunDest);
+	if (target.platform !== "win32") chmodSync(bunDest, 0o755);
+	maybeSignMacBinary(bunDest, true);
+	return bunDest;
+}
+
+function readCodexVersion(): string {
+	const pkgJsonPath = join(NODE_MODULES, "@openai", "codex", "package.json");
+	ensureExists(pkgJsonPath, "@openai/codex package.json");
+	const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
+		version?: string;
+	};
+	if (!pkg.version) {
+		throw new Error("[stage-vendor] @openai/codex has no version field");
+	}
+	return pkg.version;
+}
+
+function copyCodexBin(src: string, target: TargetInfo): string {
+	const dest = join(DIST_VENDOR, "codex", `codex${target.binaryExt}`);
+	copyFile(src, dest);
+	if (target.platform !== "win32") chmodSync(dest, 0o755);
+	maybeSignMacBinary(dest, false);
+	return dest;
+}
+
+function stageCodexBinary(target: TargetInfo): string {
+	const installed = join(
+		NODE_MODULES,
+		target.codexPkg,
+		"vendor",
+		target.codexTriple,
+		"codex",
+		`codex${target.binaryExt}`,
+	);
+	if (existsSync(installed)) {
+		return copyCodexBin(installed, target);
+	}
+
+	if (target.platform !== "darwin" || !target.codexNpmSuffix) {
+		throw new Error(
+			`[stage-vendor] expected ${target.codexPkg} codex binary at ${installed} — run \`bun install\` in sidecar/ first`,
+		);
+	}
+
+	const version = readCodexVersion();
+	const shaTable = CODEX_SHA256[version];
+	if (!shaTable) {
+		throw new Error(
+			`[stage-vendor] no pinned SHA256 for codex ${version} — add it to CODEX_SHA256 in stage-vendor.ts`,
+		);
+	}
+	ensureCacheDir();
+	const slug = `codex-${version}-${target.codexNpmSuffix}`;
+	const archive = join(BUNDLE_CACHE, `${slug}.tgz`);
+	const url = `https://registry.npmjs.org/@openai/codex/-/${slug}.tgz`;
+	downloadAndVerify(url, archive, shaTable[target.arch]);
+
+	const extractDir = join(BUNDLE_CACHE, slug);
+	freshExtractDir(extractDir);
+	execFileSync("tar", ["-xzf", archive, "-C", extractDir], {
+		stdio: "inherit",
+	});
+
+	const binSrc = join(
+		extractDir,
+		"package",
+		"vendor",
+		target.codexTriple,
+		"codex",
+		"codex",
+	);
+	if (!existsSync(binSrc)) {
+		throw new Error(
+			`[stage-vendor] codex binary missing after extract: ${binSrc}`,
+		);
+	}
+	return copyCodexBin(binSrc, target);
+}
+
 function maybeSignMacBinary(path: string, withEntitlements: boolean): void {
 	if (process.platform !== "darwin") return;
 	const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
@@ -366,7 +550,7 @@ function maybeSignMacBinary(path: string, withEntitlements: boolean): void {
 const target = detectTarget();
 
 console.log(
-	`[stage-vendor] host=${process.platform}/${process.arch} ccArch=${target.ccVendorArch} codexPkg=${target.codexPkg}`,
+	`[stage-vendor] host=${process.platform}/${process.arch} target=${target.platform}/${target.arch} ccArch=${target.ccVendorArch} codexPkg=${target.codexPkg}`,
 );
 
 // Clean
@@ -380,7 +564,7 @@ ensureExists(join(ccSrc, "cli.js"), "@anthropic-ai/claude-code/cli.js");
 
 copyFile(join(ccSrc, "cli.js"), join(ccDest, "cli.js"));
 
-// Host-arch subset of claude-code's vendor dirs. cli.js resolves these
+// Target-arch subset of claude-code's vendor dirs. cli.js resolves these
 // relative to itself at runtime; any missing subdir just disables that
 // particular feature (ripgrep → /search, audio-capture → voice I/O).
 const ccVendorSubdirs = ["ripgrep", "audio-capture"] as const;
@@ -392,50 +576,14 @@ for (const sub of ccVendorSubdirs) {
 }
 
 // ----- Codex -----
-const codexSrc = join(
-	NODE_MODULES,
-	target.codexPkg,
-	"vendor",
-	target.codexTriple,
-	"codex",
-	`codex${target.binaryExt}`,
-);
-ensureExists(codexSrc, `${target.codexPkg} codex binary`);
-
-const codexDest = join(DIST_VENDOR, "codex", `codex${target.binaryExt}`);
-copyFile(codexSrc, codexDest);
-if (process.platform !== "win32") chmodSync(codexDest, 0o755);
-maybeSignMacBinary(codexDest, false);
+stageCodexBinary(target);
 
 // ----- Bun (JS runtime for cli.js) -----
-function locateHostBun(): string {
-	try {
-		if (process.platform === "win32") {
-			const raw =
-				execSync("where bun", { encoding: "utf8" }).trim().split(/\r?\n/)[0] ??
-				"";
-			if (!raw) throw new Error("empty output");
-			return realpathSync(raw);
-		}
-		const raw =
-			execSync("which bun", { encoding: "utf8" }).trim().split("\n")[0] ?? "";
-		if (!raw) throw new Error("empty output");
-		// Homebrew ships bun as a symlink; resolve to the real Mach-O.
-		return realpathSync(raw);
-	} catch {
-		throw new Error(
-			"[stage-vendor] bun not found on PATH — install Bun (https://bun.sh) on the build host. " +
-				"The Claude Agent SDK needs a JS runtime to execute cli.js, and `.app` bundles cannot rely " +
-				"on the user's PATH. We ship the host's bun binary inside Helmor.app/Contents/Resources/vendor/bun/.",
-		);
-	}
+if (target.platform === "darwin") {
+	stageBunMacBinary(target);
+} else {
+	stageHostBunBinary(target);
 }
-
-const bunSrc = locateHostBun();
-const bunDest = join(DIST_VENDOR, "bun", `bun${target.binaryExt}`);
-copyFile(bunSrc, bunDest);
-if (process.platform !== "win32") chmodSync(bunDest, 0o755);
-maybeSignMacBinary(bunDest, true);
 
 for (const rel of [
 	join(
