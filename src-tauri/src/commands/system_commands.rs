@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use serde::Serialize;
@@ -28,6 +29,10 @@ const HELMOR_SKILL_SOURCE: &str = "dohooo/helmor/.codex/skills/helmor-cli";
 
 static ONBOARDING_WINDOW_STATE: LazyLock<Mutex<HashMap<String, bool>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static AGENT_LOGIN_STATUS_CACHE: LazyLock<Mutex<Option<(Instant, AgentLoginStatus)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+const AGENT_LOGIN_STATUS_CACHE_TTL: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -367,9 +372,10 @@ fn install_cli_wsl_shim(install_path: &std::path::Path) -> anyhow::Result<()> {
         name = command_name,
         target = shell_quote_arg(&wsl_cli_path),
     );
-    let output = Command::new("wsl.exe")
-        .args(["--", "sh", "-lc"])
-        .arg(script)
+    let mut command = Command::new("wsl.exe");
+    command.args(["--", "sh", "-lc"]).arg(script);
+    hide_windows_child_console(&mut command);
+    let output = command
         .output()
         .context("Failed to install WSL Helmor CLI shim")?;
     if output.status.success() {
@@ -716,12 +722,10 @@ fn wsl_helmor_skills_status_for_agents(agents: &[&str]) -> (bool, bool, bool) {
 fn run_wsl_shell_script(script: &str) -> std::io::Result<std::process::Output> {
     let mut last: Option<std::io::Result<std::process::Output>> = None;
     for shell in ["sh", "bash", "zsh"] {
-        let result = Command::new("wsl.exe")
-            .arg("--")
-            .arg(shell)
-            .arg("-lc")
-            .arg(script)
-            .output();
+        let mut command = Command::new("wsl.exe");
+        command.arg("--").arg(shell).arg("-lc").arg(script);
+        hide_windows_child_console(&mut command);
+        let result = command.output();
         match result {
             Ok(output) if output.status.success() || !looks_like_missing_wsl_command(&output) => {
                 return Ok(output);
@@ -730,19 +734,28 @@ fn run_wsl_shell_script(script: &str) -> std::io::Result<std::process::Output> {
         }
     }
     last.unwrap_or_else(|| {
-        Command::new("wsl.exe")
-            .args(["--", "sh", "-lc", script])
-            .output()
+        let mut command = Command::new("wsl.exe");
+        command.args(["--", "sh", "-lc", script]);
+        hide_windows_child_console(&mut command);
+        command.output()
     })
 }
 
+#[cfg(windows)]
+fn hide_windows_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    // Background WSL probes pipe stdout/stderr back to Helmor; without this,
+    // release GUI launches can flash a real console window for every probe.
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_windows_child_console(_command: &mut Command) {}
+
 fn helmor_skills_status() -> anyhow::Result<HelmorSkillsStatus> {
-    let login = AgentLoginStatus {
-        claude: claude_login_ready(),
-        codex: codex_login_ready(),
-        claude_wsl: claude_wsl_login_ready(),
-        codex_wsl: codex_wsl_login_ready(),
-    };
+    let login = agent_login_status_cached();
     Ok(helmor_skills_status_for_login(&login))
 }
 
@@ -964,16 +977,49 @@ pub async fn open_agent_login_terminal(provider: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn get_agent_login_status() -> CmdResult<AgentLoginStatus> {
-    run_blocking(|| {
-        Ok(AgentLoginStatus {
-            claude: claude_login_ready(),
-            codex: codex_login_ready(),
-            claude_wsl: claude_wsl_login_ready(),
-            codex_wsl: codex_wsl_login_ready(),
+pub async fn get_agent_login_status(force: Option<bool>) -> CmdResult<AgentLoginStatus> {
+    run_blocking(move || {
+        Ok(if force.unwrap_or(false) {
+            refresh_agent_login_status_cache()
+        } else {
+            agent_login_status_cached()
         })
     })
     .await
+}
+
+fn agent_login_status_cached() -> AgentLoginStatus {
+    let now = Instant::now();
+    let mut cache = AGENT_LOGIN_STATUS_CACHE
+        .lock()
+        .expect("agent login status cache mutex poisoned");
+    if let Some((cached_at, status)) = cache.as_ref() {
+        if now.duration_since(*cached_at) < AGENT_LOGIN_STATUS_CACHE_TTL {
+            return status.clone();
+        }
+    }
+
+    let status = agent_login_status_uncached();
+    *cache = Some((Instant::now(), status.clone()));
+    status
+}
+
+fn refresh_agent_login_status_cache() -> AgentLoginStatus {
+    let status = agent_login_status_uncached();
+    let mut cache = AGENT_LOGIN_STATUS_CACHE
+        .lock()
+        .expect("agent login status cache mutex poisoned");
+    *cache = Some((Instant::now(), status.clone()));
+    status
+}
+
+fn agent_login_status_uncached() -> AgentLoginStatus {
+    AgentLoginStatus {
+        claude: claude_login_ready(),
+        codex: codex_login_ready(),
+        claude_wsl: claude_wsl_login_ready(),
+        codex_wsl: codex_wsl_login_ready(),
+    }
 }
 
 fn claude_login_ready() -> bool {

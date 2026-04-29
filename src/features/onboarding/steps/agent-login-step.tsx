@@ -42,7 +42,7 @@ export function AgentLoginStep({
 	const pollLoginReady = useCallback(
 		async (provider: AgentLoginProvider, shell: LoginShell) => {
 			for (let attempt = 0; attempt < 12; attempt += 1) {
-				const status = await getAgentLoginStatus().catch(() => null);
+				const status = await getAgentLoginStatus(true).catch(() => null);
 				onRefreshLoginItems();
 				if (agentReadyForShell(status, provider, shell)) {
 					setPrimedLoginProvider(provider);
@@ -52,7 +52,7 @@ export function AgentLoginStep({
 					);
 					return true;
 				}
-				await new Promise((resolve) => window.setTimeout(resolve, 500));
+				await new Promise((resolve) => window.setTimeout(resolve, 1_500));
 			}
 			setWaitingProvider((current) => (current === provider ? null : current));
 			return false;

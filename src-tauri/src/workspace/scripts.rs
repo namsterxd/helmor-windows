@@ -1223,6 +1223,7 @@ mod windows_impl {
         shell_args: &[&str],
     ) -> Result<Option<i32>> {
         let mut cmd = Command::new(shell_path);
+        hide_windows_child_console(&mut cmd);
         cmd.args(shell_args)
             .current_dir(working_dir)
             .stdin(Stdio::piped())
@@ -1285,6 +1286,13 @@ mod windows_impl {
         };
         let _ = channel.send(ScriptEvent::Exited { code: exit_code });
         Ok(exit_code)
+    }
+
+    fn hide_windows_child_console(command: &mut Command) {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
     fn stream_reader<R: Read>(reader: &mut R, channel: Channel<ScriptEvent>, stdout: bool) {

@@ -820,8 +820,12 @@ export type AgentLoginStatusResult = {
 	codexWsl?: boolean;
 };
 
-export async function getAgentLoginStatus(): Promise<AgentLoginStatusResult> {
-	return await invoke<AgentLoginStatusResult>("get_agent_login_status");
+export async function getAgentLoginStatus(
+	force = false,
+): Promise<AgentLoginStatusResult> {
+	return await invoke<AgentLoginStatusResult>("get_agent_login_status", {
+		force,
+	});
 }
 
 export async function openAgentLoginTerminal(

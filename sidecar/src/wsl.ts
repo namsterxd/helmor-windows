@@ -31,6 +31,7 @@ export function wslShellCommand(command: string): {
 export function spawnWslShell(command: string): ChildProcessWithoutNullStreams {
 	return spawn("wsl.exe", ["--", "sh", "-lc", command], {
 		stdio: ["pipe", "pipe", "pipe"],
+		windowsHide: true,
 	});
 }
 
