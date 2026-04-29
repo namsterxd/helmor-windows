@@ -220,6 +220,9 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
                 detail = %detail,
                 "GitHub CLI auth check failed (transient or unknown)"
             );
+            if let Some(status) = github_cli_status_from_token(runner, version.clone())? {
+                return Ok(status);
+            }
             return Ok(GithubCliStatus::Error {
                 host: GITHUB_HOST.to_string(),
                 version,
@@ -232,6 +235,9 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
                 error = %message,
                 "GitHub CLI auth check failed (IO error)"
             );
+            if let Some(status) = github_cli_status_from_token(runner, version.clone())? {
+                return Ok(status);
+            }
             return Ok(GithubCliStatus::Error {
                 host: GITHUB_HOST.to_string(),
                 version,
@@ -414,6 +420,37 @@ fn parse_gh_version(stdout: &str) -> String {
         .and_then(|line| line.split_whitespace().nth(2))
         .unwrap_or("unknown")
         .to_string()
+}
+
+fn github_cli_status_from_token(
+    runner: &impl GhCommandRunner,
+    version: Option<String>,
+) -> Result<Option<GithubCliStatus>> {
+    match runner.run(["auth", "token", "--hostname", GITHUB_HOST]) {
+        Ok(output) if !output.stdout.trim().is_empty() => {
+            tracing::debug!(
+                host = GITHUB_HOST,
+                "GitHub CLI auth status failed, but a local token is available"
+            );
+            Ok(Some(GithubCliStatus::Ready {
+                host: GITHUB_HOST.to_string(),
+                login: "authenticated".to_string(),
+                version: version.unwrap_or_else(|| "unknown".to_string()),
+                message: "GitHub CLI has a local token for github.com.".to_string(),
+            }))
+        }
+        Ok(_) => Ok(None),
+        Err(GhCommandError::Failed {
+            stdout,
+            stderr,
+            code,
+        }) if looks_like_unauthenticated(&command_error_detail(&stdout, &stderr, code)) => {
+            Ok(None)
+        }
+        Err(GhCommandError::NotFound)
+        | Err(GhCommandError::Failed { .. })
+        | Err(GhCommandError::Other(_)) => Ok(None),
+    }
 }
 
 fn command_error_detail(stdout: &str, stderr: &str, code: Option<i32>) -> String {
@@ -759,6 +796,33 @@ mod tests {
                 host: "github.com".to_string(),
                 version: Some("2.88.1".to_string()),
                 message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn get_github_cli_status_uses_local_token_when_auth_status_times_out() {
+        let runner = MockGhRunner::new([
+            MockRunnerResponse::Success {
+                stdout: "gh version 2.88.1 (2026-03-12)\n".to_string(),
+                stderr: String::new(),
+            },
+            MockRunnerResponse::Other("`gh` timed out after 15s".to_string()),
+            MockRunnerResponse::Success {
+                stdout: "gho_example_token\n".to_string(),
+                stderr: String::new(),
+            },
+        ]);
+
+        let status = get_github_cli_status_with(&runner).unwrap();
+
+        assert_eq!(
+            status,
+            GithubCliStatus::Ready {
+                host: "github.com".to_string(),
+                login: "authenticated".to_string(),
+                version: "2.88.1".to_string(),
+                message: "GitHub CLI has a local token for github.com.".to_string(),
             }
         );
     }

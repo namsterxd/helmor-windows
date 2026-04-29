@@ -827,9 +827,9 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedWorkspace("Done workspace");
 			expectSelectedSession("Done session 1");
 		});
-		expect(apiMocks.loadWorkspaceDetail).not.toHaveBeenCalledWith(
-			WORKSPACE_IDS.review,
-		);
+		expect(
+			screen.getByRole("button", { name: "Review workspace" }),
+		).not.toHaveClass("workspace-row-selected");
 		expect(apiMocks.loadSessionThreadMessages).not.toHaveBeenCalledWith(
 			"session-done-2",
 		);

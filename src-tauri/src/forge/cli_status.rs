@@ -202,6 +202,13 @@ pub(crate) fn labels_for(provider: ForgeProvider) -> ForgeLabels {
     }
 }
 
+#[cfg(windows)]
+pub(crate) fn github_status() -> Result<ForgeCliStatus> {
+    let native = github_status_native()?;
+    Ok(prefer_wsl_github_status(native, github_status_wsl()))
+}
+
+#[cfg(not(windows))]
 pub(crate) fn github_status() -> Result<ForgeCliStatus> {
     github_status_native()
 }
@@ -227,6 +234,21 @@ pub(crate) fn github_status_wsl() -> Result<ForgeCliStatus> {
             message: format!("GitHub CLI ready in WSL as {login}."),
         }),
         status => Ok(status),
+    }
+}
+
+#[cfg(any(windows, test))]
+fn prefer_wsl_github_status(
+    native: ForgeCliStatus,
+    wsl: Result<ForgeCliStatus>,
+) -> ForgeCliStatus {
+    if matches!(native, ForgeCliStatus::Ready { .. }) {
+        return native;
+    }
+
+    match wsl {
+        Ok(status @ ForgeCliStatus::Ready { .. }) => status,
+        _ => native,
     }
 }
 
@@ -602,6 +624,53 @@ mod wsl_auth_command_tests {
                 "printf '\\n' | GH_BROWSER=echo gh auth login --hostname github.com --web --git-protocol https"
             ),
             "WSL GitHub auth should not stop on interactive prompt selection"
+        );
+    }
+
+    #[test]
+    fn default_github_status_can_use_ready_wsl_when_native_is_not_ready() {
+        let native = ForgeCliStatus::Unauthenticated {
+            provider: ForgeProvider::Github,
+            host: "github.com".to_string(),
+            cli_name: "gh".to_string(),
+            version: Some("2.88.1".to_string()),
+            message: "Run `gh auth login` to connect GitHub CLI.".to_string(),
+            login_command: "gh auth login".to_string(),
+        };
+        let wsl = ForgeCliStatus::Ready {
+            provider: ForgeProvider::Github,
+            host: "github.com".to_string(),
+            cli_name: "gh (WSL)".to_string(),
+            login: "octocat".to_string(),
+            version: "2.88.1".to_string(),
+            message: "GitHub CLI ready in WSL as octocat.".to_string(),
+        };
+
+        assert_eq!(prefer_wsl_github_status(native, Ok(wsl.clone())), wsl);
+    }
+
+    #[test]
+    fn default_github_status_keeps_ready_native_over_wsl() {
+        let native = ForgeCliStatus::Ready {
+            provider: ForgeProvider::Github,
+            host: "github.com".to_string(),
+            cli_name: "gh".to_string(),
+            login: "native-user".to_string(),
+            version: "2.88.1".to_string(),
+            message: "GitHub CLI ready as native-user.".to_string(),
+        };
+        let wsl = ForgeCliStatus::Ready {
+            provider: ForgeProvider::Github,
+            host: "github.com".to_string(),
+            cli_name: "gh (WSL)".to_string(),
+            login: "wsl-user".to_string(),
+            version: "2.88.1".to_string(),
+            message: "GitHub CLI ready in WSL as wsl-user.".to_string(),
+        };
+
+        assert_eq!(
+            prefer_wsl_github_status(native.clone(), Ok(wsl)),
+            native
         );
     }
 }
