@@ -139,6 +139,8 @@ impl SidecarProcess {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0);
         }
+        #[cfg(windows)]
+        hide_child_console(&mut cmd);
 
         // Pass log config to the sidecar process
         if let Ok(dir) = crate::data_dir::logs_dir() {
@@ -258,9 +260,10 @@ impl SidecarProcess {
         #[cfg(windows)]
         {
             let pid = self.pid().to_string();
-            let _ = Command::new("taskkill")
-                .args(["/PID", pid.as_str(), "/T", "/F"])
-                .status();
+            let mut command = Command::new("taskkill");
+            command.args(["/PID", pid.as_str(), "/T", "/F"]);
+            hide_child_console(&mut command);
+            let _ = command.status();
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -300,9 +303,10 @@ impl SidecarProcess {
             // sidecar. `taskkill /T` without `/F` is the closest escalation
             // before the final forced kill.
             let pid = self.pid().to_string();
-            let _ = Command::new("taskkill")
-                .args(["/PID", pid.as_str(), "/T"])
-                .status();
+            let mut command = Command::new("taskkill");
+            command.args(["/PID", pid.as_str(), "/T"]);
+            hide_child_console(&mut command);
+            let _ = command.status();
         }
     }
 }
@@ -635,6 +639,14 @@ fn resolve_sidecar_path() -> Result<PathBuf> {
     }
 
     bail!("Sidecar not found. In dev, ensure sidecar/src/index.ts exists. Set HELMOR_SIDECAR_PATH to override.")
+}
+
+#[cfg(windows)]
+fn hide_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(test)]

@@ -78,6 +78,8 @@ where
     if let Some(current_dir) = current_dir {
         command.current_dir(current_dir);
     }
+    #[cfg(windows)]
+    hide_child_console(&mut command);
 
     let output = command.output().context("Failed to run git")?;
     handle_git_output(output)
@@ -139,6 +141,8 @@ where
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    #[cfg(windows)]
+    hide_child_console(&mut command);
 
     let child = command.spawn().context("Failed to spawn git")?;
     let child_pid = child.id();
@@ -194,9 +198,18 @@ fn kill_git_process_tree(child_pid: u32) {
 #[cfg(windows)]
 fn kill_git_process_tree(child_pid: u32) {
     let pid = child_pid.to_string();
-    let _ = Command::new("taskkill")
-        .args(["/PID", pid.as_str(), "/T", "/F"])
-        .status();
+    let mut command = Command::new("taskkill");
+    command.args(["/PID", pid.as_str(), "/T", "/F"]);
+    hide_child_console(&mut command);
+    let _ = command.status();
+}
+
+#[cfg(windows)]
+fn hide_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
 }
 
 fn handle_git_output(output: Output) -> Result<String> {

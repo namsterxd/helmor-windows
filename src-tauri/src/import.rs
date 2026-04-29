@@ -644,17 +644,17 @@ fn resolve_source_branch(
         let conductor_ws = root.join("workspaces").join(repo_name).join(directory_name);
 
         if conductor_ws.is_dir() {
-            if let Ok(output) = std::process::Command::new("git")
-                .args([
+            if let Ok(actual) = git_ops::run_git(
+                [
                     "-C",
                     &conductor_ws.display().to_string(),
                     "rev-parse",
                     "--abbrev-ref",
                     "HEAD",
-                ])
-                .output()
-            {
-                let actual = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                ],
+                None,
+            ) {
+                let actual = actual.trim().to_string();
                 if !actual.is_empty()
                     && actual != "HEAD"
                     && git_ops::verify_branch_exists(repo_root, &actual).is_ok()

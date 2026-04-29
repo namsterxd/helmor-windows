@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 /// (exit code 0). Returns `None` on any failure: spawn error, non-zero
 /// exit, timeout, or read error.
 pub(super) fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> Option<String> {
+    #[cfg(windows)]
+    hide_child_console(cmd);
+
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -48,6 +51,9 @@ pub(super) fn wait_with_timeout(
     cmd: &mut Command,
     timeout: Duration,
 ) -> Option<std::process::ExitStatus> {
+    #[cfg(windows)]
+    hide_child_console(cmd);
+
     let mut child = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -68,6 +74,14 @@ pub(super) fn wait_with_timeout(
             Err(_) => return None,
         }
     }
+}
+
+#[cfg(windows)]
+fn hide_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(test)]

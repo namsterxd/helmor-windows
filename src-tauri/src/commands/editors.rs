@@ -312,10 +312,10 @@ fn windows_command_candidates(spec: &EditorSpec) -> &'static [&'static str] {
 #[cfg(windows)]
 fn resolve_via_windows_path(spec: &EditorSpec) -> Option<String> {
     for candidate in windows_command_candidates(spec) {
-        let output = std::process::Command::new("where.exe")
-            .arg(candidate)
-            .output()
-            .ok()?;
+        let mut command = std::process::Command::new("where.exe");
+        command.arg(candidate);
+        hide_windows_child_console(&mut command);
+        let output = command.output().ok()?;
         if !output.status.success() {
             continue;
         }
@@ -328,6 +328,14 @@ fn resolve_via_windows_path(spec: &EditorSpec) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(windows)]
+fn hide_windows_child_console(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
 }
 
 /// macOS Spotlight fallback: one batched `mdfind` over every bundle ID in the

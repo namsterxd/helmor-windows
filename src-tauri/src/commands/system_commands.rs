@@ -161,12 +161,13 @@ fn debug_cli_binary_candidate(app_exe: &std::path::Path) -> Option<std::path::Pa
         let _ = std::fs::remove_file(&candidate);
     }
 
-    let status = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .args(["build", "--manifest-path"])
         .arg(manifest_dir.join("Cargo.toml"))
-        .args(["--bin", "helmor-cli"])
-        .status()
-        .ok()?;
+        .args(["--bin", "helmor-cli"]);
+    hide_windows_child_console(&mut command);
+    let status = command.status().ok()?;
     if !status.success() {
         return None;
     }
@@ -888,9 +889,12 @@ pub async fn install_helmor_skills(shell: Option<LoginShell>) -> CmdResult<Helmo
         let launcher = skills_installer_launcher().context(
             "No skills installer launcher found. Install Bun or Node.js, then try again.",
         )?;
-        let output = Command::new(&launcher.program)
+        let mut process = Command::new(&launcher.program);
+        process
             .args(&launcher.args)
-            .args(helmor_skills_install_args(&agents))
+            .args(helmor_skills_install_args(&agents));
+        hide_windows_child_console(&mut process);
+        let output = process
             .output()
             .with_context(|| format!("Failed to start skills installer. Try:\n  {command}"))?;
 
@@ -1046,10 +1050,10 @@ fn agent_login_status_uncached() -> AgentLoginStatus {
 }
 
 fn claude_login_ready() -> bool {
-    match std::process::Command::new("claude")
-        .args(["auth", "status"])
-        .output()
-    {
+    let mut command = std::process::Command::new("claude");
+    command.args(["auth", "status"]);
+    hide_windows_child_console(&mut command);
+    match command.output() {
         Ok(output) if output.status.success() => parse_claude_login_status(&output.stdout),
         Ok(output) => {
             tracing::debug!(
@@ -1067,10 +1071,10 @@ fn claude_login_ready() -> bool {
 
 fn codex_login_ready() -> bool {
     let executable = codex_executable();
-    match std::process::Command::new(&executable)
-        .args(["login", "status"])
-        .output()
-    {
+    let mut command = std::process::Command::new(&executable);
+    command.args(["login", "status"]);
+    hide_windows_child_console(&mut command);
+    match command.output() {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1092,10 +1096,10 @@ fn codex_login_ready() -> bool {
 }
 
 fn codex_app_server_ready(executable: &str) -> bool {
-    match std::process::Command::new(executable)
-        .args(["app-server", "--help"])
-        .output()
-    {
+    let mut command = std::process::Command::new(executable);
+    command.args(["app-server", "--help"]);
+    hide_windows_child_console(&mut command);
+    match command.output() {
         Ok(output) if output.status.success() => true,
         Ok(output) => {
             tracing::debug!(
@@ -1734,15 +1738,17 @@ fn copy_image_file_to_clipboard(path: &std::path::Path) -> anyhow::Result<()> {
         "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $image = [System.Drawing.Image]::FromFile({path}); try {{ [System.Windows.Forms.Clipboard]::SetImage($image) }} finally {{ $image.Dispose() }}",
         path = powershell_string(&path.display().to_string()),
     );
-    let output = std::process::Command::new("powershell.exe")
-        .args([
-            "-Sta",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ])
+    let mut command = std::process::Command::new("powershell.exe");
+    command.args([
+        "-Sta",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &script,
+    ]);
+    hide_windows_child_console(&mut command);
+    let output = command
         .output()
         .context("powershell clipboard command failed")?;
     if output.status.success() {

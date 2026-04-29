@@ -438,7 +438,8 @@ pub(crate) fn run_archive_hook_inner(
     let (shell, shell_flag) = archive_shell();
     tracing::info!(workspace_id, script = %script, shell = %shell, "Running archive hook");
 
-    let status = Command::new(&shell)
+    let mut command = Command::new(&shell);
+    command
         .arg(shell_flag)
         .arg(&script)
         .current_dir(workspace_dir)
@@ -448,8 +449,10 @@ pub(crate) fn run_archive_hook_inner(
         .env(
             "HELMOR_DEFAULT_BRANCH",
             record.default_branch.as_deref().unwrap_or("main"),
-        )
-        .status();
+        );
+    #[cfg(windows)]
+    hide_child_console(&mut command);
+    let status = command.status();
 
     match status {
         Ok(s) if s.success() => ArchiveHookOutcome::Success,
@@ -458,6 +461,14 @@ pub(crate) fn run_archive_hook_inner(
             message: e.to_string(),
         },
     }
+}
+
+#[cfg(windows)]
+fn hide_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
 }
 
 pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {

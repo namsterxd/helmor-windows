@@ -1160,9 +1160,10 @@ mod windows_impl {
 
     fn kill_process_tree(pid: u32) {
         let pid = pid.to_string();
-        let _ = Command::new("taskkill")
-            .args(["/PID", pid.as_str(), "/T", "/F"])
-            .status();
+        let mut command = Command::new("taskkill");
+        command.args(["/PID", pid.as_str(), "/T", "/F"]);
+        hide_windows_child_console(&mut command);
+        let _ = command.status();
     }
 
     fn normalize_pipe_stdin(data: &[u8]) -> Vec<u8> {
