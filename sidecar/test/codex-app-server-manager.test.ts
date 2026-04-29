@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createSidecarEmitter, type SidecarEmitter } from "../src/emitter.js";
 
 process.env.HELMOR_LOG_DIR = resolve(tmpdir(), "helmor-sidecar-test-logs");
@@ -20,7 +21,7 @@ const serverState = {
 	beforeTurnCompleted: null as null | (() => void),
 };
 const gitAccessState = {
-	directories: [] as string[],
+	directories: [] as string[] | null,
 };
 
 class MockCodexAppServer {
@@ -70,12 +71,17 @@ class MockCodexAppServer {
 }
 
 mock.module("../src/codex-app-server.js", () => ({
-	buildCodexAppServerArgs: () => ["app-server"],
+	buildCodexAppServerArgs: () => ["app-server", "-c", "notify=[]"],
 	CodexAppServer: MockCodexAppServer,
 }));
 
 mock.module("../src/git-access.js", () => ({
-	resolveGitAccessDirectories: async () => [...gitAccessState.directories],
+	resolveGitAccessDirectories: async (cwd: string | undefined) => {
+		if (gitAccessState.directories !== null) {
+			return [...gitAccessState.directories];
+		}
+		return resolveActualGitAccessDirectories(cwd);
+	},
 }));
 
 const { CodexAppServerManager } = await import(
@@ -84,6 +90,11 @@ const { CodexAppServerManager } = await import(
 
 describe("CodexAppServerManager", () => {
 	let emitter: SidecarEmitter;
+
+	afterAll(() => {
+		gitAccessState.directories = null;
+		mock.restore();
+	});
 
 	beforeEach(() => {
 		serverState.requests = [];
@@ -439,3 +450,63 @@ describe("CodexAppServerManager", () => {
 		).toBeUndefined();
 	});
 });
+
+async function existingDirectory(path: string): Promise<string | null> {
+	try {
+		const info = await stat(path);
+		return info.isDirectory() ? path : null;
+	} catch {
+		return null;
+	}
+}
+
+async function readWorktreeGitdir(cwd: string): Promise<string | null> {
+	try {
+		const pointer = await readFile(join(cwd, ".git"), "utf-8");
+		const match = pointer.match(/^gitdir:\s*(.+)\s*$/m);
+		if (!match?.[1]) {
+			return null;
+		}
+		return resolve(cwd, match[1].trim());
+	} catch {
+		return null;
+	}
+}
+
+async function readCommonDir(gitDir: string): Promise<string | null> {
+	try {
+		const pointer = await readFile(join(gitDir, "commondir"), "utf-8");
+		return resolve(gitDir, pointer.trim());
+	} catch {
+		return null;
+	}
+}
+
+async function resolveActualGitAccessDirectories(
+	cwd: string | undefined,
+): Promise<string[]> {
+	if (!cwd) {
+		return [];
+	}
+
+	const gitDirPath = await readWorktreeGitdir(cwd);
+	if (!gitDirPath) {
+		return [];
+	}
+
+	const gitDir = await existingDirectory(gitDirPath);
+	if (!gitDir) {
+		return [];
+	}
+
+	const directories = new Set<string>([gitDir]);
+	const commonDirPath = await readCommonDir(gitDir);
+	if (commonDirPath) {
+		const commonDir = await existingDirectory(commonDirPath);
+		if (commonDir) {
+			directories.add(commonDir);
+		}
+	}
+
+	return Array.from(directories);
+}
