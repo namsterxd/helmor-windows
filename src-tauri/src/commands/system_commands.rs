@@ -367,11 +367,7 @@ fn install_cli_wsl_shim(install_path: &std::path::Path) -> anyhow::Result<()> {
         );
     };
     let command_name = installed_cli_name();
-    let script = format!(
-        "set -eu\ninstall_dir=\"$HOME/.local/bin\"\nmkdir -p \"$install_dir\"\ncat > \"$install_dir/{name}\" <<'EOF'\n#!/bin/sh\nexec {target} \"$@\"\nEOF\nchmod +x \"$install_dir/{name}\"\n\"$install_dir/{name}\" --help >/dev/null",
-        name = command_name,
-        target = shell_quote_arg(&wsl_cli_path),
-    );
+    let script = build_wsl_cli_shim_install_script(command_name, &wsl_cli_path);
     let mut command = Command::new("wsl.exe");
     command.args(["--", "sh", "-lc"]).arg(script);
     hide_windows_child_console(&mut command);
@@ -390,6 +386,33 @@ fn install_cli_wsl_shim(install_path: &std::path::Path) -> anyhow::Result<()> {
         (false, false) => format!("status={} stdout={stdout} stderr={stderr}", output.status),
     };
     anyhow::bail!("WSL CLI install failed: {}", detail)
+}
+
+fn build_wsl_cli_shim_install_script(command_name: &str, wsl_cli_path: &str) -> String {
+    format!(
+        r#"set -eu
+home_dir="${{HOME:-}}"
+if [ -z "$home_dir" ] && command -v getent >/dev/null 2>&1; then
+  home_dir="$(getent passwd "$(id -un)" | cut -d: -f6 || true)"
+fi
+if [ -z "$home_dir" ]; then
+  home_dir="$(pwd)"
+fi
+if [ -z "$home_dir" ]; then
+  printf '%s\n' 'Unable to resolve WSL home directory for Helmor CLI install.' >&2
+  exit 1
+fi
+install_dir="$home_dir/.local/bin"
+mkdir -p "$install_dir"
+cat > "$install_dir/{name}" <<'EOF'
+#!/bin/sh
+exec {target} "$@"
+EOF
+chmod +x "$install_dir/{name}"
+"$install_dir/{name}" --help >/dev/null"#,
+        name = command_name,
+        target = shell_quote_arg(wsl_cli_path),
+    )
 }
 
 fn windows_path_to_wsl(path: &std::path::Path) -> Option<String> {
@@ -2000,6 +2023,17 @@ mod tests {
             command,
             "sudo ln -sfn '/Applications/Helmor.app/Contents/MacOS/helmor-cli' '/usr/local/bin/helmor-dev'"
         );
+    }
+
+    #[test]
+    fn wsl_cli_shim_install_script_resolves_home_before_mkdir() {
+        let script = build_wsl_cli_shim_install_script("helmor", "/mnt/c/helmor/bin/helmor.exe");
+
+        assert!(script.contains("home_dir=\"${HOME:-}\""));
+        assert!(script.contains("getent passwd"));
+        assert!(script.contains("install_dir=\"$home_dir/.local/bin\""));
+        assert!(!script.contains("mkdir -p \"$HOME/.local/bin\""));
+        assert!(script.contains("exec '/mnt/c/helmor/bin/helmor.exe' \"$@\""));
     }
 
     #[test]
