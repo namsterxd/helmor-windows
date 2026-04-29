@@ -576,7 +576,7 @@ describe("App global navigation shortcuts", () => {
 		await waitFor(() => {
 			expectSelectedSession("Done session 2");
 		});
-	}, 10_000);
+	}, 30_000);
 
 	it("navigates sessions using query order", async () => {
 		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
@@ -620,7 +620,7 @@ describe("App global navigation shortcuts", () => {
 		await waitFor(() => {
 			expectSelectedSession("Done session 3");
 		});
-	}, 10_000);
+	}, 30_000);
 
 	it("creates a new session on Command+T", async () => {
 		await renderAppReady();
@@ -653,7 +653,7 @@ describe("App global navigation shortcuts", () => {
 		});
 
 		await screen.findByRole("dialog");
-	}, 10_000);
+	}, 30_000);
 
 	it("opens the add repository menu on Command+Shift+N", async () => {
 		await renderAppReady();
@@ -884,7 +884,7 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedSession("Done session 3");
 		});
 		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-2");
-	}, 10_000);
+	}, 30_000);
 
 	it("selects the left session after closing the rightmost session", async () => {
 		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
@@ -920,7 +920,7 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedSession("Done session 2");
 		});
 		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-3");
-	}, 10_000);
+	}, 30_000);
 
 	it("keeps the active session when closing an inactive session tab", async () => {
 		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
@@ -948,7 +948,7 @@ describe("App global navigation shortcuts", () => {
 			expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-2");
 		});
 		expectSelectedSession("Done session 1");
-	}, 10_000);
+	}, 30_000);
 
 	it("quits silently on a Rust-emitted quit-requested event when nothing is in flight", async () => {
 		apiMocks.requestQuit.mockReset();

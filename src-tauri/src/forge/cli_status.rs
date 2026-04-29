@@ -238,10 +238,7 @@ pub(crate) fn github_status_wsl() -> Result<ForgeCliStatus> {
 }
 
 #[cfg(any(windows, test))]
-fn prefer_wsl_github_status(
-    native: ForgeCliStatus,
-    wsl: Result<ForgeCliStatus>,
-) -> ForgeCliStatus {
+fn prefer_wsl_github_status(native: ForgeCliStatus, wsl: Result<ForgeCliStatus>) -> ForgeCliStatus {
     if matches!(native, ForgeCliStatus::Ready { .. }) {
         return native;
     }
@@ -668,9 +665,6 @@ mod wsl_auth_command_tests {
             message: "GitHub CLI ready in WSL as wsl-user.".to_string(),
         };
 
-        assert_eq!(
-            prefer_wsl_github_status(native.clone(), Ok(wsl)),
-            native
-        );
+        assert_eq!(prefer_wsl_github_status(native.clone(), Ok(wsl)), native);
     }
 }

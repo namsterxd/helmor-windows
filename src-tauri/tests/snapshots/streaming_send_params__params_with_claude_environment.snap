@@ -3,6 +3,7 @@ source: tests/streaming_send_params.rs
 assertion_line: 139
 expression: "&params"
 ---
+agentTarget: ~
 claudeEnvironment:
   ANTHROPIC_AUTH_TOKEN: sk-test
   ANTHROPIC_BASE_URL: "https://api.example.com/anthropic"

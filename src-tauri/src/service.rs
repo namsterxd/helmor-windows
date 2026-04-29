@@ -625,7 +625,9 @@ mod tests {
 
     #[test]
     fn is_app_running_is_false_without_listener() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let data = TestDataDir::new("ui-sync-running");
         assert!(
             !crate::ui_sync::is_listener_running(),
@@ -643,7 +645,9 @@ mod tests {
 
     #[test]
     fn drain_returns_empty_when_no_pending_sends() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _dir = TestDataDir::new("drain-empty");
 
         let sends = drain_pending_cli_sends().unwrap();
@@ -652,7 +656,9 @@ mod tests {
 
     #[test]
     fn insert_and_drain_round_trip() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _dir = TestDataDir::new("insert-drain");
 
         let id = insert_pending_cli_send(
@@ -680,7 +686,9 @@ mod tests {
 
     #[test]
     fn drain_returns_oldest_first() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _dir = TestDataDir::new("drain-order");
 
         insert_pending_cli_send("ws-1", "sess-a", "first", None, None).unwrap();
@@ -696,7 +704,9 @@ mod tests {
 
     #[test]
     fn insert_with_null_optional_fields() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _dir = TestDataDir::new("null-fields");
 
         insert_pending_cli_send("ws-1", "sess-1", "hello", None, None).unwrap();
@@ -709,7 +719,9 @@ mod tests {
 
     #[test]
     fn create_session_persists_requested_plan_mode() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _dir = TestDataDir::new("create-session-plan");
 
         let db_path = crate::data_dir::db_path().unwrap();
@@ -739,7 +751,9 @@ mod tests {
 
     #[test]
     fn create_action_session_uses_local_default_title() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _dir = TestDataDir::new("create-session-action-title");
 
         let db_path = crate::data_dir::db_path().unwrap();

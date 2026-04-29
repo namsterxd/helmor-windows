@@ -368,8 +368,8 @@ try {
 				Invoke-Step "Running sidecar tests" {
 					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "test:sidecar")
 				}
-				Invoke-Step "Compiling Rust tests" {
-					Invoke-NativeCommandLogged -FilePath "cargo" -ArgumentList @("test", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets", "--no-run")
+				Invoke-Step "Running Rust tests" {
+					Invoke-NativeCommandLogged -FilePath "cargo" -ArgumentList @("test", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets")
 				}
 			} elseif (-not $SkipTests) {
 				Write-Host "Skipping full unit suites on Windows smoke run. Use -FullTests to run them." -ForegroundColor Yellow

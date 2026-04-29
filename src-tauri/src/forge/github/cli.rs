@@ -444,9 +444,7 @@ fn github_cli_status_from_token(
             stdout,
             stderr,
             code,
-        }) if looks_like_unauthenticated(&command_error_detail(&stdout, &stderr, code)) => {
-            Ok(None)
-        }
+        }) if looks_like_unauthenticated(&command_error_detail(&stdout, &stderr, code)) => Ok(None),
         Err(GhCommandError::NotFound)
         | Err(GhCommandError::Failed { .. })
         | Err(GhCommandError::Other(_)) => Ok(None),

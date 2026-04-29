@@ -671,7 +671,8 @@ mod candidate_directories_tests {
             assert_eq!(row.repo_name, "alpha");
             // repo_initials are derived from the repo name at display time.
             assert!(!row.repo_initials.is_empty());
-            assert!(row.absolute_path.ends_with("/alpha/feat-x"));
+            assert!(std::path::Path::new(&row.absolute_path)
+                .ends_with(std::path::Path::new("alpha").join("feat-x")));
         });
     }
 }

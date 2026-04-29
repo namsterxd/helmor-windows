@@ -88,25 +88,81 @@ fn hide_child_console(command: &mut Command) {
 mod tests {
     use super::*;
 
+    fn success_stdout_command() -> Command {
+        #[cfg(windows)]
+        {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/C", "echo hello"]);
+            cmd
+        }
+        #[cfg(not(windows))]
+        {
+            let mut cmd = Command::new("/bin/echo");
+            cmd.arg("hello");
+            cmd
+        }
+    }
+
+    fn success_status_command() -> Command {
+        #[cfg(windows)]
+        {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/C", "echo ok"]);
+            cmd
+        }
+        #[cfg(not(windows))]
+        {
+            let mut cmd = Command::new("/bin/echo");
+            cmd.arg("ok");
+            cmd
+        }
+    }
+
+    fn nonzero_command() -> Command {
+        #[cfg(windows)]
+        {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/C", "exit 1"]);
+            cmd
+        }
+        #[cfg(not(windows))]
+        {
+            Command::new("/usr/bin/false")
+        }
+    }
+
+    fn long_running_command() -> Command {
+        #[cfg(windows)]
+        {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/C", "ping -n 6 127.0.0.1 >NUL"]);
+            cmd
+        }
+        #[cfg(not(windows))]
+        {
+            let mut cmd = Command::new("/bin/sleep");
+            cmd.arg("5");
+            cmd
+        }
+    }
+
     #[test]
     fn run_with_timeout_returns_stdout_on_success() {
-        let mut cmd = Command::new("/bin/echo");
-        cmd.arg("hello");
+        let mut cmd = success_stdout_command();
         let out = run_with_timeout(&mut cmd, Duration::from_secs(2)).expect("should succeed");
         assert_eq!(out.trim(), "hello");
     }
 
     #[test]
     fn run_with_timeout_returns_none_on_nonzero_exit() {
-        let mut cmd = Command::new("/usr/bin/false");
+        let mut cmd = nonzero_command();
         let out = run_with_timeout(&mut cmd, Duration::from_secs(2));
         assert!(out.is_none());
     }
 
     #[test]
     fn run_with_timeout_kills_long_running_process() {
-        let mut cmd = Command::new("/bin/sleep");
-        cmd.arg("5");
+        let mut cmd = long_running_command();
         let started = Instant::now();
         let out = run_with_timeout(&mut cmd, Duration::from_millis(200));
         assert!(out.is_none());
@@ -118,23 +174,21 @@ mod tests {
 
     #[test]
     fn wait_with_timeout_returns_status_on_success() {
-        let mut cmd = Command::new("/bin/echo");
-        cmd.arg("ok");
+        let mut cmd = success_status_command();
         let status = wait_with_timeout(&mut cmd, Duration::from_secs(2)).expect("should run");
         assert!(status.success());
     }
 
     #[test]
     fn wait_with_timeout_returns_status_on_nonzero_exit() {
-        let mut cmd = Command::new("/usr/bin/false");
+        let mut cmd = nonzero_command();
         let status = wait_with_timeout(&mut cmd, Duration::from_secs(2)).expect("should run");
         assert!(!status.success());
     }
 
     #[test]
     fn wait_with_timeout_returns_none_when_killed() {
-        let mut cmd = Command::new("/bin/sleep");
-        cmd.arg("5");
+        let mut cmd = long_running_command();
         let started = Instant::now();
         let status = wait_with_timeout(&mut cmd, Duration::from_millis(200));
         assert!(status.is_none());

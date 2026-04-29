@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -90,22 +90,60 @@ fn resolve_bundled_agent_paths() -> BundledAgentPaths {
         .unwrap_or_default()
 }
 
-fn resolve_bundled_agent_paths_for_exe(exe: &std::path::Path) -> Option<BundledAgentPaths> {
+fn resolve_bundled_agent_paths_for_exe(exe: &Path) -> Option<BundledAgentPaths> {
     let exe_dir = exe.parent()?;
-    let contents_dir = exe_dir.parent()?;
-    let resources_dir = contents_dir.join("Resources");
-    let codex_bin_name = if cfg!(windows) { "codex.exe" } else { "codex" };
-    let bun_bin_name = if cfg!(windows) { "bun.exe" } else { "bun" };
+    for root in bundled_agent_resource_root_candidates(exe_dir) {
+        let paths = resolve_bundled_agent_paths_for_resource_root(&root);
+        if paths.claude_cli.is_some() || paths.codex_bin.is_some() || paths.bun_bin.is_some() {
+            return Some(paths);
+        }
+    }
 
-    let claude_cli = resources_dir.join("vendor/claude-code/cli.js");
-    let codex_bin = resources_dir.join(format!("vendor/codex/{codex_bin_name}"));
-    let bun_bin = resources_dir.join(format!("vendor/bun/{bun_bin_name}"));
+    Some(BundledAgentPaths::default())
+}
 
-    Some(BundledAgentPaths {
+fn bundled_agent_resource_root_candidates(exe_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(contents_dir) = exe_dir.parent() {
+        roots.push(contents_dir.join("Resources"));
+    }
+    roots.push(exe_dir.to_path_buf());
+    roots.push(exe_dir.join("resources"));
+    roots.push(exe_dir.join("Resources"));
+    roots
+}
+
+fn resolve_bundled_agent_paths_for_resource_root(root: &Path) -> BundledAgentPaths {
+    for vendor in [root.join("vendor"), root.to_path_buf()] {
+        let paths = resolve_bundled_agent_paths_for_vendor_root(&vendor);
+        if paths.claude_cli.is_some() || paths.codex_bin.is_some() || paths.bun_bin.is_some() {
+            return paths;
+        }
+    }
+    BundledAgentPaths::default()
+}
+
+fn resolve_bundled_agent_paths_for_vendor_root(vendor: &Path) -> BundledAgentPaths {
+    let codex_bin_name = bundled_agent_binary_name("codex");
+    let bun_bin_name = bundled_agent_binary_name("bun");
+
+    let claude_cli = vendor.join("claude-code").join("cli.js");
+    let codex_bin = vendor.join("codex").join(codex_bin_name);
+    let bun_bin = vendor.join("bun").join(bun_bin_name);
+
+    BundledAgentPaths {
         claude_cli: claude_cli.is_file().then_some(claude_cli),
         codex_bin: codex_bin.is_file().then_some(codex_bin),
         bun_bin: bun_bin.is_file().then_some(bun_bin),
-    })
+    }
+}
+
+fn bundled_agent_binary_name(program: &str) -> String {
+    if cfg!(windows) {
+        format!("{program}.exe")
+    } else {
+        program.to_string()
+    }
 }
 
 impl SidecarProcess {
@@ -836,26 +874,69 @@ mod tests {
         std::fs::create_dir_all(resources.join("claude-code")).unwrap();
         std::fs::create_dir_all(resources.join("codex")).unwrap();
         std::fs::create_dir_all(resources.join("bun")).unwrap();
-        std::fs::write(resources.join("claude-code/cli.js"), "").unwrap();
-        std::fs::write(resources.join("codex/codex"), "").unwrap();
-        std::fs::write(resources.join("bun/bun"), "").unwrap();
+        let claude = resources.join("claude-code/cli.js");
+        let codex = resources
+            .join("codex")
+            .join(bundled_agent_binary_name("codex"));
+        let bun = resources.join("bun").join(bundled_agent_binary_name("bun"));
+        std::fs::write(&claude, "").unwrap();
+        std::fs::write(&codex, "").unwrap();
+        std::fs::write(&bun, "").unwrap();
 
         let paths = resolve_bundled_agent_paths_for_exe(&exe).unwrap();
 
-        assert_eq!(
-            paths.claude_cli.unwrap(),
-            root.path()
-                .join("Helmor.app/Contents/Resources/vendor/claude-code/cli.js")
-        );
-        assert_eq!(
-            paths.codex_bin.unwrap(),
-            root.path()
-                .join("Helmor.app/Contents/Resources/vendor/codex/codex")
-        );
-        assert_eq!(
-            paths.bun_bin.unwrap(),
-            root.path()
-                .join("Helmor.app/Contents/Resources/vendor/bun/bun")
-        );
+        assert_eq!(paths.claude_cli.unwrap(), claude);
+        assert_eq!(paths.codex_bin.unwrap(), codex);
+        assert_eq!(paths.bun_bin.unwrap(), bun);
+    }
+
+    #[test]
+    fn bundled_agent_paths_resolve_from_windows_resource_layout() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("Helmor");
+        let exe = exe_dir.join("Helmor.exe");
+        let vendor = exe_dir.join("resources/vendor");
+        std::fs::create_dir_all(vendor.join("claude-code")).unwrap();
+        std::fs::create_dir_all(vendor.join("codex")).unwrap();
+        std::fs::create_dir_all(vendor.join("bun")).unwrap();
+        let claude = vendor.join("claude-code/cli.js");
+        let codex = vendor
+            .join("codex")
+            .join(bundled_agent_binary_name("codex"));
+        let bun = vendor.join("bun").join(bundled_agent_binary_name("bun"));
+        std::fs::write(&claude, "").unwrap();
+        std::fs::write(&codex, "").unwrap();
+        std::fs::write(&bun, "").unwrap();
+
+        let paths = resolve_bundled_agent_paths_for_exe(&exe).unwrap();
+
+        assert_eq!(paths.claude_cli.unwrap(), claude);
+        assert_eq!(paths.codex_bin.unwrap(), codex);
+        assert_eq!(paths.bun_bin.unwrap(), bun);
+    }
+
+    #[test]
+    fn bundled_agent_paths_resolve_from_vendor_next_to_exe() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("Helmor");
+        let exe = exe_dir.join("Helmor.exe");
+        let vendor = exe_dir.join("vendor");
+        std::fs::create_dir_all(vendor.join("claude-code")).unwrap();
+        std::fs::create_dir_all(vendor.join("codex")).unwrap();
+        std::fs::create_dir_all(vendor.join("bun")).unwrap();
+        let claude = vendor.join("claude-code/cli.js");
+        let codex = vendor
+            .join("codex")
+            .join(bundled_agent_binary_name("codex"));
+        let bun = vendor.join("bun").join(bundled_agent_binary_name("bun"));
+        std::fs::write(&claude, "").unwrap();
+        std::fs::write(&codex, "").unwrap();
+        std::fs::write(&bun, "").unwrap();
+
+        let paths = resolve_bundled_agent_paths_for_exe(&exe).unwrap();
+
+        assert_eq!(paths.claude_cli.unwrap(), claude);
+        assert_eq!(paths.codex_bin.unwrap(), codex);
+        assert_eq!(paths.bun_bin.unwrap(), bun);
     }
 }

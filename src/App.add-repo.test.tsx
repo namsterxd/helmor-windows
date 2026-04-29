@@ -301,7 +301,7 @@ describe("App add repository flow", () => {
 		});
 
 		expect(screen.getByText("Acamar")).toBeInTheDocument();
-	}, 10_000);
+	}, 30_000);
 
 	it("treats picker cancel as a no-op", async () => {
 		const user = userEvent.setup();
@@ -320,7 +320,7 @@ describe("App add repository flow", () => {
 		});
 		expect(apiMocks.addRepositoryFromLocalPath).not.toHaveBeenCalled();
 		expect(screen.queryByText("Acamar")).not.toBeInTheDocument();
-	}, 10_000);
+	}, 30_000);
 
 	it("focuses the existing workspace when the repository already exists", async () => {
 		const user = userEvent.setup();
@@ -347,7 +347,7 @@ describe("App add repository flow", () => {
 		});
 
 		expect(screen.queryByText("Acamar")).not.toBeInTheDocument();
-	}, 10_000);
+	}, 30_000);
 
 	it("shows add-repository failures inline", async () => {
 		const user = userEvent.setup();
@@ -368,5 +368,5 @@ describe("App add repository flow", () => {
 				screen.getByText("Selected directory is not a Git working tree"),
 			).toBeInTheDocument();
 		});
-	}, 10_000);
+	}, 30_000);
 });

@@ -318,5 +318,5 @@ describe("App create workspace flow", () => {
 		expect(apiMocks.loadSessionThreadMessages).not.toHaveBeenCalledWith(
 			createRuntime.sessionId,
 		);
-	}, 10_000);
+	}, 30_000);
 });

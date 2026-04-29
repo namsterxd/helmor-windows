@@ -2005,6 +2005,9 @@ mod tests {
         fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
         fs::create_dir_all(install_path.parent().unwrap()).unwrap();
         fs::write(&bundled_cli, "#!/bin/sh\n").unwrap();
+        #[cfg(windows)]
+        fs::write(&install_path, "# stale copy\n").unwrap();
+        #[cfg(not(windows))]
         fs::write(&install_path, "#!/bin/sh\n").unwrap();
 
         assert_eq!(

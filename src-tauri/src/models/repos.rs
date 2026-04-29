@@ -235,12 +235,13 @@ fn query_repository_candidates_by_name(
     repository_name: &str,
 ) -> Result<Vec<RepositoryRecord>> {
     let root_suffix = format!("%/{repository_name}");
+    let windows_root_suffix = format!(r"%\{repository_name}");
     let mut statement = connection
         .prepare(
             r#"
             SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider
             FROM repos
-            WHERE name = ?1 OR root_path LIKE ?2
+            WHERE name = ?1 OR root_path LIKE ?2 OR root_path LIKE ?3
             ORDER BY created_at ASC
             "#,
         )
@@ -249,19 +250,26 @@ fn query_repository_candidates_by_name(
         })?;
 
     let rows = statement
-        .query_map([repository_name, root_suffix.as_str()], |row| {
-            Ok(RepositoryRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                remote: row.get(2)?,
-                default_branch: row.get(3)?,
-                root_path: row.get(4)?,
-                setup_script: row.get(5)?,
-                run_script: row.get(6)?,
-                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
-                forge_provider: row.get(8)?,
-            })
-        })
+        .query_map(
+            [
+                repository_name,
+                root_suffix.as_str(),
+                windows_root_suffix.as_str(),
+            ],
+            |row| {
+                Ok(RepositoryRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    remote: row.get(2)?,
+                    default_branch: row.get(3)?,
+                    root_path: row.get(4)?,
+                    setup_script: row.get(5)?,
+                    run_script: row.get(6)?,
+                    auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
+                    forge_provider: row.get(8)?,
+                })
+            },
+        )
         .with_context(|| format!("Failed to query repository candidates for {repository_name}"))?;
 
     rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -1140,9 +1148,17 @@ fn resolve_head_from_ls_remote(repo_root: &Path, remote: &str) -> Result<String>
 }
 
 pub(crate) fn normalize_filesystem_path(path: &Path) -> Option<String> {
-    fs::canonicalize(path)
-        .ok()
-        .map(|canonicalized| canonicalized.display().to_string())
+    fs::canonicalize(path).ok().map(|canonicalized| {
+        let path = canonicalized.display().to_string();
+        #[cfg(windows)]
+        {
+            path.trim_start_matches(r"\\?\").replace('\\', "/")
+        }
+        #[cfg(not(windows))]
+        {
+            path
+        }
+    })
 }
 
 #[cfg(test)]

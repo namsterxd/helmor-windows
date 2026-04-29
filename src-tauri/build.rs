@@ -8,6 +8,7 @@ const UPDATER_PUBKEY_KEY: &str = "HELMOR_UPDATER_PUBKEY";
 
 fn main() {
     ensure_external_bin_placeholders();
+    emit_windows_test_manifest_dependency();
 
     println!("cargo:rerun-if-changed=build.rs");
     for key in [
@@ -31,6 +32,46 @@ fn main() {
     }
 
     tauri_build::build();
+}
+
+fn emit_windows_test_manifest_dependency() {
+    let Ok(target) = env::var("TARGET") else {
+        return;
+    };
+    if !target.contains("windows-msvc") {
+        return;
+    }
+
+    // Rust test harnesses do not inherit Tauri's Windows application manifest.
+    // Without comctl32 v6, the loader picks the legacy common-controls DLL,
+    // which lacks TaskDialogIndirect and aborts before unit tests can start.
+    let Ok(out_dir) = env::var("OUT_DIR") else {
+        return;
+    };
+    let manifest_path = PathBuf::from(out_dir).join("windows-test-common-controls.manifest");
+    let manifest = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>
+"#;
+
+    if let Err(error) = fs::write(&manifest_path, manifest) {
+        println!(
+            "cargo:warning=failed to write Windows test manifest {}: {error}",
+            manifest_path.display()
+        );
+        return;
+    }
+
+    println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+    println!(
+        "cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}",
+        manifest_path.display()
+    );
 }
 
 fn ensure_external_bin_placeholders() {

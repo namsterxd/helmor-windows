@@ -17,6 +17,7 @@ const WATCH_IGNORED = [
 const logger = createLogger();
 const defaultWarn = logger.warn;
 const defaultWarnOnce = logger.warnOnce;
+const isWindows = process.platform === "win32";
 
 logger.warn = (message, options) => {
 	if (message.includes("[PLUGIN_TIMINGS]")) return;
@@ -111,6 +112,13 @@ export default defineConfig(async () => ({
 		// load. Retry twice in CI so a single scheduling hiccup does not
 		// fail the whole run; local dev stays strict.
 		retry: process.env.CI ? 2 : 0,
+		// The native Windows smoke harness captures stdout/stderr through
+		// PowerShell so its heaviest React integration specs run slower than
+		// an interactive Vitest invocation. Keep local Unix runs strict while
+		// giving Windows enough room to exercise the same behavior.
+		testTimeout: isWindows ? 30_000 : 5_000,
+		hookTimeout: isWindows ? 30_000 : 10_000,
+		maxWorkers: isWindows ? "50%" : undefined,
 		// Sidecar tests are written for `bun:test`, not vitest. Exclude them
 		// so `bun run test:frontend` doesn't trip on `import ... from "bun:test"`.
 		// Same for the Rust + fixtures trees which contain no TS tests.

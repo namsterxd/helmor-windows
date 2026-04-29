@@ -148,7 +148,9 @@ mod tests {
 
     #[test]
     fn strips_result_and_copies_saved_image() {
-        let _guard = crate::data_dir::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::data_dir::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source.png");
         fs::write(&source, b"png-bytes").unwrap();
@@ -171,7 +173,11 @@ mod tests {
         assert!(item.get("result").is_none());
 
         let saved_path = item.get("saved_path").and_then(Value::as_str).unwrap();
-        assert!(saved_path.contains("generated-images/session_1/ig_1.png"));
+        assert!(std::path::Path::new(saved_path).ends_with(
+            std::path::Path::new("generated-images")
+                .join("session_1")
+                .join("ig_1.png")
+        ));
         assert_eq!(fs::read(saved_path).unwrap(), b"png-bytes");
 
         std::env::remove_var("HELMOR_DATA_DIR");
@@ -179,7 +185,9 @@ mod tests {
 
     #[test]
     fn writes_base64_when_saved_path_is_missing() {
-        let _guard = crate::data_dir::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::data_dir::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let temp = tempfile::tempdir().unwrap();
         std::env::set_var("HELMOR_DATA_DIR", temp.path().join("helmor-data"));
 

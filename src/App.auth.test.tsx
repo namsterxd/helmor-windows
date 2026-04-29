@@ -245,7 +245,7 @@ describe("App GitHub identity states", () => {
 				"app.onboarding_completed": "true",
 			},
 		});
-	}, 10_000);
+	}, 30_000);
 
 	it("renders the shell while GitHub account is disconnected", async () => {
 		render(<App />);
@@ -305,7 +305,7 @@ describe("App GitHub identity states", () => {
 		expect(
 			screen.getByRole("button", { name: "Continue with GitHub" }),
 		).toBeInTheDocument();
-	}, 10_000);
+	}, 30_000);
 
 	it("uses a compact GitHub trigger in the toolbar", async () => {
 		apiMocks.loadGithubIdentitySession.mockResolvedValue({

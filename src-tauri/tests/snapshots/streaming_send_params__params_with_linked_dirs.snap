@@ -5,6 +5,7 @@ expression: "&params"
 additionalDirectories:
   - /abs/claw-code
   - /abs/rust
+agentTarget: ~
 cwd: /abs/workspace
 effortLevel: high
 fastMode: false

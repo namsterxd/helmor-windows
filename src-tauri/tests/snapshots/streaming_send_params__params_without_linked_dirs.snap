@@ -2,6 +2,7 @@
 source: tests/streaming_send_params.rs
 expression: "&params"
 ---
+agentTarget: ~
 cwd: /abs/workspace
 effortLevel: high
 fastMode: false
