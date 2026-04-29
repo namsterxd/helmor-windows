@@ -41,7 +41,9 @@ pub use workspace::state as workspace_state;
 pub use workspace::status as workspace_status;
 pub use workspace::workspaces;
 
-use tauri::{Emitter, Manager};
+#[cfg(not(windows))]
+use tauri::Emitter;
+use tauri::Manager;
 
 /// Initialise the database schema (call once at startup).
 pub fn schema_init(conn: &rusqlite::Connection) {
@@ -358,8 +360,17 @@ pub fn run() {
             event: tauri::WindowEvent::CloseRequested { api, .. },
             ..
         } if label == "main" => {
-            api.prevent_close();
-            emit_quit_requested(app_handle);
+            #[cfg(windows)]
+            {
+                api.prevent_close();
+                shutdown_for_exit(app_handle, false);
+                app_handle.exit(0);
+            }
+            #[cfg(not(windows))]
+            {
+                api.prevent_close();
+                emit_quit_requested(app_handle);
+            }
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::ExitRequested {
@@ -382,6 +393,7 @@ pub fn run() {
 // If the emit fails the webview is almost certainly gone, so falling
 // back to a direct exit is safer than leaving the process hanging with
 // no UI and no way to quit.
+#[cfg(not(windows))]
 fn emit_quit_requested(app_handle: &tauri::AppHandle) {
     if let Err(e) = app_handle.emit("helmor://quit-requested", ()) {
         tracing::warn!(
@@ -390,6 +402,30 @@ fn emit_quit_requested(app_handle: &tauri::AppHandle) {
         );
         app_handle.exit(0);
     }
+}
+
+#[cfg(windows)]
+fn shutdown_for_exit(app_handle: &tauri::AppHandle, force: bool) {
+    app_handle
+        .state::<git_watcher::GitWatcherManager>()
+        .shutdown();
+    app_handle
+        .state::<workspace::scripts::ScriptProcessManager>()
+        .kill_all();
+
+    if force {
+        let sidecar = app_handle.state::<sidecar::ManagedSidecar>();
+        let active = app_handle.state::<agents::ActiveStreams>();
+        agents::abort_all_active_streams_blocking(
+            &sidecar,
+            &active,
+            std::time::Duration::from_millis(750),
+        );
+    }
+
+    app_handle
+        .state::<sidecar::ManagedSidecar>()
+        .shutdown(std::time::Duration::from_millis(250), std::time::Duration::from_millis(100));
 }
 
 #[cfg(target_os = "macos")]

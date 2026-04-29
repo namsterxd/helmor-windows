@@ -1767,6 +1767,7 @@ pub async fn request_quit(app: tauri::AppHandle, force: bool) {
 
     // 1. Stop filesystem watchers so no new events arrive.
     app.state::<git_watcher::GitWatcherManager>().shutdown();
+    app.state::<ScriptProcessManager>().kill_all();
 
     // 2. If tasks are in flight, gracefully stop every active stream.
     if force {

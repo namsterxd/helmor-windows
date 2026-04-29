@@ -203,19 +203,7 @@ pub(crate) fn labels_for(provider: ForgeProvider) -> ForgeLabels {
 }
 
 pub(crate) fn github_status() -> Result<ForgeCliStatus> {
-    let native = github_status_native()?;
-    if matches!(native, ForgeCliStatus::Ready { .. }) || !cfg!(windows) {
-        return Ok(native);
-    }
-
-    match github_status_wsl() {
-        Ok(ready @ ForgeCliStatus::Ready { .. }) => Ok(ready),
-        Ok(_) => Ok(native),
-        Err(error) => {
-            tracing::debug!(%error, "GitHub CLI WSL status fallback failed");
-            Ok(native)
-        }
-    }
+    github_status_native()
 }
 
 pub(crate) fn github_status_native() -> Result<ForgeCliStatus> {

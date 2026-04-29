@@ -121,6 +121,17 @@ mod unix_impl {
             }
         }
 
+        pub fn kill_all(&self) {
+            let handles = {
+                let mut map = self.processes.lock().expect("process map poisoned");
+                map.drain().map(|(_, handle)| handle).collect::<Vec<_>>()
+            };
+            for handle in handles {
+                handle.killed.store(true, Ordering::Release);
+                escalating_kill(handle.pid, handle.pgid);
+            }
+        }
+
         /// Write bytes into the PTY master (user typing, paste, Ctrl+C).
         /// Returns `Ok(false)` if no live script matches the key — callers
         /// treat that as a silent no-op (the user typed into a dead terminal).
@@ -1113,6 +1124,17 @@ mod windows_impl {
                     true
                 }
                 None => false,
+            }
+        }
+
+        pub fn kill_all(&self) {
+            let handles = {
+                let mut map = self.processes.lock().expect("process map poisoned");
+                map.drain().map(|(_, handle)| handle).collect::<Vec<_>>()
+            };
+            for handle in handles {
+                handle.killed.store(true, Ordering::Release);
+                kill_process_tree(handle.pid);
             }
         }
 
