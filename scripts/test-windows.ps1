@@ -116,6 +116,56 @@ function Invoke-ProcessWithHeartbeat {
 	}
 }
 
+function Invoke-NativeCommandLogged {
+	param(
+		[string]$FilePath,
+		[string[]]$ArgumentList,
+		[int]$HeartbeatSeconds = 30
+	)
+
+	$commandLine = "$FilePath $($ArgumentList -join ' ')"
+	Write-Host "$ $commandLine"
+	$stdoutPath = [System.IO.Path]::GetTempFileName()
+	$stderrPath = [System.IO.Path]::GetTempFileName()
+	try {
+		$process = Start-Process `
+			-FilePath $FilePath `
+			-ArgumentList $ArgumentList `
+			-RedirectStandardOutput $stdoutPath `
+			-RedirectStandardError $stderrPath `
+			-PassThru
+		$sw = [Diagnostics.Stopwatch]::StartNew()
+		while (-not $process.HasExited) {
+			Start-Sleep -Seconds $HeartbeatSeconds
+			if (-not $process.HasExited) {
+				$elapsed = [math]::Round($sw.Elapsed.TotalMinutes, 1)
+				Write-Host "still running: $commandLine (${elapsed}m elapsed)" -ForegroundColor DarkGray
+			}
+		}
+		$process.WaitForExit()
+		$process.Refresh()
+		$sw.Stop()
+
+		foreach ($line in Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue) {
+			Write-Host $line
+		}
+		foreach ($line in Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue) {
+			Write-Host $line
+		}
+
+		$exitCode = $process.ExitCode
+		if ($null -eq $exitCode) {
+			Write-Host "warning: $commandLine finished but Windows did not report an exit code; continuing." -ForegroundColor Yellow
+			return
+		}
+		if ($exitCode -ne 0) {
+			throw "$commandLine failed with exit code $exitCode"
+		}
+	} finally {
+		Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+	}
+}
+
 function Require-Command {
 	param(
 		[string]$Name,
@@ -278,20 +328,20 @@ try {
 		} else {
 			if (-not $SkipTests) {
 				Invoke-Step "Typechecking frontend and sidecar" {
-					bun run typecheck
+					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "typecheck")
 				}
 			}
 
 			if ($FullTests -and -not $SkipTests) {
 				Write-Host "Full frontend/sidecar/Rust test suites are currently opt-in on Windows; expect failures until the Windows test port is complete." -ForegroundColor Yellow
 				Invoke-Step "Running frontend tests" {
-					bun run test:frontend
+					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "test:frontend")
 				}
 				Invoke-Step "Running sidecar tests" {
-					bun run test:sidecar
+					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "test:sidecar")
 				}
 				Invoke-Step "Compiling Rust tests" {
-					cargo test --manifest-path src-tauri/Cargo.toml --all-targets --no-run
+					Invoke-NativeCommandLogged -FilePath "cargo" -ArgumentList @("test", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets", "--no-run")
 				}
 			} elseif (-not $SkipTests) {
 				Write-Host "Skipping full unit suites on Windows smoke run. Use -FullTests to run them." -ForegroundColor Yellow
@@ -300,7 +350,7 @@ try {
 			Invoke-Step "Building Windows sidecar and bundled vendor CLIs" {
 				Push-Location sidecar
 				try {
-					bun run build:windows
+					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("run", "build:windows")
 				} finally {
 					Pop-Location
 				}
@@ -310,7 +360,7 @@ try {
 
 			if ($BuildBundle) {
 				Invoke-Step "Building Windows Tauri debug bundle" {
-					bun x tauri build --debug
+					Invoke-NativeCommandLogged -FilePath "bun" -ArgumentList @("x", "tauri", "build", "--debug")
 				}
 			}
 
