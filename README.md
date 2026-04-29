@@ -24,6 +24,8 @@
 
 [**Download for macOS** →](https://github.com/dohooo/helmor/releases)
 
+[**Windows preview build** →](https://github.com/namsterxd/helmor-windows/releases)
+
 ## Contributing
 
 Open Helmor, Import Helmor, Ask Helmor:

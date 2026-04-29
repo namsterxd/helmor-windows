@@ -13,9 +13,8 @@ scripts\test-windows.cmd
 That command bootstraps Bun if it is missing, checks the rest of the toolchain,
 installs dependencies, typechecks the frontend and sidecar, then builds the
 Windows sidecar plus bundled `gh`, `glab`, `codex`, and `bun` vendor binaries.
-The full frontend, sidecar, and Rust test suites are available with
-`-FullTests`, but remain opt-in while their Windows-specific failures are being
-ported.
+Use `-FullTests` before publishing a Windows build; it runs the frontend,
+sidecar, and Rust test suites on the native Windows toolchain.
 
 ## Useful variants
 
@@ -37,8 +36,8 @@ bun run build:windows
 - `-Doctor` verifies Bun, sccache, Git, and Rust MSVC, installing Bun or
   sccache if needed.
 - `-SkipInstall` reuses existing dependencies.
-- `-FullTests` runs frontend, sidecar, and Rust test checks. These are opt-in
-  on Windows while the test suites are still being ported.
+- `-FullTests` runs frontend, sidecar, and Rust test checks. This is the
+  Windows release gate.
 - `-NoFrozenLockfile` retries dependency install without `--frozen-lockfile`.
 - `-Dev` prepares the Windows vendor binaries and starts `tauri dev`.
 - `-BuildBundle` runs the smoke test and then builds a Windows Tauri debug
@@ -49,6 +48,25 @@ bun run build:windows
 `HELMOR_CODEX_BIN_PATH`, `HELMOR_CLAUDE_CODE_CLI_PATH`, and `HELMOR_BUN_PATH`.
 Codex login in the Windows app uses the native Windows Codex auth store, not a
 Codex install or login from WSL.
+
+## Release installer
+
+Build the Windows installer from a native Windows PowerShell in the repo root:
+
+```powershell
+$env:PATH="$env:USERPROFILE\.bun\bin;$env:PATH"
+bun x tauri build --bundles nsis --ci
+```
+
+The installer is written to:
+
+```text
+src-tauri\target\release\bundle\nsis\Helmor_0.12.0_x64-setup.exe
+```
+
+Upload that `.exe` to the GitHub Release for Windows distribution. If PowerShell
+cannot find `bun`, run `scripts\test-windows.cmd -Doctor` first so the Windows
+runner can install Bun and update the current user's environment.
 
 ## Prerequisites
 
