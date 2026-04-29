@@ -142,7 +142,33 @@ fn resolve_data_dir() -> Result<PathBuf> {
 }
 
 fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    if let Some(home) = std::env::var_os("HOME") {
+        if !home.is_empty() {
+            return Some(PathBuf::from(home));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
+            if !profile.is_empty() {
+                return Some(PathBuf::from(profile));
+            }
+        }
+
+        if let (Some(drive), Some(path)) = (
+            std::env::var_os("HOMEDRIVE"),
+            std::env::var_os("HOMEPATH"),
+        ) {
+            if !drive.is_empty() && !path.is_empty() {
+                let mut home = std::ffi::OsString::from(drive);
+                home.push(path);
+                return Some(PathBuf::from(home));
+            }
+        }
+    }
+
+    None
 }
 
 /// Ensure all required subdirectories exist.
