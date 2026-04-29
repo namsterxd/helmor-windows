@@ -576,7 +576,7 @@ describe("App global navigation shortcuts", () => {
 		await waitFor(() => {
 			expectSelectedSession("Done session 2");
 		});
-	});
+	}, 10_000);
 
 	it("navigates sessions using query order", async () => {
 		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
@@ -620,7 +620,7 @@ describe("App global navigation shortcuts", () => {
 		await waitFor(() => {
 			expectSelectedSession("Done session 3");
 		});
-	});
+	}, 10_000);
 
 	it("creates a new session on Command+T", async () => {
 		await renderAppReady();

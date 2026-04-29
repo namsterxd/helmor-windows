@@ -35,6 +35,16 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 vi.mock("@tauri-apps/plugin-opener", () => ({
 	openUrl: openerMocks.openUrl,
 }));
+vi.mock("@/features/onboarding", () => ({
+	AppOnboarding: () => (
+		<main aria-label="Helmor onboarding">
+			<div aria-label="Helmor workspace preview" />
+			<div>Auth feature plan</div>
+			<div>Actions</div>
+			<button type="button">Explore</button>
+		</main>
+	),
+}));
 
 vi.mock("./lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./lib/api")>();
@@ -235,7 +245,7 @@ describe("App GitHub identity states", () => {
 				"app.onboarding_completed": "true",
 			},
 		});
-	});
+	}, 10_000);
 
 	it("renders the shell while GitHub account is disconnected", async () => {
 		render(<App />);

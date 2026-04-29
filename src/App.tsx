@@ -1774,9 +1774,14 @@ function AppShell({
 				queryClient.getQueryData<WorkspaceSessionSummary[]>(
 					helmorQueryKeys.workspaceSessions(workspaceId),
 				) ?? [];
+			const currentSessionId =
+				selectedSessionIdRef.current ??
+				workspaceSessions.find((session) => session.active)?.id ??
+				workspaceSessions[0]?.id ??
+				null;
 			const nextSessionId = findAdjacentSessionId(
 				workspaceSessions,
-				selectedSessionIdRef.current,
+				currentSessionId,
 				offset,
 			);
 
@@ -1995,7 +2000,21 @@ function AppShell({
 
 	const handleResolveDisplayedSession = useCallback(
 		(sessionId: string | null) => {
-			rememberSessionSelection(selectedWorkspaceIdRef.current, sessionId);
+			const workspaceId = selectedWorkspaceIdRef.current;
+			const currentSessionId = selectedSessionIdRef.current;
+			if (workspaceId && currentSessionId && currentSessionId !== sessionId) {
+				const workspaceSessions =
+					queryClient.getQueryData<WorkspaceSessionSummary[]>(
+						helmorQueryKeys.workspaceSessions(workspaceId),
+					) ?? [];
+				if (
+					workspaceSessions.some((session) => session.id === currentSessionId)
+				) {
+					return;
+				}
+			}
+
+			rememberSessionSelection(workspaceId, sessionId);
 			selectedSessionIdRef.current = sessionId;
 			setSelectedSessionId((current) =>
 				current === sessionId ? current : sessionId,
@@ -2004,7 +2023,7 @@ function AppShell({
 				current === sessionId ? current : sessionId,
 			);
 		},
-		[rememberSessionSelection],
+		[queryClient, rememberSessionSelection],
 	);
 
 	const processPendingCliSends = useCallback(async () => {
