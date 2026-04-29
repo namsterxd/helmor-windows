@@ -393,14 +393,27 @@ fn build_wsl_cli_shim_install_script(command_name: &str, wsl_cli_path: &str) -> 
     format!(
         r#"set -eu
 home_dir="${{HOME:-}}"
+if [ -z "$home_dir" ]; then
+  home_dir="$(awk -F: -v uid="$(id -u 2>/dev/null || true)" '$3 == uid {{ print $6; exit }}' /etc/passwd 2>/dev/null || true)"
+fi
 if [ -z "$home_dir" ] && command -v getent >/dev/null 2>&1; then
-  home_dir="$(getent passwd "$(id -un)" | cut -d: -f6 || true)"
+  home_dir="$(getent passwd "$(id -un 2>/dev/null || true)" | cut -d: -f6 || true)"
+fi
+if [ -z "$home_dir" ]; then
+  user_name="$(id -un 2>/dev/null || whoami 2>/dev/null || true)"
+  if [ -n "$user_name" ] && [ -d "/home/$user_name" ]; then
+    home_dir="/home/$user_name"
+  fi
+fi
+if [ -z "$home_dir" ]; then
+  home_dir="$(cd ~ 2>/dev/null && pwd -P || true)"
 fi
 if [ -z "$home_dir" ]; then
   home_dir="$(pwd)"
 fi
 if [ -z "$home_dir" ]; then
   printf '%s\n' 'Unable to resolve WSL home directory for Helmor CLI install.' >&2
+  printf 'HOME=%s USER=%s PWD=%s\n' "${{HOME:-}}" "${{USER:-}}" "$(pwd 2>/dev/null || true)" >&2
   exit 1
 fi
 install_dir="$home_dir/.local/bin"
@@ -2030,7 +2043,9 @@ mod tests {
         let script = build_wsl_cli_shim_install_script("helmor", "/mnt/c/helmor/bin/helmor.exe");
 
         assert!(script.contains("home_dir=\"${HOME:-}\""));
+        assert!(script.contains("awk -F: -v uid=\"$(id -u 2>/dev/null || true)\""));
         assert!(script.contains("getent passwd"));
+        assert!(script.contains("home_dir=\"$(cd ~ 2>/dev/null && pwd -P || true)\""));
         assert!(script.contains("install_dir=\"$home_dir/.local/bin\""));
         assert!(!script.contains("mkdir -p \"$HOME/.local/bin\""));
         assert!(script.contains("exec '/mnt/c/helmor/bin/helmor.exe' \"$@\""));
