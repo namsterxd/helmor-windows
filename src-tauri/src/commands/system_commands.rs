@@ -15,10 +15,10 @@ use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager
 use crate::{agents, git_watcher, models::db, service, sidecar};
 
 #[cfg(windows)]
-use super::common::login_terminal_shell;
-use super::common::{
-    login_terminal_command, login_terminal_initial_input, run_blocking, CmdResult, LoginShell,
-};
+use super::common::login_terminal_command_shell;
+#[cfg(not(windows))]
+use super::common::login_terminal_initial_input;
+use super::common::{login_terminal_command, run_blocking, CmdResult, LoginShell};
 
 // Best-fit fixed window size for the current onboarding motion layout.
 // Resizing is restored when onboarding exits.
@@ -1430,26 +1430,29 @@ pub async fn spawn_agent_login_terminal(
     let script_type = agent_login_script_type(&provider, shell, &instance_id);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let key = (
-            AGENT_LOGIN_REPO_ID.to_string(),
-            script_type.clone(),
-            None::<String>,
-        );
-        let command_to_send = login_terminal_initial_input(shell, &command);
-        let stdin_manager = mgr.clone();
-        std::thread::spawn(move || {
-            for _ in 0..80 {
-                match stdin_manager.write_stdin(&key, command_to_send.as_bytes()) {
-                    Ok(true) => return,
-                    Ok(false) => std::thread::sleep(std::time::Duration::from_millis(25)),
-                    Err(error) => {
-                        tracing::debug!("Agent login terminal stdin unavailable: {error}");
-                        return;
+        #[cfg(not(windows))]
+        {
+            let key = (
+                AGENT_LOGIN_REPO_ID.to_string(),
+                script_type.clone(),
+                None::<String>,
+            );
+            let command_to_send = login_terminal_initial_input(shell, &command);
+            let stdin_manager = mgr.clone();
+            std::thread::spawn(move || {
+                for _ in 0..80 {
+                    match stdin_manager.write_stdin(&key, command_to_send.as_bytes()) {
+                        Ok(true) => return,
+                        Ok(false) => std::thread::sleep(std::time::Duration::from_millis(25)),
+                        Err(error) => {
+                            tracing::debug!("Agent login terminal stdin unavailable: {error}");
+                            return;
+                        }
                     }
                 }
-            }
-            tracing::debug!("Agent login terminal was not ready for initial command");
-        });
+                tracing::debug!("Agent login terminal was not ready for initial command");
+            });
+        }
 
         if let Err(error) = run_agent_login_terminal_session(
             &mgr,
@@ -1458,6 +1461,7 @@ pub async fn spawn_agent_login_terminal(
             &working_dir,
             &context,
             channel.clone(),
+            &command,
         ) {
             let _ = channel.send(ScriptEvent::Error {
                 message: error.to_string(),
@@ -1475,16 +1479,17 @@ fn run_agent_login_terminal_session(
     working_dir: &str,
     context: &ScriptContext,
     channel: Channel<ScriptEvent>,
+    command: &str,
 ) -> anyhow::Result<Option<i32>> {
     #[cfg(windows)]
     {
-        let (shell_path, shell_args) = login_terminal_shell(shell);
+        let (shell_path, shell_args) = login_terminal_command_shell(shell);
         crate::workspace::scripts::run_script_with_shell(
             manager,
             AGENT_LOGIN_REPO_ID,
             script_type,
             None,
-            None,
+            Some(command),
             working_dir,
             context,
             channel,
@@ -1495,6 +1500,7 @@ fn run_agent_login_terminal_session(
 
     #[cfg(not(windows))]
     {
+        let _ = command;
         let _ = shell;
         crate::workspace::scripts::run_terminal_session(
             manager,

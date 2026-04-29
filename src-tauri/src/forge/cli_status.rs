@@ -99,7 +99,7 @@ pub(crate) fn forge_cli_wsl_auth_command(
     Ok(match provider {
         ForgeProvider::Github => wsl_checked_cli_command(
             "gh",
-            "gh auth status --hostname github.com >/dev/null 2>&1 || exec gh auth login",
+            "gh auth status --hostname github.com >/dev/null 2>&1 || printf '\\n' | GH_BROWSER=echo gh auth login --hostname github.com --web --git-protocol https",
             &[
                 "GitHub CLI is not installed inside WSL.",
                 "Install it in WSL, then run this again:",
@@ -584,5 +584,24 @@ mod tests {
         ));
         assert!(!looks_like_glab_unauthenticated("connection reset by peer"));
         assert!(!looks_like_glab_unauthenticated("internal server error"));
+    }
+}
+
+#[cfg(test)]
+mod wsl_auth_command_tests {
+    use super::*;
+
+    #[test]
+    fn github_wsl_auth_command_uses_web_flow_without_prompts() {
+        let command = forge_cli_wsl_auth_command(ForgeProvider::Github, None).unwrap();
+
+        assert!(command.contains("command -v gh"));
+        assert!(command.contains("gh auth status --hostname github.com"));
+        assert!(
+            command.contains(
+                "printf '\\n' | GH_BROWSER=echo gh auth login --hostname github.com --web --git-protocol https"
+            ),
+            "WSL GitHub auth should not stop on interactive prompt selection"
+        );
     }
 }

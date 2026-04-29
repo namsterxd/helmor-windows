@@ -27,22 +27,22 @@ pub(super) fn login_terminal_command(shell: LoginShell, native: String, wsl: Str
     }
 }
 
+#[cfg(not(windows))]
 pub(super) fn login_terminal_initial_input(shell: LoginShell, command: &str) -> String {
-    match shell {
-        LoginShell::Powershell if cfg!(windows) => format!("{command}; exit\r\n"),
-        LoginShell::Wsl if cfg!(windows) => format!("{command}; exit\n"),
-        _ => format!("{command}; exit\n"),
-    }
+    let _ = shell;
+    format!("{command}; exit\n")
 }
 
 #[cfg(windows)]
-pub(super) fn login_terminal_shell(shell: LoginShell) -> (&'static str, &'static [&'static str]) {
+pub(super) fn login_terminal_command_shell(
+    shell: LoginShell,
+) -> (&'static str, &'static [&'static str]) {
     match shell {
         LoginShell::Powershell => (
             "powershell.exe",
-            &["-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit"],
+            &["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"],
         ),
-        LoginShell::Wsl => ("wsl.exe", &[]),
+        LoginShell::Wsl => ("wsl.exe", &["--", "sh", "-lc"]),
     }
 }
 
@@ -55,4 +55,28 @@ where
         .await
         .map_err(|e| anyhow::anyhow!("spawn_blocking join failed: {e}"))?;
     Ok(result?)
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_wsl_login_terminal_runs_command_at_spawn() {
+        let (program, args) = login_terminal_command_shell(LoginShell::Wsl);
+
+        assert_eq!(program, "wsl.exe");
+        assert_eq!(args, &["--", "sh", "-lc"]);
+    }
+
+    #[test]
+    fn windows_powershell_login_terminal_runs_command_at_spawn() {
+        let (program, args) = login_terminal_command_shell(LoginShell::Powershell);
+
+        assert_eq!(program, "powershell.exe");
+        assert_eq!(
+            args,
+            &["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",]
+        );
+    }
 }

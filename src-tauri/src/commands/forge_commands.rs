@@ -9,10 +9,10 @@ use std::sync::Mutex;
 use tauri::{ipc::Channel, State};
 
 #[cfg(windows)]
-use super::common::login_terminal_shell;
-use super::common::{
-    login_terminal_command, login_terminal_initial_input, run_blocking, CmdResult, LoginShell,
-};
+use super::common::login_terminal_command_shell;
+#[cfg(not(windows))]
+use super::common::login_terminal_initial_input;
+use super::common::{login_terminal_command, run_blocking, CmdResult, LoginShell};
 
 /// Per-workspace marker for "we already published Unauthenticated for this
 /// workspace". The action-status poll fires every ~60s while not OK; without
@@ -104,26 +104,29 @@ pub async fn spawn_forge_cli_auth_terminal(
     let script_type = forge_cli_auth_script_type(provider, &host, shell, &instance_id);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let key = (
-            FORGE_CLI_AUTH_REPO_ID.to_string(),
-            script_type.clone(),
-            None::<String>,
-        );
-        let command_to_send = login_terminal_initial_input(shell, &command);
-        let stdin_manager = mgr.clone();
-        std::thread::spawn(move || {
-            for _ in 0..80 {
-                match stdin_manager.write_stdin(&key, command_to_send.as_bytes()) {
-                    Ok(true) => return,
-                    Ok(false) => std::thread::sleep(std::time::Duration::from_millis(25)),
-                    Err(error) => {
-                        tracing::debug!("Forge CLI auth terminal stdin unavailable: {error}");
-                        return;
+        #[cfg(not(windows))]
+        {
+            let key = (
+                FORGE_CLI_AUTH_REPO_ID.to_string(),
+                script_type.clone(),
+                None::<String>,
+            );
+            let command_to_send = login_terminal_initial_input(shell, &command);
+            let stdin_manager = mgr.clone();
+            std::thread::spawn(move || {
+                for _ in 0..80 {
+                    match stdin_manager.write_stdin(&key, command_to_send.as_bytes()) {
+                        Ok(true) => return,
+                        Ok(false) => std::thread::sleep(std::time::Duration::from_millis(25)),
+                        Err(error) => {
+                            tracing::debug!("Forge CLI auth terminal stdin unavailable: {error}");
+                            return;
+                        }
                     }
                 }
-            }
-            tracing::debug!("Forge CLI auth terminal was not ready for initial command");
-        });
+                tracing::debug!("Forge CLI auth terminal was not ready for initial command");
+            });
+        }
 
         if let Err(error) = run_forge_cli_auth_terminal_session(
             &mgr,
@@ -132,6 +135,7 @@ pub async fn spawn_forge_cli_auth_terminal(
             &working_dir,
             &context,
             channel.clone(),
+            &command,
         ) {
             let _ = channel.send(ScriptEvent::Error {
                 message: error.to_string(),
@@ -149,16 +153,17 @@ fn run_forge_cli_auth_terminal_session(
     working_dir: &str,
     context: &ScriptContext,
     channel: Channel<ScriptEvent>,
+    command: &str,
 ) -> anyhow::Result<Option<i32>> {
     #[cfg(windows)]
     {
-        let (shell_path, shell_args) = login_terminal_shell(shell);
+        let (shell_path, shell_args) = login_terminal_command_shell(shell);
         crate::workspace::scripts::run_script_with_shell(
             manager,
             FORGE_CLI_AUTH_REPO_ID,
             script_type,
             None,
-            None,
+            Some(command),
             working_dir,
             context,
             channel,
@@ -169,6 +174,7 @@ fn run_forge_cli_auth_terminal_session(
 
     #[cfg(not(windows))]
     {
+        let _ = command;
         let _ = shell;
         crate::workspace::scripts::run_terminal_session(
             manager,
