@@ -18,7 +18,9 @@ export function CliInstallPanel() {
 	const buildLabel = status?.buildMode === "development" ? "Debug" : "Release";
 	const isManaged = status?.installState === "managed";
 	const isStale = status?.installState === "stale";
-	const platformInstallLabel = isMac() ? "Install to /usr/local/bin" : "Install";
+	const platformInstallLabel = isMac()
+		? "Install to /usr/local/bin"
+		: "Install";
 	const buttonLabel = isManaged || isStale ? "Reinstall" : platformInstallLabel;
 
 	useEffect(() => {

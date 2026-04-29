@@ -7,9 +7,9 @@ import {
 	chmodSync,
 	cpSync,
 	existsSync,
-	readFileSync,
 	mkdirSync,
 	readdirSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -225,7 +225,11 @@ function stageGhWindowsBinary(arch: "winArm64" | "winAmd64"): string {
 	return stageGhZip(slug, GH_SHA256[arch], "gh.exe");
 }
 
-function stageGhZip(slug: string, expectedSha256: string, binaryName: string): string {
+function stageGhZip(
+	slug: string,
+	expectedSha256: string,
+	binaryName: string,
+): string {
 	ensureCacheDir();
 	const archive = join(BUNDLE_CACHE, `${slug}.zip`);
 	const url = `https://github.com/cli/cli/releases/download/v${GH_VERSION}/${slug}.zip`;
@@ -407,9 +411,9 @@ maybeSignMacBinary(codexDest, false);
 function locateHostBun(): string {
 	try {
 		if (process.platform === "win32") {
-			const raw = execSync("where bun", { encoding: "utf8" })
-				.trim()
-				.split(/\r?\n/)[0] ?? "";
+			const raw =
+				execSync("where bun", { encoding: "utf8" }).trim().split(/\r?\n/)[0] ??
+				"";
 			if (!raw) throw new Error("empty output");
 			return realpathSync(raw);
 		}
@@ -434,7 +438,13 @@ if (process.platform !== "win32") chmodSync(bunDest, 0o755);
 maybeSignMacBinary(bunDest, true);
 
 for (const rel of [
-	join(ccDest, "vendor", "ripgrep", target.ccVendorArch, `rg${target.binaryExt}`),
+	join(
+		ccDest,
+		"vendor",
+		"ripgrep",
+		target.ccVendorArch,
+		`rg${target.binaryExt}`,
+	),
 	join(
 		ccDest,
 		"vendor",

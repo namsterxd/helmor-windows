@@ -104,7 +104,7 @@ if (
 	}
 }
 
-vi.mock("lottie-web/build/player/lottie_svg", () => ({
+vi.mock("lottie-web/build/player/lottie_light", () => ({
 	default: {
 		loadAnimation: vi.fn(() => ({
 			destroy: vi.fn(),

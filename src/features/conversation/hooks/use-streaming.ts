@@ -46,8 +46,7 @@ import {
 	sessionThreadCacheKey,
 	shareMessages,
 } from "@/lib/session-thread-cache";
-import type { FollowUpBehavior } from "@/lib/settings";
-import type { AgentRuntimeTarget } from "@/lib/settings";
+import type { AgentRuntimeTarget, FollowUpBehavior } from "@/lib/settings";
 import type { SubmitQueueApi } from "@/lib/use-submit-queue";
 import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import {

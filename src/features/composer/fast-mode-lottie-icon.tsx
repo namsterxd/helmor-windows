@@ -1,4 +1,4 @@
-import lottie from "lottie-web/build/player/lottie_svg";
+import lottie from "lottie-web/build/player/lottie_light";
 import { useEffect, useRef } from "react";
 import fastModeLightningAnimation from "@/assets/pikachu-lightning.json";
 import { cn } from "@/lib/utils";

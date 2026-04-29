@@ -89,11 +89,15 @@ export class CodexAppServer {
 		this.onNotification = opts.onNotification;
 		this.onRequest = opts.onRequest;
 
-		this.child = spawn(opts.binaryPath, [...(opts.args ?? buildCodexAppServerArgs())], {
-			cwd: opts.cwd,
-			stdio: ["pipe", "pipe", "pipe"],
-			windowsHide: true,
-		});
+		this.child = spawn(
+			opts.binaryPath,
+			[...(opts.args ?? buildCodexAppServerArgs())],
+			{
+				cwd: opts.cwd,
+				stdio: ["pipe", "pipe", "pipe"],
+				windowsHide: true,
+			},
+		);
 
 		this.output = readline.createInterface({ input: this.child.stdout });
 		this.output.on("line", (line) => this.handleLine(line));

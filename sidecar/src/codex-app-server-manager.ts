@@ -53,7 +53,11 @@ function codexServerOptions(
 	const wslCwd = windowsPathToWsl(cwd) ?? cwd;
 	const command = buildWslResolvedCliCommand(
 		"codex",
-		["$HOME/.npm-global/bin/codex", "$HOME/.bun/bin/codex", "$HOME/.local/bin/codex"],
+		[
+			"$HOME/.npm-global/bin/codex",
+			"$HOME/.bun/bin/codex",
+			"$HOME/.local/bin/codex",
+		],
 		buildCodexAppServerArgs(),
 		wslCwd,
 	);

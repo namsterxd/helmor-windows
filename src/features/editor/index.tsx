@@ -9,6 +9,7 @@ import {
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
 import { ShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import { readEditorFile, readFileAtRef } from "@/lib/api";
 import type { EditorSessionState } from "@/lib/editor-session";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 
@@ -79,7 +80,6 @@ export function WorkspaceEditorSurface({
 
 		void (async () => {
 			try {
-				const api = await import("@/lib/api");
 				const isDiff = editorSession.kind === "diff";
 				const status = editorSession.fileStatus ?? "M";
 				const origRef = editorSession.originalRef ?? "HEAD";
@@ -87,20 +87,20 @@ export function WorkspaceEditorSurface({
 				// Fetch original side (from git ref)
 				const originalPromise =
 					isDiff && status !== "A" && workspaceRootPath
-						? api.readFileAtRef(workspaceRootPath, editorSession.path, origRef)
+						? readFileAtRef(workspaceRootPath, editorSession.path, origRef)
 						: Promise.resolve(null);
 
 				// Fetch modified side (from disk or git ref)
 				const modifiedPromise = editorSession.modifiedRef
 					? workspaceRootPath
-						? api.readFileAtRef(
+						? readFileAtRef(
 								workspaceRootPath,
 								editorSession.path,
 								editorSession.modifiedRef,
 							)
 						: Promise.resolve(null)
 					: status !== "D"
-						? api.readEditorFile(editorSession.path).then((r) => r.content)
+						? readEditorFile(editorSession.path).then((r) => r.content)
 						: Promise.resolve(null);
 
 				const [original, modified] = await Promise.all([

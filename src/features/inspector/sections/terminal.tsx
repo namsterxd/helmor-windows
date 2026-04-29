@@ -181,7 +181,10 @@ export function TerminalInstancePanel({
 				/>
 			) : (
 				<div className="flex h-full items-center justify-center text-muted-foreground">
-					<Loader2 className="size-4 animate-spin" aria-label="Loading terminal" />
+					<Loader2
+						className="size-4 animate-spin"
+						aria-label="Loading terminal"
+					/>
 				</div>
 			)}
 		</div>

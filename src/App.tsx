@@ -2052,20 +2052,20 @@ function AppShell({
 	useEffect(() => {
 		let unlisten: (() => void) | undefined;
 
-		void import("@tauri-apps/api/event").then(({ listen }) => {
-			void listen("tauri://focus", async () => {
-				// Smart fetch: refresh target branch for the active workspace
-				// so file tree diffs stay current after the user returns.
-				const wsId = selectedWorkspaceIdRef.current;
-				if (wsId) {
-					triggerWorkspaceFetch(wsId);
-				}
+		void listen("tauri://focus", async () => {
+			// Smart fetch: refresh target branch for the active workspace
+			// so file tree diffs stay current after the user returns.
+			const wsId = selectedWorkspaceIdRef.current;
+			if (wsId) {
+				triggerWorkspaceFetch(wsId);
+			}
 
-				await processPendingCliSends();
-			}).then((fn) => {
+			await processPendingCliSends();
+		})
+			.then((fn) => {
 				unlisten = fn;
-			});
-		});
+			})
+			.catch(() => {});
 
 		return () => {
 			unlisten?.();

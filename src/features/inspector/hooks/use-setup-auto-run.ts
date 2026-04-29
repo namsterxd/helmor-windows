@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { completeWorkspaceSetup } from "@/lib/api";
 import type { LoginShell } from "@/lib/api";
+import { completeWorkspaceSetup } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { getScriptState, startScript } from "../script-store";
 

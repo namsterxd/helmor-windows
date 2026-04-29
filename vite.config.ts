@@ -2,6 +2,7 @@ import path from "node:path";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { createLogger } from "vite";
 import { defineConfig } from "vitest/config";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -13,9 +14,23 @@ const WATCH_IGNORED = [
 	"**/dist/**",
 	"**/*.log",
 ];
+const logger = createLogger();
+const defaultWarn = logger.warn;
+const defaultWarnOnce = logger.warnOnce;
+
+logger.warn = (message, options) => {
+	if (message.includes("[PLUGIN_TIMINGS]")) return;
+	defaultWarn(message, options);
+};
+
+logger.warnOnce = (message, options) => {
+	if (message.includes("[PLUGIN_TIMINGS]")) return;
+	defaultWarnOnce(message, options);
+};
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+	customLogger: logger,
 	plugins: [
 		react(),
 		babel({
@@ -56,6 +71,12 @@ export default defineConfig(async () => ({
 		// generated chunk names can drift and leave stale references behind.
 		// Excluding Lexical avoids the broken half-optimized cache state.
 		exclude: ["lexical", "@lexical/react"],
+	},
+	build: {
+		// Monaco workers and the code-highlighting grammars are intentionally
+		// heavy editor assets. Keep the production build warning budget aligned
+		// with that expected desktop-app payload.
+		chunkSizeWarningLimit: 7_000,
 	},
 
 	// Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

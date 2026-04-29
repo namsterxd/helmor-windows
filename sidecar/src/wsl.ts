@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 
 export function isWslTarget(target: string | undefined): boolean {
 	return process.platform === "win32" && target === "wsl";
@@ -17,6 +17,8 @@ export function windowsPathToWsl(path: string | undefined): string | undefined {
 export function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
+
+const HOME_EXPR = "$" + "{HOME}";
 
 export function wslShellCommand(command: string): {
 	binaryPath: string;
@@ -42,7 +44,10 @@ export function buildWslCliCommand(
 	env?: Readonly<Record<string, string | undefined>>,
 ): string {
 	const envParts = Object.entries(env ?? {})
-		.filter(([key, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && value !== undefined)
+		.filter(
+			([key, value]) =>
+				/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && value !== undefined,
+		)
 		.map(([key, value]) => `${key}=${shellQuote(value ?? "")}`);
 	const cd = cwd ? `cd ${shellQuote(windowsPathToWsl(cwd) ?? cwd)} && ` : "";
 	const envPrefix = envParts.length > 0 ? `env ${envParts.join(" ")} ` : "";
@@ -57,14 +62,17 @@ export function buildWslResolvedCliCommand(
 	env?: Readonly<Record<string, string | undefined>>,
 ): string {
 	const envParts = Object.entries(env ?? {})
-		.filter(([key, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && value !== undefined)
+		.filter(
+			([key, value]) =>
+				/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && value !== undefined,
+		)
 		.map(([key, value]) => `${key}=${shellQuote(value ?? "")}`);
 	const cd = cwd ? `cd ${shellQuote(windowsPathToWsl(cwd) ?? cwd)} && ` : "";
 	const envPrefix = envParts.length > 0 ? `env ${envParts.join(" ")} ` : "";
 	const fallbacks = fallbackPaths
 		.map((path, index) => {
 			const expr = path.startsWith("$HOME/")
-				? `"${"${HOME}"}/${path.slice("$HOME/".length)}"`
+				? `"${HOME_EXPR}/${path.slice("$HOME/".length)}"`
 				: shellQuote(path);
 			return `${index === 0 ? "if" : "elif"} [ -x ${expr} ]; then cli=${expr}; `;
 		})

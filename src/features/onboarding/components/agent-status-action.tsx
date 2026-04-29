@@ -45,7 +45,7 @@ export function AgentStatusAction({
 					onFocus={() => {
 						onPrimeLogin?.(provider);
 					}}
-					>
+				>
 					{targetReady ? (
 						`Using ${shellLabel(selectedShell)}`
 					) : waiting ? (
@@ -59,7 +59,9 @@ export function AgentStatusAction({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" sideOffset={4} className="min-w-32">
-				<DropdownMenuItem onClick={() => onStartLogin?.(provider, "powershell")}>
+				<DropdownMenuItem
+					onClick={() => onStartLogin?.(provider, "powershell")}
+				>
 					{provider === "codex" ? "Windows Codex app" : "Windows Claude CLI"}
 				</DropdownMenuItem>
 				<DropdownMenuItem onClick={() => onStartLogin?.(provider, "wsl")}>

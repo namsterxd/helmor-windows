@@ -37,7 +37,10 @@ export function buildAgentLoginItems(
 	];
 }
 
-function agentReadyDetail(nativeReady?: boolean, wslReady?: boolean): string | undefined {
+function agentReadyDetail(
+	nativeReady?: boolean,
+	wslReady?: boolean,
+): string | undefined {
 	if (nativeReady && wslReady) return "Windows + WSL";
 	if (wslReady) return "WSL";
 	if (nativeReady) return "Windows";

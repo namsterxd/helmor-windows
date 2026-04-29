@@ -104,7 +104,11 @@ function main() {
 
 	const triple = detectTargetTriple();
 	const exeSuffix = triple.includes("windows") ? ".exe" : "";
-	const sidecarSource = resolve(sidecarDir, "dist", `helmor-sidecar${exeSuffix}`);
+	const sidecarSource = resolve(
+		sidecarDir,
+		"dist",
+		`helmor-sidecar${exeSuffix}`,
+	);
 	const sidecarDestination = resolve(
 		sidecarDir,
 		"dist",

@@ -73,7 +73,9 @@ export function AgentLoginStep({
 			if (agentReadyForShell(status, provider, shell)) {
 				setPrimedLoginProvider(provider);
 				setActiveLoginProvider(null);
-				setWaitingProvider((current) => (current === provider ? null : current));
+				setWaitingProvider((current) =>
+					current === provider ? null : current,
+				);
 				return;
 			}
 			setPrimedLoginProvider(provider);
@@ -97,7 +99,12 @@ export function AgentLoginStep({
 				);
 			}
 		},
-		[activeLoginProvider, activeLoginShell, onRefreshLoginItems, pollLoginReady],
+		[
+			activeLoginProvider,
+			activeLoginShell,
+			onRefreshLoginItems,
+			pollLoginReady,
+		],
 	);
 
 	const handleTerminalError = useCallback(() => {

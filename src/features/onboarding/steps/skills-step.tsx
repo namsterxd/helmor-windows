@@ -15,13 +15,13 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { HelmorSkillsStatus, LoginShell } from "@/lib/api";
-import { describeUnknownError } from "@/lib/workspace-helpers";
 import {
 	getCliStatus,
 	getHelmorSkillsStatus,
 	installCli,
 	installHelmorSkills,
 } from "@/lib/api";
+import { describeUnknownError } from "@/lib/workspace-helpers";
 import { SetupItem } from "../components/setup-item";
 import type { OnboardingStep } from "../types";
 
@@ -62,41 +62,49 @@ export function SkillsStep({
 		};
 	}, []);
 
-	const handleInstallCli = useCallback(async (shell: LoginShell) => {
-		if (isInstallingCli) {
-			return;
-		}
-		setIsInstallingCli(true);
-		setCliInstallError(null);
-		try {
-			const status = await installCli(shell);
-			setCliInstalled(status.installState === "managed");
-			toast("Helmor CLI installed.");
-		} catch (error) {
-			setCliInstallError(describeUnknownError(error, "Unable to install CLI."));
-		} finally {
-			setIsInstallingCli(false);
-		}
-	}, [isInstallingCli]);
+	const handleInstallCli = useCallback(
+		async (shell: LoginShell) => {
+			if (isInstallingCli) {
+				return;
+			}
+			setIsInstallingCli(true);
+			setCliInstallError(null);
+			try {
+				const status = await installCli(shell);
+				setCliInstalled(status.installState === "managed");
+				toast("Helmor CLI installed.");
+			} catch (error) {
+				setCliInstallError(
+					describeUnknownError(error, "Unable to install CLI."),
+				);
+			} finally {
+				setIsInstallingCli(false);
+			}
+		},
+		[isInstallingCli],
+	);
 
-	const handleInstallSkills = useCallback(async (shell: LoginShell) => {
-		if (isInstallingSkills) {
-			return;
-		}
-		setIsInstallingSkills(true);
-		setSkillsInstallError(null);
-		try {
-			const status = await installHelmorSkills(shell);
-			setSkillsStatus(status);
-			toast("Helmor skills installed.");
-		} catch (error) {
-			setSkillsInstallError(
-				describeUnknownError(error, "Unable to install Helmor skills."),
-			);
-		} finally {
-			setIsInstallingSkills(false);
-		}
-	}, [isInstallingSkills]);
+	const handleInstallSkills = useCallback(
+		async (shell: LoginShell) => {
+			if (isInstallingSkills) {
+				return;
+			}
+			setIsInstallingSkills(true);
+			setSkillsInstallError(null);
+			try {
+				const status = await installHelmorSkills(shell);
+				setSkillsStatus(status);
+				toast("Helmor skills installed.");
+			} catch (error) {
+				setSkillsInstallError(
+					describeUnknownError(error, "Unable to install Helmor skills."),
+				);
+			} finally {
+				setIsInstallingSkills(false);
+			}
+		},
+		[isInstallingSkills],
+	);
 
 	return (
 		<section

@@ -1,5 +1,6 @@
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { focusManager, QueryClient, queryOptions } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import {
 	type ActionKind,
 	type AgentProvider,
@@ -127,18 +128,14 @@ export function createHelmorQueryClient() {
 		let unlistenFocus: (() => void) | undefined;
 		let unlistenBlur: (() => void) | undefined;
 
-		void import("@tauri-apps/api/event")
-			.then(({ listen }) => {
-				void listen("tauri://focus", () => handleFocus(true))
-					.then((fn) => {
-						unlistenFocus = fn;
-					})
-					.catch(() => {});
-				void listen("tauri://blur", () => handleFocus(false))
-					.then((fn) => {
-						unlistenBlur = fn;
-					})
-					.catch(() => {});
+		void listen("tauri://focus", () => handleFocus(true))
+			.then((fn) => {
+				unlistenFocus = fn;
+			})
+			.catch(() => {});
+		void listen("tauri://blur", () => handleFocus(false))
+			.then((fn) => {
+				unlistenBlur = fn;
 			})
 			.catch(() => {});
 

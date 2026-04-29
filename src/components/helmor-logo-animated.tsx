@@ -1,4 +1,4 @@
-import lottie from "lottie-web/build/player/lottie_svg";
+import lottie from "lottie-web/build/player/lottie_light";
 import { useEffect, useMemo, useRef } from "react";
 import logoAnimation from "@/assets/helmor-logo-animation.json";
 import { resolveTheme, useSettings } from "@/lib/settings";
