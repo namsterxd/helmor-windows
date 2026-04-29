@@ -17,7 +17,7 @@ use crate::{agents, git_watcher, models::db, service, sidecar};
 #[cfg(windows)]
 use super::common::login_terminal_shell;
 use super::common::{
-    CmdResult, LoginShell, login_terminal_command, login_terminal_initial_input, run_blocking,
+    login_terminal_command, login_terminal_initial_input, run_blocking, CmdResult, LoginShell,
 };
 
 // Best-fit fixed window size for the current onboarding motion layout.
@@ -1358,11 +1358,8 @@ mod wsl_command_tests {
         assert!(command.starts_with(
             "if [ -x \"$HOME/.npm-global/bin/codex\" ]; then cli=\"$HOME/.npm-global/bin/codex\";"
         ));
-        assert!(
-            command.contains(
-                "elif [ -x \"$HOME/.bun/bin/codex\" ]; then cli=\"$HOME/.bun/bin/codex\";"
-            )
-        );
+        assert!(command
+            .contains("elif [ -x \"$HOME/.bun/bin/codex\" ]; then cli=\"$HOME/.bun/bin/codex\";"));
         assert!(
             command.contains("elif cli=$(command -v codex 2>/dev/null) && [ -n \"\\$cli\" ]; then")
         );
@@ -1373,11 +1370,8 @@ mod wsl_command_tests {
         let command = wsl_resolved_cli_command("codex", &[], "login status", "login", &["missing"]);
 
         assert!(command.contains("case \"\\$cli\" in /mnt/[A-Za-z]/*)"));
-        assert!(
-            command.contains(
-                "codex resolved to a Windows interop path; install it inside WSL instead."
-            )
-        );
+        assert!(command
+            .contains("codex resolved to a Windows interop path; install it inside WSL instead."));
         assert!(command.contains("exec \"\\$cli\" login"));
     }
 }

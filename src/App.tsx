@@ -112,6 +112,7 @@ import {
 import { SendingSessionsProvider } from "./lib/sending-sessions-context";
 import {
 	type AppSettings,
+	CURRENT_ONBOARDING_VERSION,
 	DEFAULT_SETTINGS,
 	loadSettings,
 	resolveTheme,
@@ -219,8 +220,12 @@ function MainApp() {
 		setAppSettings((previous) => ({
 			...(previous ?? DEFAULT_SETTINGS),
 			onboardingCompleted: true,
+			onboardingVersion: CURRENT_ONBOARDING_VERSION,
 		}));
-		void saveSettings({ onboardingCompleted: true });
+		void saveSettings({
+			onboardingCompleted: true,
+			onboardingVersion: CURRENT_ONBOARDING_VERSION,
+		});
 
 		requestAnimationFrame(() => {
 			requestAnimationFrame(hideSplashAfterBoot);
@@ -249,6 +254,10 @@ function MainApp() {
 			window.removeEventListener(SETTINGS_RELOAD_EVENT, handleSettingsReload);
 		};
 	}, []);
+
+	const onboardingCurrent =
+		appSettings?.onboardingCompleted &&
+		appSettings.onboardingVersion >= CURRENT_ONBOARDING_VERSION;
 
 	return (
 		<SettingsContext.Provider value={settingsContextValue}>
@@ -305,7 +314,7 @@ function MainApp() {
 					});
 				}}
 			>
-				{appSettings === null ? null : !appSettings.onboardingCompleted ? (
+				{appSettings === null ? null : !onboardingCurrent ? (
 					<AppOnboarding onComplete={completeOnboarding} />
 				) : (
 					<AppShell

@@ -140,10 +140,12 @@ export function GitSectionHeader({
 	);
 
 	const cliStatus = forgeDetection?.cli ?? null;
+	const githubUsesAccountConnection = forgeDetection?.provider === "github";
 	const cliNeedsAttention =
-		cliStatus?.status === "unauthenticated" ||
-		cliStatus?.status === "error" ||
-		(forgeRemoteState === "unauthenticated" && cliStatus !== null);
+		!githubUsesAccountConnection &&
+		(cliStatus?.status === "unauthenticated" ||
+			cliStatus?.status === "error" ||
+			(forgeRemoteState === "unauthenticated" && cliStatus !== null));
 	const showForgeOnboarding = cliNeedsAttention && forgeDetection !== null;
 	const showButton =
 		hasChanges ||

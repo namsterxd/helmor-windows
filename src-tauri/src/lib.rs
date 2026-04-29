@@ -423,9 +423,10 @@ fn shutdown_for_exit(app_handle: &tauri::AppHandle, force: bool) {
         );
     }
 
-    app_handle
-        .state::<sidecar::ManagedSidecar>()
-        .shutdown(std::time::Duration::from_millis(250), std::time::Duration::from_millis(100));
+    app_handle.state::<sidecar::ManagedSidecar>().shutdown(
+        std::time::Duration::from_millis(250),
+        std::time::Duration::from_millis(100),
+    );
 }
 
 #[cfg(target_os = "macos")]

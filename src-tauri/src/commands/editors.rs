@@ -431,7 +431,8 @@ pub(crate) fn detect_installed_editors_blocking() -> anyhow::Result<Vec<Detected
 
     for spec in CATALOG {
         #[cfg(windows)]
-        let resolved = resolve_via_windows_path(spec).or_else(|| resolve_via_known_paths(spec, &home));
+        let resolved =
+            resolve_via_windows_path(spec).or_else(|| resolve_via_known_paths(spec, &home));
         #[cfg(not(windows))]
         let resolved = resolve_via_known_paths(spec, &home);
 

@@ -41,6 +41,7 @@ export type AppSettings = {
 	claudeAgentTarget: AgentRuntimeTarget;
 	codexAgentTarget: AgentRuntimeTarget;
 	onboardingCompleted: boolean;
+	onboardingVersion: number;
 	shortcuts: ShortcutOverrides;
 	claudeCustomProviders: ClaudeCustomProviderSettings;
 };
@@ -51,6 +52,7 @@ export type AppSettings = {
  * settings copy ("…only shown when more than 70% is used").
  */
 export const CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD = 70;
+export const CURRENT_ONBOARDING_VERSION = 2;
 
 export const DEFAULT_SETTINGS: AppSettings = {
 	fontSize: 14,
@@ -70,6 +72,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	claudeAgentTarget: "powershell",
 	codexAgentTarget: "powershell",
 	onboardingCompleted: false,
+	onboardingVersion: 0,
 	shortcuts: {},
 	claudeCustomProviders: {
 		builtinProviderApiKeys: {},
@@ -99,6 +102,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	claudeAgentTarget: "app.claude_agent_target",
 	codexAgentTarget: "app.codex_agent_target",
 	onboardingCompleted: "app.onboarding_completed",
+	onboardingVersion: "app.onboarding_version",
 	shortcuts: "app.shortcuts",
 	claudeCustomProviders: "app.claude_custom_providers",
 };
@@ -212,6 +216,9 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.onboardingCompleted] !== undefined
 					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"
 					: DEFAULT_SETTINGS.onboardingCompleted,
+			onboardingVersion: raw[SETTINGS_KEY_MAP.onboardingVersion]
+				? Number(raw[SETTINGS_KEY_MAP.onboardingVersion])
+				: DEFAULT_SETTINGS.onboardingVersion,
 			shortcuts: parseShortcutOverrides(raw[SETTINGS_KEY_MAP.shortcuts]),
 			claudeCustomProviders: parseClaudeCustomProviderSettings(
 				raw[SETTINGS_KEY_MAP.claudeCustomProviders],

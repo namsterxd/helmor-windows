@@ -7,12 +7,12 @@ mod unix_impl {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     };
     use std::time::{Duration, Instant};
 
-    use anyhow::{Context, Result, bail};
+    use anyhow::{bail, Context, Result};
     use serde::Serialize;
     use tauri::ipc::Channel;
 
@@ -1043,14 +1043,14 @@ pub use unix_impl::*;
 
 #[cfg(windows)]
 mod windows_impl {
-    use anyhow::{Result, bail};
+    use anyhow::{bail, Result};
     use serde::Serialize;
     use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
     use std::sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     };
     use tauri::ipc::Channel;
 

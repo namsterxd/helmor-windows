@@ -156,10 +156,9 @@ fn dirs_home() -> Option<PathBuf> {
             }
         }
 
-        if let (Some(drive), Some(path)) = (
-            std::env::var_os("HOMEDRIVE"),
-            std::env::var_os("HOMEPATH"),
-        ) {
+        if let (Some(drive), Some(path)) =
+            (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH"))
+        {
             if !drive.is_empty() && !path.is_empty() {
                 let mut home = drive;
                 home.push(path);

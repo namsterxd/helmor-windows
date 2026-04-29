@@ -448,7 +448,7 @@ describe("GitSectionHeader forge onboarding", () => {
 		}
 	});
 
-	it("uses the same connect CTA for GitHub onboarding", async () => {
+	it("does not show the CLI connect CTA for GitHub account-backed workspaces", () => {
 		apiMocks.getWorkspaceForge.mockResolvedValue(githubDetection());
 
 		renderWithProviders(
@@ -462,13 +462,8 @@ describe("GitSectionHeader forge onboarding", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Connect GitHub" }));
-
-		await waitFor(() => {
-			expect(apiMocks.openForgeCliAuthTerminal).toHaveBeenCalledWith(
-				"github",
-				"github.com",
-			);
-		});
+		expect(
+			screen.queryByRole("button", { name: "Connect GitHub" }),
+		).not.toBeInTheDocument();
 	});
 });

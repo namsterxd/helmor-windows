@@ -5,9 +5,9 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use anyhow::Context;
 use anyhow::Result;
-use tauri::{AppHandle, Runtime};
 #[cfg(unix)]
 use tauri::Manager;
+use tauri::{AppHandle, Runtime};
 
 #[cfg(any(test, unix))]
 use super::events::UiMutationEnvelope;

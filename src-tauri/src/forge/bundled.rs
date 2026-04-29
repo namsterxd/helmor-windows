@@ -1,4 +1,4 @@
-//! Paths to bundled `gh` / `glab` inside `Resources/vendor/`.
+//! Paths to bundled `gh` / `glab` inside Tauri resource directories.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -72,19 +72,56 @@ fn resolve_from_running_exe() -> BundledForgeCliPaths {
 
 fn resolve_for_exe(exe: &Path) -> Option<BundledForgeCliPaths> {
     let exe_dir = exe.parent()?;
-    let contents_dir = exe_dir.parent()?;
-    let resources_dir = contents_dir.join("Resources");
+    for root in resource_root_candidates(exe_dir) {
+        let paths = resolve_for_resource_root(&root);
+        if paths.gh.is_some() || paths.glab.is_some() {
+            return Some(paths);
+        }
+    }
 
-    let gh_name = if cfg!(windows) { "gh.exe" } else { "gh" };
-    let glab_name = if cfg!(windows) { "glab.exe" } else { "glab" };
+    Some(BundledForgeCliPaths::default())
+}
 
-    let gh = resources_dir.join(format!("vendor/gh/{gh_name}"));
-    let glab = resources_dir.join(format!("vendor/glab/{glab_name}"));
+fn resource_root_candidates(exe_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(contents_dir) = exe_dir.parent() {
+        roots.push(contents_dir.join("Resources"));
+    }
+    roots.push(exe_dir.to_path_buf());
+    roots.push(exe_dir.join("resources"));
+    roots.push(exe_dir.join("Resources"));
+    roots
+}
 
-    Some(BundledForgeCliPaths {
+fn resolve_for_resource_root(root: &Path) -> BundledForgeCliPaths {
+    for vendor in [root.join("vendor"), root.to_path_buf()] {
+        let paths = resolve_for_vendor_root(&vendor);
+        if paths.gh.is_some() || paths.glab.is_some() {
+            return paths;
+        }
+    }
+    BundledForgeCliPaths::default()
+}
+
+fn resolve_for_vendor_root(vendor: &Path) -> BundledForgeCliPaths {
+    let gh_name = bundled_binary_name("gh");
+    let glab_name = bundled_binary_name("glab");
+
+    let gh = vendor.join("gh").join(gh_name);
+    let glab = vendor.join("glab").join(glab_name);
+
+    BundledForgeCliPaths {
         gh: gh.is_file().then_some(gh),
         glab: glab.is_file().then_some(glab),
-    })
+    }
+}
+
+fn bundled_binary_name(program: &str) -> String {
+    if cfg!(windows) {
+        format!("{program}.exe")
+    } else {
+        program.to_string()
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -108,16 +145,7 @@ fn dev_workspace_root() -> PathBuf {
 #[cfg(debug_assertions)]
 fn resolve_for_dev_workspace(workspace_root: &Path) -> BundledForgeCliPaths {
     let vendor = workspace_root.join("sidecar/dist/vendor");
-    let gh_name = if cfg!(windows) { "gh.exe" } else { "gh" };
-    let glab_name = if cfg!(windows) { "glab.exe" } else { "glab" };
-
-    let gh = vendor.join(format!("gh/{gh_name}"));
-    let glab = vendor.join(format!("glab/{glab_name}"));
-
-    BundledForgeCliPaths {
-        gh: gh.is_file().then_some(gh),
-        glab: glab.is_file().then_some(glab),
-    }
+    resolve_for_vendor_root(&vendor)
 }
 
 #[cfg(test)]
@@ -131,21 +159,53 @@ mod tests {
         let vendor = root.path().join("Helmor.app/Contents/Resources/vendor");
         std::fs::create_dir_all(vendor.join("gh")).unwrap();
         std::fs::create_dir_all(vendor.join("glab")).unwrap();
-        std::fs::write(vendor.join("gh/gh"), "").unwrap();
-        std::fs::write(vendor.join("glab/glab"), "").unwrap();
+        let gh = vendor.join("gh").join(bundled_binary_name("gh"));
+        let glab = vendor.join("glab").join(bundled_binary_name("glab"));
+        std::fs::write(&gh, "").unwrap();
+        std::fs::write(&glab, "").unwrap();
 
         let paths = resolve_for_exe(&exe).unwrap();
 
-        assert_eq!(
-            paths.gh.unwrap(),
-            root.path()
-                .join("Helmor.app/Contents/Resources/vendor/gh/gh")
-        );
-        assert_eq!(
-            paths.glab.unwrap(),
-            root.path()
-                .join("Helmor.app/Contents/Resources/vendor/glab/glab")
-        );
+        assert_eq!(paths.gh.unwrap(), gh);
+        assert_eq!(paths.glab.unwrap(), glab);
+    }
+
+    #[test]
+    fn resolve_finds_binaries_next_to_exe_on_windows_layout() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("Helmor");
+        let exe = exe_dir.join("Helmor.exe");
+        let vendor = exe_dir.join("vendor");
+        std::fs::create_dir_all(vendor.join("gh")).unwrap();
+        std::fs::create_dir_all(vendor.join("glab")).unwrap();
+        let gh = vendor.join("gh").join(bundled_binary_name("gh"));
+        let glab = vendor.join("glab").join(bundled_binary_name("glab"));
+        std::fs::write(&gh, "").unwrap();
+        std::fs::write(&glab, "").unwrap();
+
+        let paths = resolve_for_exe(&exe).unwrap();
+
+        assert_eq!(paths.gh.unwrap(), gh);
+        assert_eq!(paths.glab.unwrap(), glab);
+    }
+
+    #[test]
+    fn resolve_finds_binaries_under_resources_next_to_exe() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("Helmor");
+        let exe = exe_dir.join("Helmor.exe");
+        let vendor = exe_dir.join("resources/vendor");
+        std::fs::create_dir_all(vendor.join("gh")).unwrap();
+        std::fs::create_dir_all(vendor.join("glab")).unwrap();
+        let gh = vendor.join("gh").join(bundled_binary_name("gh"));
+        let glab = vendor.join("glab").join(bundled_binary_name("glab"));
+        std::fs::write(&gh, "").unwrap();
+        std::fs::write(&glab, "").unwrap();
+
+        let paths = resolve_for_exe(&exe).unwrap();
+
+        assert_eq!(paths.gh.unwrap(), gh);
+        assert_eq!(paths.glab.unwrap(), glab);
     }
 
     #[test]
@@ -164,13 +224,15 @@ mod tests {
         let vendor = root.path().join("sidecar/dist/vendor");
         std::fs::create_dir_all(vendor.join("gh")).unwrap();
         std::fs::create_dir_all(vendor.join("glab")).unwrap();
-        std::fs::write(vendor.join("gh/gh"), "").unwrap();
-        std::fs::write(vendor.join("glab/glab"), "").unwrap();
+        let gh = vendor.join("gh").join(bundled_binary_name("gh"));
+        let glab = vendor.join("glab").join(bundled_binary_name("glab"));
+        std::fs::write(&gh, "").unwrap();
+        std::fs::write(&glab, "").unwrap();
 
         let paths = resolve_for_dev_workspace(root.path());
 
-        assert_eq!(paths.gh.unwrap(), vendor.join("gh/gh"));
-        assert_eq!(paths.glab.unwrap(), vendor.join("glab/glab"));
+        assert_eq!(paths.gh.unwrap(), gh);
+        assert_eq!(paths.glab.unwrap(), glab);
     }
 
     #[cfg(debug_assertions)]
@@ -184,16 +246,20 @@ mod tests {
         std::fs::create_dir_all(app_vendor.join("glab")).unwrap();
         std::fs::create_dir_all(dev_vendor.join("gh")).unwrap();
         std::fs::create_dir_all(dev_vendor.join("glab")).unwrap();
-        std::fs::write(app_vendor.join("gh/gh"), "").unwrap();
-        std::fs::write(app_vendor.join("glab/glab"), "").unwrap();
-        std::fs::write(dev_vendor.join("gh/gh"), "").unwrap();
-        std::fs::write(dev_vendor.join("glab/glab"), "").unwrap();
+        let app_gh = app_vendor.join("gh").join(bundled_binary_name("gh"));
+        let app_glab = app_vendor.join("glab").join(bundled_binary_name("glab"));
+        let dev_gh = dev_vendor.join("gh").join(bundled_binary_name("gh"));
+        let dev_glab = dev_vendor.join("glab").join(bundled_binary_name("glab"));
+        std::fs::write(&app_gh, "").unwrap();
+        std::fs::write(&app_glab, "").unwrap();
+        std::fs::write(dev_gh, "").unwrap();
+        std::fs::write(dev_glab, "").unwrap();
 
         let paths = resolve_for_exe(&exe)
             .unwrap()
             .with_fallback(resolve_for_dev_workspace(root.path()));
 
-        assert_eq!(paths.gh.unwrap(), app_vendor.join("gh/gh"));
-        assert_eq!(paths.glab.unwrap(), app_vendor.join("glab/glab"));
+        assert_eq!(paths.gh.unwrap(), app_gh);
+        assert_eq!(paths.glab.unwrap(), app_glab);
     }
 }
