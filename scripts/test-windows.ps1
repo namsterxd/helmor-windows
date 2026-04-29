@@ -5,7 +5,8 @@ param(
 	[switch]$FullTests,
 	[switch]$NoFrozenLockfile,
 	[switch]$BuildBundle,
-	[switch]$Dev
+	[switch]$Dev,
+	[string]$LogPath
 )
 
 Set-StrictMode -Version Latest
@@ -24,6 +25,42 @@ $ScriptDir = if ($PSScriptRoot) {
 	throw "Unable to resolve script directory. Run through: scripts\test-windows.cmd"
 }
 $Root = Resolve-Path (Join-Path $ScriptDir "..")
+$script:WindowsTestLogPath = $null
+$script:WindowsTestTranscriptStarted = $false
+
+function Start-WindowsTestLog {
+	if ($LogPath) {
+		$resolvedLogPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
+	} else {
+		$logsDir = Join-Path $Root "logs\windows-tests"
+		$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+		$resolvedLogPath = Join-Path $logsDir "test-windows-$timestamp.log"
+	}
+
+	$logDir = Split-Path -Parent $resolvedLogPath
+	if ($logDir) {
+		New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+	}
+
+	$script:WindowsTestLogPath = $resolvedLogPath
+	Start-Transcript -Path $script:WindowsTestLogPath -Force | Out-Null
+	$script:WindowsTestTranscriptStarted = $true
+	Write-Host "log: $script:WindowsTestLogPath" -ForegroundColor DarkGray
+}
+
+function Stop-WindowsTestLog {
+	if ($script:WindowsTestTranscriptStarted) {
+		try {
+			Stop-Transcript | Out-Null
+		} catch {
+			Write-Host "warning: failed to stop transcript: $_" -ForegroundColor Yellow
+		}
+		$script:WindowsTestTranscriptStarted = $false
+	}
+	if ($script:WindowsTestLogPath) {
+		Write-Host "log saved: $script:WindowsTestLogPath" -ForegroundColor DarkGray
+	}
+}
 
 function Write-Section {
 	param([string]$Message)
@@ -210,73 +247,78 @@ function Invoke-Doctor {
 	Write-Host "ok: toolchain is ready" -ForegroundColor Green
 }
 
-Set-Location $Root
+Start-WindowsTestLog
+try {
+	Set-Location $Root
 
-Invoke-Doctor
+	Invoke-Doctor
 
-if ($Doctor) {
-	exit 0
-}
-
-if (-not $SkipInstall) {
-	Invoke-Step "Installing dependencies" {
-		Write-Host "First Windows install can look quiet for several minutes while Bun unpacks packages and Windows Defender scans node_modules." -ForegroundColor Yellow
-		$installArgs = @("install")
-		if (-not $NoFrozenLockfile) {
-			$installArgs += "--frozen-lockfile"
+	if (-not $Doctor) {
+		if (-not $SkipInstall) {
+			Invoke-Step "Installing dependencies" {
+				Write-Host "First Windows install can look quiet for several minutes while Bun unpacks packages and Windows Defender scans node_modules." -ForegroundColor Yellow
+				$installArgs = @("install")
+				if (-not $NoFrozenLockfile) {
+					$installArgs += "--frozen-lockfile"
+				}
+				Invoke-ProcessWithHeartbeat -FilePath "bun" -ArgumentList $installArgs -HeartbeatSeconds 30
+			}
 		}
-		Invoke-ProcessWithHeartbeat -FilePath "bun" -ArgumentList $installArgs -HeartbeatSeconds 30
+
+		if ($Dev) {
+			Invoke-Step "Preparing Windows sidecar vendor binaries" {
+				bun run dev:prepare
+			}
+			Set-BundledAgentEnv
+			Write-Section "Starting Helmor dev app"
+			bun run dev
+			if ($LASTEXITCODE) {
+				exit $LASTEXITCODE
+			}
+		} else {
+			if (-not $SkipTests) {
+				Invoke-Step "Typechecking frontend and sidecar" {
+					bun run typecheck
+				}
+			}
+
+			if ($FullTests -and -not $SkipTests) {
+				Write-Host "Full frontend/sidecar/Rust test suites are currently opt-in on Windows; expect failures until the Windows test port is complete." -ForegroundColor Yellow
+				Invoke-Step "Running frontend tests" {
+					bun run test:frontend
+				}
+				Invoke-Step "Running sidecar tests" {
+					bun run test:sidecar
+				}
+				Invoke-Step "Compiling Rust tests" {
+					cargo test --manifest-path src-tauri/Cargo.toml --all-targets --no-run
+				}
+			} elseif (-not $SkipTests) {
+				Write-Host "Skipping full unit suites on Windows smoke run. Use -FullTests to run them." -ForegroundColor Yellow
+			}
+
+			Invoke-Step "Building Windows sidecar and bundled vendor CLIs" {
+				Push-Location sidecar
+				try {
+					bun run build:windows
+				} finally {
+					Pop-Location
+				}
+			}
+
+			Set-BundledAgentEnv
+
+			if ($BuildBundle) {
+				Invoke-Step "Building Windows Tauri debug bundle" {
+					bun x tauri build --debug
+				}
+			}
+
+			Write-Host ""
+			Write-Host "Windows smoke test complete." -ForegroundColor Green
+			Write-Host "Next: bun run dev:windows"
+		}
 	}
+} finally {
+	Stop-WindowsTestLog
 }
-
-if ($Dev) {
-	Invoke-Step "Preparing Windows sidecar vendor binaries" {
-		bun run dev:prepare
-	}
-	Set-BundledAgentEnv
-	Write-Section "Starting Helmor dev app"
-	bun run dev
-	exit $LASTEXITCODE
-}
-
-if (-not $SkipTests) {
-	Invoke-Step "Typechecking frontend and sidecar" {
-		bun run typecheck
-	}
-}
-
-if ($FullTests -and -not $SkipTests) {
-	Write-Host "Full frontend/sidecar/Rust test suites are currently opt-in on Windows; expect failures until the Windows test port is complete." -ForegroundColor Yellow
-	Invoke-Step "Running frontend tests" {
-		bun run test:frontend
-	}
-	Invoke-Step "Running sidecar tests" {
-		bun run test:sidecar
-	}
-	Invoke-Step "Compiling Rust tests" {
-		cargo test --manifest-path src-tauri/Cargo.toml --all-targets --no-run
-	}
-} elseif (-not $SkipTests) {
-	Write-Host "Skipping full unit suites on Windows smoke run. Use -FullTests to run them." -ForegroundColor Yellow
-}
-
-Invoke-Step "Building Windows sidecar and bundled vendor CLIs" {
-	Push-Location sidecar
-	try {
-		bun run build:windows
-	} finally {
-		Pop-Location
-	}
-}
-
-Set-BundledAgentEnv
-
-if ($BuildBundle) {
-	Invoke-Step "Building Windows Tauri debug bundle" {
-		bun x tauri build --debug
-	}
-}
-
-Write-Host ""
-Write-Host "Windows smoke test complete." -ForegroundColor Green
-Write-Host "Next: bun run dev:windows"
